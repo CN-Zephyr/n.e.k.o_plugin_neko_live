@@ -553,7 +553,8 @@ async def test_auto_active_engagement_ignores_dry_run_idle_beats(runtime: LiveRu
     runtime.config.dry_run = True
     runtime.config.live_mode = "solo_stream"
     await runtime.bili_live_ingest.start_listening(123)
-    runtime._live_listener_started_at = runtime._live_state_now() - 120.0
+    runtime._live_listener_started_at = 1.0
+    runtime._live_state_now = lambda: 121.0
     runtime.safety_guard.set_connected(True)
     for age in (120, 60):
         runtime.record_result(
