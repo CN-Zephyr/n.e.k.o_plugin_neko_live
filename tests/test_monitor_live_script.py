@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from plugin.plugins.neko_live.tests.monitor_contexts import (
+from monitor_contexts import (
     _context_from_other_checkout,
     _context_with_latency,
     _context_with_latest_route_and_signal,
     _solo_quiet_context,
 )
-from plugin.plugins.neko_live.tests.monitor_live_test_utils import _run_monitor, _run_monitor_args
+from monitor_live_test_utils import _run_monitor, _run_monitor_args
 from plugin.plugins.neko_live.tools.live_random_danmaku_pressure import (
     HostedClient as RandomPressureHostedClient,
     build_test_config as build_random_pressure_config,

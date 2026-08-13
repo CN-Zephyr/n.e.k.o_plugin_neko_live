@@ -3,10 +3,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from plugin.plugins.neko_live.tests.monitor_contexts import (
+from monitor_contexts import (
     _context_with_latest_route_and_signal,
 )
-from plugin.plugins.neko_live.tests.monitor_live_test_utils import _run_monitor
+from monitor_live_test_utils import _run_monitor
 
 
 

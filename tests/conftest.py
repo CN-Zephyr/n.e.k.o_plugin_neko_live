@@ -1,11 +1,31 @@
 from __future__ import annotations
 
 import asyncio
+import time as _real_time
 from pathlib import Path
 
 import pytest
 
 from plugin.plugins.neko_live.core.runtime import LiveRuntime
+
+
+class _ScopedTime:
+    def __init__(self, **overrides):
+        self._overrides = overrides
+
+    def __getattr__(self, name):
+        try:
+            return self._overrides[name]
+        except KeyError:
+            return getattr(_real_time, name)
+
+
+@pytest.fixture
+def patch_module_clock():
+    def _patch(monkeypatch, module, **overrides):
+        monkeypatch.setattr(module, "time", _ScopedTime(**overrides))
+
+    return _patch
 
 
 class ConfigApi:
