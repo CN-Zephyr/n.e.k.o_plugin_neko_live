@@ -4,7 +4,6 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-
 from plugin.plugins.neko_live.core.contracts import (
     InteractionResult,
     LiveEvent,

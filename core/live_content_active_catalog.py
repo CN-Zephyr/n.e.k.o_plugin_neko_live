@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from .live_content_active_catalog_choice import CHOICE_FALLBACK_TOPIC_CANDIDATES
 from .live_content_active_catalog_callback import (
     VIEWER_CALLBACK_FALLBACK_TOPIC_CANDIDATES,
 )
-from .live_content_active_catalog_tease import TEASE_FALLBACK_TOPIC_CANDIDATES
 from .live_content_active_catalog_challenge import (
     MICRO_CHALLENGE_FALLBACK_TOPIC_CANDIDATES,
 )
+from .live_content_active_catalog_choice import CHOICE_FALLBACK_TOPIC_CANDIDATES
 from .live_content_active_catalog_mood import MOOD_FALLBACK_TOPIC_CANDIDATES
+from .live_content_active_catalog_tease import TEASE_FALLBACK_TOPIC_CANDIDATES
 
 _ALL_FALLBACK_TOPIC_CANDIDATES: tuple[dict[str, Any], ...] = (
     *CHOICE_FALLBACK_TOPIC_CANDIDATES,

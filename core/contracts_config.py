@@ -7,11 +7,10 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from .co_stream_capabilities import normalize_activation_mode
 from .contracts_public import public_bool, public_text
 from .contracts_types import ActivityLevel, LiveMode, RoastStrength
-from .co_stream_capabilities import normalize_activation_mode
 from .live_interaction_policy import ActivationMode
-
 
 _LIVE_ROOM_URL_RE = re.compile(
     r"live\.bilibili\.com/(?:h5/|blanc/)?(\d+)", re.IGNORECASE

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 ACTIVE_TOPIC_LOW_CONFIDENCE_TERMS = (
     "\u6838\u7535",
     "\u6838\u7535\u7ad9",

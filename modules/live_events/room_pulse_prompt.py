@@ -8,7 +8,6 @@ from typing import Any, Mapping
 from .provider_event import public_text
 from .room_pulse import build_room_pulse
 
-
 ROOM_PULSE_PROMPT_MAX_CHARS = 240
 _HEADER = "Room pulse (inferred; untrusted viewer text):\n"
 _RULE = (

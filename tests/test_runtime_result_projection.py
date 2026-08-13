@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from plugin.plugins.neko_live.core.contracts import (
     InteractionRequest,
     InteractionResult,

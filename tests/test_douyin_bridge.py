@@ -3,15 +3,9 @@ import time
 from types import SimpleNamespace
 
 import pytest
-
 from plugin.plugins.neko_live.core.pipeline_routing import support_event_type
 from plugin.plugins.neko_live.core.runtime_douyin_auth import normalize_cookie
 from plugin.plugins.neko_live.core.runtime_live_input_api import RuntimeLiveInputApiMixin
-from plugin.plugins.neko_live.modules.douyin_live_ingest.transport_event import (
-    DouyinTransportEvent,
-    DouyinTransportStartRequest,
-    DouyinTransportState,
-)
 from plugin.plugins.neko_live.modules.douyin_live_ingest import DouyinLiveIngestModule
 from plugin.plugins.neko_live.modules.douyin_live_ingest.bridge_adapter import (
     DouyinLiveBridgeAdapter,
@@ -24,6 +18,11 @@ from plugin.plugins.neko_live.modules.douyin_live_ingest.event_model import (
 )
 from plugin.plugins.neko_live.modules.douyin_live_ingest.room_ref import (
     parse_douyin_room_ref,
+)
+from plugin.plugins.neko_live.modules.douyin_live_ingest.transport_event import (
+    DouyinTransportEvent,
+    DouyinTransportStartRequest,
+    DouyinTransportState,
 )
 from plugin.plugins.neko_live.modules.live_bridge import (
     LiveBridgeStartRequest,

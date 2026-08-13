@@ -15,7 +15,6 @@ from urllib.parse import quote, unquote
 from ...core.contracts import LiveRoomStatus
 from .public_projection import safe_public_bool, safe_public_text, safe_room_ref, safe_webcast_room_id
 
-
 _RENDER_DATA_RE = re.compile(
     r"<script[^>]+id=[\"']RENDER_DATA[\"'][^>]*>(?P<body>.*?)</script>",
     re.IGNORECASE | re.DOTALL,

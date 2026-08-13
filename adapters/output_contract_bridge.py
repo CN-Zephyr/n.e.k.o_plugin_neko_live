@@ -14,11 +14,11 @@ from ..core.live_reply_contract import (
     DANMAKU_EXPANDED_REPLY_CHARS,
     DANMAKU_ROOM_BRIDGE_REPLY_CHARS,
     EXPANDED_REPLY_MODE,
-    LiveReplyContract,
     PLUGIN_OUTPUT_POLICY_KEY,
     ROOM_BRIDGE_REPLY_MODE,
-    build_plugin_output_policy,
+    LiveReplyContract,
     build_live_reply_contract,
+    build_plugin_output_policy,
     max_reply_chars_for_module,
 )
 

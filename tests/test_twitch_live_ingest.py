@@ -6,18 +6,17 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
-from plugin.plugins.neko_live.modules.twitch_identity import TwitchIdentityModule
+from plugin.plugins.neko_live.core.runtime_live_session import event_live_session_generation
 from plugin.plugins.neko_live.modules import twitch_live_ingest as twitch_ingest_module
-from plugin.plugins.neko_live.modules.twitch_live_ingest import TwitchLiveIngestModule
-from plugin.plugins.neko_live.modules.twitch_live_ingest.helix import lookup_channel_status
-from plugin.plugins.neko_live.modules.twitch_live_ingest import projection as twitch_projection
-from plugin.plugins.neko_live.modules.twitch_live_ingest.projection import project_chat_message
 from plugin.plugins.neko_live.modules.live_events.provider_event import (
     event_provider_event_id,
     event_support_fields,
 )
-from plugin.plugins.neko_live.core.runtime_live_session import event_live_session_generation
+from plugin.plugins.neko_live.modules.twitch_identity import TwitchIdentityModule
+from plugin.plugins.neko_live.modules.twitch_live_ingest import TwitchLiveIngestModule
+from plugin.plugins.neko_live.modules.twitch_live_ingest import projection as twitch_projection
+from plugin.plugins.neko_live.modules.twitch_live_ingest.helix import lookup_channel_status
+from plugin.plugins.neko_live.modules.twitch_live_ingest.projection import project_chat_message
 
 
 class _AsyncItems:

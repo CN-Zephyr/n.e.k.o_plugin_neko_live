@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from typing import Callable
 
-
 _ASCII_WORD_RE = re.compile(r"[a-z0-9]{2,}")
 _CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]{2,}")
 _SENSITIVE_QUERY_RE = re.compile(

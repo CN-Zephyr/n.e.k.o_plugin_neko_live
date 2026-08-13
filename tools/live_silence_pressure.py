@@ -33,7 +33,6 @@ from plugin.plugins.neko_live.tools.pressure_guard import (
     write_jsonl,
 )
 
-
 PLUGIN_ID = "neko_live"
 SURFACE_ID = "main"
 KIND = "panel"

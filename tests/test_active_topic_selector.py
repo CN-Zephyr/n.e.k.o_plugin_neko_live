@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
 from plugin.plugins.neko_live.core import active_topic_builder
 from plugin.plugins.neko_live.core.active_topic_candidate_picker import choose_fallback_candidate
 from plugin.plugins.neko_live.core.active_topic_selector import ActiveTopicSelector

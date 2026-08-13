@@ -18,7 +18,6 @@ from ..live_events.provider_event import (
     public_text,
 )
 
-
 _PUBLIC_VIEWER_LIMIT = 30
 _DETAIL_VIEWER_LIMIT = 100
 _UNIQUE_VIEWER_LIMIT = 5000

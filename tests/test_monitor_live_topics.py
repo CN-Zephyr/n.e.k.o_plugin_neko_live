@@ -9,7 +9,6 @@ from monitor_contexts import (
 from monitor_live_test_utils import _run_monitor
 
 
-
 def test_monitor_live_script_reports_pacing_and_active_topic_fields(tmp_path: Path) -> None:
     context = _context_with_latest_route_and_signal()
     context["state"]["recent_results"][0]["spent_output_family"] = "reward,audience_prompt"

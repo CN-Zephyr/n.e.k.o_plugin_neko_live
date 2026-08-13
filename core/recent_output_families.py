@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 _SPENT_OUTPUT_ASCII_WORD_RE = re.compile(r"[a-z0-9]+")
 
 _SPENT_OUTPUT_FAMILY_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (

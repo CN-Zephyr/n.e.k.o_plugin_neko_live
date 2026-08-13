@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from collections import deque
 import importlib
+from collections import deque
 from json import dumps
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from plugin.plugins.neko_live.core import (
     active_topic_candidate_picker,
     active_topic_live_thread_source,

@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from plugin.plugins.neko_live.core.contracts import LiveEvent, ViewerEvent, ViewerIdentity
 from plugin.plugins.neko_live.core.runtime import LiveRuntime
 

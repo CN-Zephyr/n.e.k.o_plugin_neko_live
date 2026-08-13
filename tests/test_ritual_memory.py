@@ -15,7 +15,6 @@ model call.
 from __future__ import annotations
 
 import pytest
-
 from plugin.plugins.neko_live.modules.live_events.ritual_memory import (
     RITUAL_CALLBACK_MIN_GAP_SECONDS,
     RITUAL_CONFIRM_MIN_GAP_SECONDS,

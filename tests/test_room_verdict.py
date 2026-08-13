@@ -13,7 +13,6 @@ at most once.
 from __future__ import annotations
 
 import pytest
-
 from plugin.plugins.neko_live.modules.live_events.room_verdict import (
     ROOM_VERDICT_MAX_OPTIONS,
     ROOM_VERDICT_MAX_VOTERS,

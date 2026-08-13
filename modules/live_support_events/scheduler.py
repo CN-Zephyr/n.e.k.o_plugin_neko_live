@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, Awaitable, Callable
 
-
 _PIPELINE_RESULT_STATUSES = (
     "queued",
     "dry_run",

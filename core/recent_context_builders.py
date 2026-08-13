@@ -6,6 +6,7 @@ from collections import Counter
 from typing import Any
 
 from .contracts_public import public_text
+from .live_text_guards import looks_like_support_claim_text
 from .recent_context_lines import (
     active_engagement_context_line,
     idle_hosting_context_line,
@@ -14,8 +15,6 @@ from .recent_context_lines import (
 from .recent_context_routes import route_from_result
 from .recent_context_text import compact_context_text
 from .recent_output_families import spent_output_families, spent_output_text
-from .live_text_guards import looks_like_support_claim_text
-
 
 _LOW_VALUE_DANMAKU = {
     "1",

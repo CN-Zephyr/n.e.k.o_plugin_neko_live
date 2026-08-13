@@ -9,7 +9,6 @@ from pathlib import Path
 from re import sub
 from typing import Any, Iterable
 
-
 DEFAULT_MEME_KNOWLEDGE_PATH = Path(__file__).resolve().parents[1] / "data" / "meme_knowledge.json"
 
 

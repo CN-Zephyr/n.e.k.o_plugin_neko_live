@@ -13,7 +13,9 @@ from typing import Any
 from ...core.contracts import LiveEvent, LiveRoomStatus, ViewerEvent
 from ...core.runtime_live_listener import schedule_unexpected_live_listener_stop
 from .._base import BaseModule
+from .bridge_adapter import DouyinLiveBridgeAdapter
 from .bridge_plan import DouyinBridgeConnectionPlan
+from .embedded_bridge import DouyinEmbeddedBridgeSupervisor
 from .event_model import (
     is_routable_event_type,
     is_status_only_event_type,
@@ -23,8 +25,6 @@ from .event_model import (
     to_live_event,
     to_provider_event,
 )
-from .bridge_adapter import DouyinLiveBridgeAdapter
-from .embedded_bridge import DouyinEmbeddedBridgeSupervisor
 from .external_bridge import DouyinExternalBridgeTransport
 from .public_projection import safe_public_bool, safe_public_float, safe_public_int, safe_public_text, safe_room_ref
 from .retry_policy import DouyinReconnectPolicy, DouyinReconnectState
@@ -35,8 +35,8 @@ from .transport_event import (
     DouyinTransportState,
     safe_transport_event_time,
 )
-from .webcast import DouyinWebcastInfo as DouyinWebcastInfo, fetch_webcast_info
-
+from .webcast import DouyinWebcastInfo as DouyinWebcastInfo
+from .webcast import fetch_webcast_info
 
 _PUBLIC_STATES = {
     "disconnected",

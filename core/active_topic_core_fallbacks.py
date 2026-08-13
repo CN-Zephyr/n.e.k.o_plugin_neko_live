@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from collections import deque
 from difflib import SequenceMatcher
-import re
 from typing import Any
-
 
 _SHAPES = ("either_or", "light_stance", "tiny_tease", "small_challenge")
 _NORMALIZE_RE = re.compile(r"[\W_]+", re.UNICODE)

@@ -4,7 +4,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
 from plugin.plugins.neko_live.core.contracts import LiveRoomStatus, ViewerIdentity
 from plugin.plugins.neko_live.core.contracts_config import LiveConfig, normalize_live_platform
 from plugin.plugins.neko_live.core.live_provider_router import LiveProviderRouter

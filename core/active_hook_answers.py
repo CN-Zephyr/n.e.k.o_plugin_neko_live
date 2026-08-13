@@ -7,7 +7,6 @@ from typing import Any
 from .contracts import ViewerEvent
 from .contracts_public import public_text
 
-
 ACTIVE_HOOK_RESULT_SCAN_LIMIT = 8
 ACTIVE_HOOK_ANSWER_MAX_LEN = 8
 _OPTION_ANSWER_TOKENS = {

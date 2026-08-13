@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from .contracts import InteractionResult, ViewerEvent
 from . import (
     live_hosting_beats,
     live_hosting_events,
     live_hosting_gates,
     live_hosting_loop,
 )
+from .contracts import InteractionResult, ViewerEvent
 
 
 class LiveHostingDirector:

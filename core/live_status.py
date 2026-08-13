@@ -11,7 +11,6 @@ from . import (
     live_status_timing,
 )
 
-
 active_engagement_min_interval_seconds = (
     live_status_timing.active_engagement_min_interval_seconds
 )

@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
-
 _ROOM_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{2,128}$")
 _SUPPORTED_HOSTS = {"live.douyin.com"}
 _PUBLIC_SOURCES = {"url", "token"}

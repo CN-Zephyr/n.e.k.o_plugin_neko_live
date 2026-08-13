@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-
 ROOM_PULSE_ACTIVITY_WINDOW_SECONDS = 10.0
 ROOM_PULSE_STEADY_MIN_CANDIDATES = 2
 ROOM_PULSE_BURST_MIN_CANDIDATES = 5

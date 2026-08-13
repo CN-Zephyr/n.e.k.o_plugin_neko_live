@@ -1,11 +1,10 @@
 from types import SimpleNamespace
 
 import pytest
-
+from plugin.plugins.neko_live.core import live_hosting_director
 from plugin.plugins.neko_live.core.active_hook_answers import (
     is_active_hook_answer_event,
 )
-from plugin.plugins.neko_live.core import live_hosting_director
 from plugin.plugins.neko_live.core.contracts import ViewerEvent
 from plugin.plugins.neko_live.core.live_hosting_beat_picker import (
     next_idle_hosting_beat,
@@ -13,11 +12,11 @@ from plugin.plugins.neko_live.core.live_hosting_beat_picker import (
 from plugin.plugins.neko_live.core.live_hosting_beat_rules import (
     idle_hosting_beat_candidates,
 )
-from plugin.plugins.neko_live.core.live_hosting_loop import (
-    _maybe_trigger_active_engagement,
-)
 from plugin.plugins.neko_live.core.live_hosting_beat_state import (
     record_chosen_idle_hosting_beat,
+)
+from plugin.plugins.neko_live.core.live_hosting_loop import (
+    _maybe_trigger_active_engagement,
 )
 from plugin.plugins.neko_live.core.live_material_rules import (
     is_clean_live_material,

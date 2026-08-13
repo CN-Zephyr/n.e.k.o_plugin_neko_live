@@ -5,7 +5,6 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
-
 _LIVE_SESSION_GENERATION_KEY = "_live_session_generation"
 _LIVE_SESSION_SOURCES = {
     "live_danmaku",

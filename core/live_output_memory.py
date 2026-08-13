@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-
 RECENT_REPLY_AVOIDANCE_SIZE = 6
 RECENT_REPLY_AVOIDANCE_TEXT_LIMIT = 24
 

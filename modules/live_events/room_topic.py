@@ -23,7 +23,6 @@ from .room_pulse import (
 )
 from .room_pulse_prompt import RoomPulsePrompt, render_room_pulse_prompt
 
-
 _LOW_QUALITY_DANMAKU = {
     "1",
     "11",

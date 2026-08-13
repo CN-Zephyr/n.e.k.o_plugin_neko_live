@@ -6,7 +6,6 @@ from pathlib import Path
 from plugin.plugins.neko_live import NekoLivePlugin
 from plugin.plugins.neko_live.core.runtime_dashboard_actions import dashboard_actions
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 

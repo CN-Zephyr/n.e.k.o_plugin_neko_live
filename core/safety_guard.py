@@ -9,7 +9,6 @@ from . import safety_guard_cooldown, safety_guard_failures
 from .contracts import LiveConfig, SafetyDecision, SafetyStatus, ViewerEvent
 from .safety_guard_types import FailureKind
 
-
 _LIVE_CONNECTED_SOURCES = {
     "live_danmaku",
     "manual_live_simulation",

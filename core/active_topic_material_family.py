@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 
-
 _AB_CHOICE_RE = re.compile(r"(?<![a-z0-9])a\s*[/|]\s*b(?![a-z0-9])", re.I)
 
 

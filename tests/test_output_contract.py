@@ -1,5 +1,4 @@
 import pytest
-
 from plugin.plugins.neko_live.adapters.neko_dispatcher import _coalesce_key_for_request
 from plugin.plugins.neko_live.core import (
     danmaku_text_rules,

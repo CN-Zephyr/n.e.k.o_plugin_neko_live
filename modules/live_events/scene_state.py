@@ -6,7 +6,6 @@ import math
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-
 SCENE_STATE_VERSION = 0
 SCENE_STATE_TTL_SECONDS = 120.0
 SCENE_STATE_MAX_VIEWER_TURNS = 3

@@ -8,7 +8,6 @@ from ..live_bridge.transport import local_bridge_url
 from .event_model import safe_payload
 from .room_ref import parse_douyin_room_ref
 
-
 _EVENT_ALIASES = {
     "1": "danmaku",
     "chat": "danmaku",

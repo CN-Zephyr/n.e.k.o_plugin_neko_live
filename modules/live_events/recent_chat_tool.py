@@ -8,7 +8,6 @@ from ...adapters.neko_dispatcher import resolve_plugin_target_lanlan
 from .provider_event import event_room_ref, public_text
 from .recent_chat_relevance import clean_relevance_query
 
-
 TOOL_NAME = "get_recent_live_chat"
 TOOL_PARAMETERS = {
     "type": "object",

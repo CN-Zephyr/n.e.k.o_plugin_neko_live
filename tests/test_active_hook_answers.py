@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from plugin.plugins.neko_live.core.active_hook_answers import is_active_hook_answer_event
 from plugin.plugins.neko_live.core.contracts import LiveConfig, ViewerEvent
 from plugin.plugins.neko_live.core.pipeline import LivePipeline
 from plugin.plugins.neko_live.core.pipeline_routing import route_for_event
-from types import SimpleNamespace
 
 
 def test_short_option_answer_matches_recent_active_engagement_hook():

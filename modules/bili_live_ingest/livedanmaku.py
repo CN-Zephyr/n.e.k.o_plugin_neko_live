@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Optional
 
-
 _PROVIDER_EVENT_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 _SENSITIVE_EVENT_ID_MARKERS = (
     "authorization",

@@ -3,7 +3,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-
 from plugin.plugins.neko_live.core.contracts import LiveEvent
 from plugin.plugins.neko_live.core.event_bus import EventBus
 from plugin.plugins.neko_live.modules.live_audience_session import LiveAudienceSessionModule

@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from ..modules._base import ReservedModule
-from .module_registry import ModuleRegistry
 from .live_provider_router import LiveProviderRouter
+from .module_registry import ModuleRegistry
 from .pipeline import LivePipeline
 
 

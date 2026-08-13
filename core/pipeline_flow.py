@@ -8,16 +8,16 @@ from typing import Any
 from .contracts import InteractionResult, PipelineStep, ViewerEvent
 from .pipeline_dispatch import dispatch_routed_request
 from .pipeline_requests import build_request_for_route
-from .pipeline_routing import support_event_type
 from .pipeline_results import (
     fail_pipeline,
     skip_already_roasted,
     skip_module_disabled,
     skip_stale_live_event,
 )
+from .pipeline_routing import support_event_type
 from .pipeline_viewers import resolve_viewer_context
-from .runtime_timeline import record_timeline
 from .runtime_live_session import is_current_live_session_event
+from .runtime_timeline import record_timeline
 
 
 async def run_event_flow(

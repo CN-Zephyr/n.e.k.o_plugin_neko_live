@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from plugin.plugins.neko_live.tools.live_random_danmaku_pressure import (
     parse_args as parse_random_args,
 )

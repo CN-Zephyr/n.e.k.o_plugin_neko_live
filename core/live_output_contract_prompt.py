@@ -12,10 +12,9 @@ from .live_reply_contract import (
     is_expanded_danmaku_reply,
     is_live_reply_metadata,
     is_room_bridge_danmaku_reply,
-    route_ceiling_for_metadata,
     response_module,
+    route_ceiling_for_metadata,
 )
-
 
 ROUTE_NOTES = {
     "avatar_roast": (

@@ -6,11 +6,10 @@ ephemeral snapshot; delivery remains owned by ``NekoDispatcher``.
 
 from __future__ import annotations
 
+import math
 from collections import OrderedDict, deque
 from dataclasses import dataclass
-import math
 from typing import Any, Callable
-
 
 AMBIENT_CHAT_LIMIT = 3
 AMBIENT_SUPPORT_LIMIT = 2

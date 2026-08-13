@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from . import active_topic_filters, active_topic_mentions, active_topic_safety
 
-
 GENERIC_HOST_PHRASES = (
     "what should we talk about",
     "what are we doing",

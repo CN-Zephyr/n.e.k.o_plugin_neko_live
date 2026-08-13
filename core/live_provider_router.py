@@ -10,8 +10,8 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from .contracts import LiveRoomStatus, ViewerIdentity, normalize_live_platform, parse_room_id
 from ..modules.douyin_live_ingest.room_ref import parse_douyin_room_ref
+from .contracts import LiveRoomStatus, ViewerIdentity, normalize_live_platform, parse_room_id
 
 try:
     from ..modules.twitch_live_ingest.room_ref import parse_twitch_room_ref

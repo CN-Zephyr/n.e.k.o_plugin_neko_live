@@ -5,9 +5,8 @@ import re
 from pathlib import Path
 
 import pytest
-
-from plugin.plugins.neko_live.core.runtime import LiveRuntime
 from plugin.plugins.neko_live.core import runtime_douyin_auth
+from plugin.plugins.neko_live.core.runtime import LiveRuntime
 from plugin.plugins.neko_live.core.runtime_douyin_auth import normalize_cookie
 from plugin.plugins.neko_live.modules.douyin_live_ingest.webcast import DouyinWebcastInfo
 

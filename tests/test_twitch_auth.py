@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
 from plugin.plugins.neko_live.adapters.twitch_auth_service import (
     TwitchAuthService,
     _request_json,

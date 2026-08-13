@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 SHORT_REPLY_CONTRACT = "Hard length limit: one sentence, no paragraph, at most 14 Chinese characters or 8 English words."
 HOST_REPLY_CONTRACT = (
     "Default host length: one compact sentence; occasional two short sentences are allowed for a fun host beat."

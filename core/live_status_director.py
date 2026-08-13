@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+
 def live_director_status(
     *,
     config: Any,

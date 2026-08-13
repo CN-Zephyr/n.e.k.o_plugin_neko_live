@@ -839,7 +839,8 @@ class DanmakuListener:
     @staticmethod
     def _handle_combo_send(data: dict):
         """COMBO_SEND — 礼物连击"""
-        from .livedanmaku import LiveDanmaku as _LD, GiftInfo, MessageType, MedalInfo
+        from .livedanmaku import GiftInfo, MedalInfo, MessageType
+        from .livedanmaku import LiveDanmaku as _LD
         d = data.get("data", {})
         coin_type = str(d.get("coin_type") or "silver").strip().lower()
         if coin_type not in {"gold", "silver"}:
@@ -904,7 +905,8 @@ class DanmakuListener:
     @staticmethod
     def _handle_room_update(data: dict):
         """ROOM_REAL_TIME_MESSAGE_UPDATE — 直播间实时数据更新"""
-        from .livedanmaku import LiveDanmaku as _LD, MessageType
+        from .livedanmaku import LiveDanmaku as _LD
+        from .livedanmaku import MessageType
         d = data.get("data", {})
         return _LD(
             msg_type=MessageType.MSG_EXTRA,
@@ -918,7 +920,8 @@ class DanmakuListener:
     @staticmethod
     def _handle_room_change(data: dict):
         """ROOM_CHANGE — 直播间信息变更"""
-        from .livedanmaku import LiveDanmaku as _LD, MessageType
+        from .livedanmaku import LiveDanmaku as _LD
+        from .livedanmaku import MessageType
         d = data.get("data", {})
         changes = []
         if "title" in d:

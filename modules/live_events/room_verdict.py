@@ -45,7 +45,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-
 ROOM_VERDICT_VERSION = 0
 # How long a ballot stays open. Long enough for a slow room to answer, short
 # enough that the announcement still belongs to the moment that prompted it.

@@ -20,7 +20,6 @@ from .projection import (
 )
 from .room_ref import parse_twitch_room_ref
 
-
 _TWITCH_SUPPORT_EVIDENCE = "twitch_eventsub_typed_event"
 _TWITCH_SUPPORT_EVENT_TYPES = {
     "TWITCH_CHEER",

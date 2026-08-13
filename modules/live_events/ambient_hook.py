@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass
-import re
 from typing import Any
-
 
 AMBIENT_HOOK_SCAN_LIMIT = 5
 

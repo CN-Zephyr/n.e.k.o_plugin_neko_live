@@ -9,7 +9,6 @@ from monitor_contexts import (
 from monitor_live_test_utils import _run_monitor
 
 
-
 def test_monitor_live_script_alerts_when_latest_output_is_long(tmp_path: Path) -> None:
     context = _context_with_latest_route_and_signal()
     context["state"]["recent_results"][0]["output"] = "x" * 81

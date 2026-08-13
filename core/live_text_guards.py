@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 
-
 _SUPPORT_CLAIM_ACTION_TOKENS = (
     "\u6295\u5582",
     "\u6253\u8d4f",

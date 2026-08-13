@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections import OrderedDict
 import http.client
 import ipaddress
 import mimetypes
@@ -11,12 +10,12 @@ import socket
 import ssl
 import time
 import urllib.parse
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
 from ...core.contracts import ViewerEvent, ViewerIdentity
 from .._base import BaseModule
-
 
 _MAX_AVATAR_BYTES = 1 * 1024 * 1024
 _MAX_AVATAR_REDIRECTS = 2

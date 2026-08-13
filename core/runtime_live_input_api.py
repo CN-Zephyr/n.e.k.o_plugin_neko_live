@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import runtime_live_input
-from . import runtime_live_listener
+from . import runtime_live_input, runtime_live_listener
 from .contracts import InteractionResult, ViewerEvent
 
 

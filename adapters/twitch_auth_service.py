@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
-
 CredentialProvider = Callable[[], Awaitable[dict[str, Any] | None]]
 CredentialSaver = Callable[[dict[str, Any]], Awaitable[bool]]
 CredentialDeleter = Callable[[], Awaitable[list[str]]]

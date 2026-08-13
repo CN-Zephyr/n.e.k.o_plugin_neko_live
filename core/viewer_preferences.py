@@ -7,9 +7,9 @@ profiles and safe to reuse as private prompt guidance.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from datetime import datetime, timezone
-import re
 from typing import Any
 
 from .contracts_public import public_text

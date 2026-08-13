@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 from .contracts_public import public_text
 
 

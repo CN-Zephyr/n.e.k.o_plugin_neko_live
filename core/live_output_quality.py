@@ -10,7 +10,6 @@ from typing import Any
 from .live_reply_contract import HOST_MODULES, response_module
 from .live_text_guards import looks_like_owner_memory_leak, looks_like_stage_direction_output
 
-
 FORBIDDEN_OUTPUT_TERMS = (
     "\u516c\u5f00\u793a\u4f17",
     "\u52b3\u6539",

@@ -12,12 +12,11 @@ from .live_output_quality import (
 )
 from .live_reply_contract import (
     HOST_MODULES,
-    is_longer_danmaku_reply,
     is_live_reply_metadata,
+    is_longer_danmaku_reply,
     reply_limit_from_metadata,
     response_module,
 )
-
 
 DANGLING_CHOICE_RE = re.compile(
     r"(?i)([\uff0c,\u3001\uff1b;]\s*(?:\u8fd8\u662f|\u6216\u8005|\u6216\u662f|\u8981\u4e48|or)\s*[^\uff0c,\u3001\uff1b;\u3002.!?\uff01\uff1f]{0,8})$"

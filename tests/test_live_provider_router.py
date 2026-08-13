@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
 from plugin.plugins.neko_live.core.contracts import (
     LiveRoomStatus,
     ViewerEvent,

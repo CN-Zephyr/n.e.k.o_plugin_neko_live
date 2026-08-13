@@ -27,11 +27,11 @@ import asyncio
 import time
 from typing import Any
 
-from .._base import BaseModule
 from ...core.active_hook_answers import is_active_hook_answer_event
 from ...core.contracts import ViewerEvent
 from ...core.runtime_live_input import mark_recent_chat_observed
 from ...core.runtime_timeline import record_payload_timeline
+from .._base import BaseModule
 from .ambient_context import AmbientRoomContext
 from .ambient_hook import AMBIENT_HOOK_SCAN_LIMIT, select_ambient_hook
 from .provider_event import (
@@ -52,11 +52,10 @@ from .provider_event import (
     is_signal_only,
 )
 from .recent_chat import RecentChatBuffer
-from .room_topic import RoomTopicContext
 from .ritual_memory import RitualMemory, RitualPrompt
+from .room_topic import RoomTopicContext
 from .room_verdict import RoomVerdict
 from .scene_state import SceneState
-
 
 # Hard ceiling for the combined live-context prompt block (room verdict +
 # scene state + room pulse + room ritual). Each collaborator caps itself, but

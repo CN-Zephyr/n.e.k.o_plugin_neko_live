@@ -1,5 +1,4 @@
 import pytest
-
 from plugin.plugins.neko_live.core.host_turn import HostTurnSignal
 from plugin.plugins.neko_live.core.live_interaction_policy import (
     ALL_CO_STREAM_POLICY_REASONS,
@@ -171,7 +170,11 @@ def test_reason_codes_are_a_stable_complete_contract() -> None:
 def test_shared_contract_facade_exports_policy_value_types() -> None:
     from plugin.plugins.neko_live.core.contracts import (
         HostTurnSignal as FacadeHostTurnSignal,
+    )
+    from plugin.plugins.neko_live.core.contracts import (
         LiveInteractionCandidate as FacadeCandidate,
+    )
+    from plugin.plugins.neko_live.core.contracts import (
         LiveInteractionDecision as FacadeDecision,
     )
 

@@ -5,7 +5,6 @@ import time as _real_time
 from pathlib import Path
 
 import pytest
-
 from plugin.plugins.neko_live.core.runtime import LiveRuntime
 
 

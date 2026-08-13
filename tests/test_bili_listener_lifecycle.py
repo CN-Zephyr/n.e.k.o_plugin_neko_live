@@ -7,15 +7,13 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
-from plugin.plugins.neko_live.modules.bili_live_ingest import BiliLiveIngestModule
-from plugin.plugins.neko_live.modules.bili_live_ingest import danmaku_core
+from plugin.plugins.neko_live.core.runtime_live_listener import start_live_listener
+from plugin.plugins.neko_live.modules.bili_live_ingest import BiliLiveIngestModule, danmaku_core
 from plugin.plugins.neko_live.modules.bili_live_ingest.danmaku_core import (
     OPERATION_AUTH_REPLY,
     DanmakuListener,
     _pack,
 )
-from plugin.plugins.neko_live.core.runtime_live_listener import start_live_listener
 
 
 class _Audit:

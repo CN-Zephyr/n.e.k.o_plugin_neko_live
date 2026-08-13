@@ -6,8 +6,8 @@ import re
 
 from ...core import danmaku_text_rules
 from ...core.contracts import InteractionRequest, ViewerEvent, ViewerIdentity, ViewerProfile
-from ...core.live_host_theme import live_host_theme_block
 from ...core.contracts_public import public_text
+from ...core.live_host_theme import live_host_theme_block
 from ...core.live_reply_contract import DANMAKU_ROOM_BRIDGE_REPLY_CHARS, ROOM_BRIDGE_REPLY_MODE
 from ...core.live_text_guards import (
     context_mentions_idiom_chain,
@@ -17,6 +17,7 @@ from ...core.live_text_guards import (
 )
 from ...core.meme_knowledge import meme_knowledge_metadata, retrieve_meme_knowledge
 from ...core.viewer_addressing import viewer_address_name
+from .._base import BaseModule
 from .._prompt_context import (
     live_events_context_block,
     meme_knowledge_context_block,
@@ -25,7 +26,6 @@ from .._prompt_context import (
     viewer_preference_context_block,
     viewer_session_context_block,
 )
-from .._base import BaseModule
 
 
 class DanmakuResponseModule(BaseModule):

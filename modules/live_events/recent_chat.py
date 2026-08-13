@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from collections import OrderedDict, deque
-from dataclasses import dataclass
 import math
 import re
+from collections import OrderedDict, deque
+from dataclasses import dataclass
 from typing import Callable
 
 from .recent_chat_relevance import build_relevance_scorer
-
 
 _EVENT_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 _SENSITIVE_EVENT_ID_MARKERS = (

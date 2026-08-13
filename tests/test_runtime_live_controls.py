@@ -10,31 +10,30 @@ from unittest.mock import AsyncMock
 from urllib.parse import urlparse
 
 import pytest
-
 from plugin.plugins.neko_live.core.contracts import (
     InteractionRequest,
     InteractionResult,
+    LiveConfig,
     LiveRoomStatus,
     PipelineStep,
-    LiveConfig,
     ViewerEvent,
     ViewerIdentity,
     ViewerProfile,
 )
-from plugin.plugins.neko_live.core.runtime_config_activation import activate_config
 from plugin.plugins.neko_live.core.runtime import LiveRuntime
+from plugin.plugins.neko_live.core.runtime_config_activation import activate_config
 from plugin.plugins.neko_live.core.runtime_instructions import (
     _live_scene_text,
     inject_live_scene_instructions,
-)
-from plugin.plugins.neko_live.core.runtime_live_listener import (
-    schedule_unexpected_live_listener_stop,
-    stop_live_listener,
 )
 from plugin.plugins.neko_live.core.runtime_live_input import (
     _public_lookup_room_ref,
     _signal_event_type,
     remember_live_danmaku_seen,
+)
+from plugin.plugins.neko_live.core.runtime_live_listener import (
+    schedule_unexpected_live_listener_stop,
+    stop_live_listener,
 )
 from plugin.plugins.neko_live.modules.bili_live_ingest import BiliLiveIngestModule
 

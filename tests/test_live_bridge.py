@@ -7,7 +7,6 @@ import threading
 from pathlib import Path
 
 import pytest
-
 from plugin.plugins.neko_live.modules.douyin_live_ingest.bridge_backend import (
     DouyinBridgeBackend,
     default_douyin_bridge_backend,

@@ -8,8 +8,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import pytest
-
-from plugin.plugins.neko_live.core.contracts import InteractionResult, PipelineStep, LiveConfig, ViewerEvent
+from plugin.plugins.neko_live.core.contracts import InteractionResult, LiveConfig, PipelineStep, ViewerEvent
 from plugin.plugins.neko_live.core.event_bus import EventBus
 from plugin.plugins.neko_live.core.runtime import LiveRuntime
 from plugin.plugins.neko_live.modules.douyin_identity import DouyinIdentityModule

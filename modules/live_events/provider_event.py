@@ -8,7 +8,6 @@ import re
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
-
 _BILI_TYPE_LABELS = {
     "MSG_DANMAKU": "danmaku",
     "MSG_GIFT": "gift",

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 _KNOWN_ROUTE_STEPS = {
     "danmaku_response",
     "avatar_roast",

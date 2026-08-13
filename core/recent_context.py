@@ -9,7 +9,11 @@ from .recent_context_builders import (
 )
 from .recent_context_lines import (
     active_engagement_context_line as _active_engagement_context_line,
+)
+from .recent_context_lines import (
     idle_hosting_context_line as _idle_hosting_context_line,
+)
+from .recent_context_lines import (
     viewer_event_context_line as _viewer_event_context_line,
 )
 from .recent_context_routes import (
@@ -23,7 +27,6 @@ from .recent_output_families import (
     spent_output_families,
     spent_output_text,
 )
-
 
 __all__ = [
     "_active_engagement_context_line",

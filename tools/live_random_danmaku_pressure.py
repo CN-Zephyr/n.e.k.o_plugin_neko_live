@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import requests
-
 from plugin.plugins.neko_live.tools.pressure_guard import (
     EXIT_RUN,
     PressureError,
@@ -33,7 +32,6 @@ from plugin.plugins.neko_live.tools.pressure_guard import (
     wait_for_connection,
     write_jsonl,
 )
-
 
 PLUGIN_ID = "neko_live"
 SURFACE_ID = "main"

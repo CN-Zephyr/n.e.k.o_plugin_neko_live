@@ -7,8 +7,8 @@ from typing import Any
 
 from .contracts import InteractionResult, PipelineStep, ViewerEvent
 from .contracts_public import public_int, public_text
-from .runtime_timeline import ensure_trace_id, record_timeline, timeline_for_trace
 from .runtime_live_session import is_current_live_session_event
+from .runtime_timeline import ensure_trace_id, record_timeline, timeline_for_trace
 
 
 class _RecentChatObservedPayload(dict[str, Any]):

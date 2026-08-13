@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
 from plugin.plugins.neko_live.modules.live_support_events import scheduler as scheduler_module
 from plugin.plugins.neko_live.modules.live_support_events.scheduler import (
     SupportEventScheduler,

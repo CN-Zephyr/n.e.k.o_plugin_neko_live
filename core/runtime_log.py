@@ -32,7 +32,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # One summary per this many timeline records. Chosen so a busy room produces a
 # line every few seconds rather than hundreds, while a quiet room still gets a
 # summary at the session boundary.

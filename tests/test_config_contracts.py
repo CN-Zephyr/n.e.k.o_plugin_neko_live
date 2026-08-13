@@ -2,13 +2,12 @@ import json
 from types import SimpleNamespace
 
 import pytest
-
 from plugin.plugins.neko_live.core import active_topic_rules
 from plugin.plugins.neko_live.core.contracts import (
     InteractionRequest,
     InteractionResult,
-    PipelineStep,
     LiveConfig,
+    PipelineStep,
     ViewerEvent,
     ViewerIdentity,
     ViewerProfile,

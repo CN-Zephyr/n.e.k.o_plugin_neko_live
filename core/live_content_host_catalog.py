@@ -6,15 +6,15 @@ from json import JSONDecodeError, loads
 from pathlib import Path
 from typing import Any
 
-from .live_content_host_catalog_choice import CHOICE_IDLE_HOSTING_BEAT_CANDIDATES
 from .live_content_host_catalog_callback import (
     VIEWER_CALLBACK_IDLE_HOSTING_BEAT_CANDIDATES,
 )
-from .live_content_host_catalog_tease import TEASE_IDLE_HOSTING_BEAT_CANDIDATES
 from .live_content_host_catalog_challenge import (
     MICRO_CHALLENGE_IDLE_HOSTING_BEAT_CANDIDATES,
 )
+from .live_content_host_catalog_choice import CHOICE_IDLE_HOSTING_BEAT_CANDIDATES
 from .live_content_host_catalog_mood import MOOD_IDLE_HOSTING_BEAT_CANDIDATES
+from .live_content_host_catalog_tease import TEASE_IDLE_HOSTING_BEAT_CANDIDATES
 
 DEFAULT_IDLE_HOSTING_BEAT_CATALOG_PATH = (
     Path(__file__).resolve().parents[1] / "data" / "idle_hosting_beats.json"

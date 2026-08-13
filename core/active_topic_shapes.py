@@ -6,7 +6,6 @@ from collections import deque
 
 from .active_topic_rotation import has_active_engagement_streak
 
-
 ACTIVE_TOPIC_SHAPES = ("either_or", "light_stance", "tiny_tease", "small_challenge")
 
 

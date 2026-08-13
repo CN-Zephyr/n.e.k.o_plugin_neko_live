@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
 import os
 import stat
 
+import pytest
 from plugin.plugins.neko_live.stores.credential_store import CredentialStore
 
 

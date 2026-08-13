@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from difflib import SequenceMatcher
-import re
-
 
 _NORMALIZE_RE = re.compile(r"[\W_]+", re.UNICODE)
 _SIMILARITY_THRESHOLD = 0.78

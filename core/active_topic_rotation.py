@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from collections import deque
 from difflib import SequenceMatcher
-import re
-
 
 _ACTIVE_TOPIC_NORMALIZE_RE = re.compile(r"[\W_]+", re.UNICODE)
 _ACTIVE_TOPIC_SIMILARITY_THRESHOLD = 0.78

@@ -3,7 +3,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-
 from plugin.plugins.neko_live.core.contracts import InteractionResult
 from plugin.plugins.neko_live.core.runtime_active_engagement import (
     maybe_trigger_active_engagement,

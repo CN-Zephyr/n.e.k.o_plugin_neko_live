@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
 import re
+from collections import Counter, defaultdict
 from typing import Any
 
 from .live_text_guards import looks_like_support_claim_text
-
 
 _MAX_RECENT_ITEMS = 10
 _MIN_SHARED_MENTIONS = 2

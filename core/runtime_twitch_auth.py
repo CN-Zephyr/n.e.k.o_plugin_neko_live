@@ -7,7 +7,6 @@ from typing import Any
 from ..adapters.twitch_auth_service import TwitchAuthService
 from ..stores.credential_store import CredentialStore
 
-
 _TWITCH_FIELDS = (
     "access_token",
     "refresh_token",

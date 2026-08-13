@@ -12,7 +12,6 @@ from ..modules.douyin_live_ingest.webcast import fetch_webcast_info
 from ..stores.credential_store import CredentialStore
 from .contracts import utc_now_iso
 
-
 _DOUYIN_FIELDS = ("cookie", "uid", "nickname", "saved_at")
 _MAX_COOKIE_LENGTH = 32768
 _HEADER_LINE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{1,63}\s*:")

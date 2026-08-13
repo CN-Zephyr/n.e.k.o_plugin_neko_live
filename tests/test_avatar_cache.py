@@ -1,7 +1,6 @@
 import io
 
 from PIL import Image
-
 from plugin.plugins.neko_live.adapters.neko_dispatcher import _normalize_avatar_for_neko_vision
 from plugin.plugins.neko_live.stores.avatar_cache import AvatarCache
 

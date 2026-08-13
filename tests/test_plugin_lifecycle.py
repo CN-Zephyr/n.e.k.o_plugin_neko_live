@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 
 import pytest
-
 from plugin.plugins.neko_live import NekoLivePlugin
 from plugin.plugins.neko_live.core import runtime as runtime_module
 

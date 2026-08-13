@@ -8,7 +8,6 @@ from ..core.meme_knowledge import render_meme_knowledge_block, retrieve_meme_kno
 from ..core.viewer_preferences import viewer_preference_prompt_block
 from ._prompt_context_compaction import compact_context_line
 
-
 RECENT_CONTEXT_DEFAULT_LIMIT = 12
 RECENT_CONTEXT_LINE_LIMIT = 56
 VIEWER_CONTEXT_LINE_LIMIT = 44

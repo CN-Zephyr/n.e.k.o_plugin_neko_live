@@ -3,7 +3,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-
 from plugin.plugins.neko_live.core.contracts import HostTurnSignal
 from plugin.plugins.neko_live.core.host_turn import HostTurnSignalStore
 from plugin.plugins.neko_live.core.runtime import LiveRuntime

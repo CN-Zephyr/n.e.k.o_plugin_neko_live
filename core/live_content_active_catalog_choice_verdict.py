@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 VERDICT_CHOICE_FALLBACK_TOPIC_CANDIDATES: tuple[dict[str, Any], ...] = (
     {
         "source": "fallback",

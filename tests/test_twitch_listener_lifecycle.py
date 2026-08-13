@@ -5,20 +5,19 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from twitchio.eventsub import websockets as twitchio_websockets
-from twitchio.authentication import Scopes
-from twitchio.exceptions import WebsocketConnectionException
-
+from plugin.plugins.neko_live.core.runtime_live_controls import _resolve_connection_auth_mode
 from plugin.plugins.neko_live.modules.twitch_live_ingest import (
     TwitchLiveIngestModule,
     _public_scopes,
     _safe_error,
 )
-from plugin.plugins.neko_live.core.runtime_live_controls import _resolve_connection_auth_mode
 from plugin.plugins.neko_live.modules.twitch_live_ingest.twitch_client import (
     NekoTwitchClient,
     create_twitch_client,
 )
+from twitchio.authentication import Scopes
+from twitchio.eventsub import websockets as twitchio_websockets
+from twitchio.exceptions import WebsocketConnectionException
 
 
 async def _ignore_callback(_payload: Any) -> None:

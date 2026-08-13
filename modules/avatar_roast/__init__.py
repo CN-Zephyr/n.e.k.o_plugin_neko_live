@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from ...core.contracts import InteractionRequest, ViewerEvent, ViewerIdentity, ViewerProfile
-from ...core.live_host_theme import live_host_theme_block
 from ...core.contracts_public import public_text
+from ...core.live_host_theme import live_host_theme_block
 from ...core.live_text_guards import looks_like_support_claim_text
 from ...core.meme_knowledge import meme_knowledge_metadata, render_meme_knowledge_block, retrieve_meme_knowledge
 from ...core.viewer_addressing import viewer_address_name

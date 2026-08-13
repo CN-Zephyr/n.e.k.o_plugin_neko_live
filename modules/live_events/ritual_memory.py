@@ -42,7 +42,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-
 RITUAL_MEMORY_VERSION = 0
 # Tracked rituals per session. Small on purpose: a room that "has eight running
 # jokes" has none, and the cap bounds both memory and prompt competition.

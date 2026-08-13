@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
-
 _LOGIN_RE = re.compile(r"^[a-z0-9_]{1,25}$")
 _SUPPORTED_HOSTS = {"twitch.tv", "www.twitch.tv"}
 

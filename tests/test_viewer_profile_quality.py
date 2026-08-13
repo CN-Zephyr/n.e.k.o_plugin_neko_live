@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
-
 from plugin.plugins.neko_live.core.contracts import ViewerIdentity, ViewerProfile, utc_now_iso
 from plugin.plugins.neko_live.core.viewer_preferences import (
     infer_viewer_preferences,

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 NEKO_ALREADY_SAID_MARKER = " / NEKO already said: "
 REPLY_PATH_MARKER = " / reply: "
 SPENT_OUTPUT_FAMILY_MARKER = " / spent_output_family="

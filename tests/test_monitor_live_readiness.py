@@ -12,7 +12,6 @@ from monitor_contexts import (
 from monitor_live_test_utils import _run_monitor, _run_monitor_args
 
 
-
 def test_monitor_live_script_alerts_when_recent_result_failed(tmp_path: Path) -> None:
     context = _context_with_latest_route_and_signal()
     context["state"]["recent_results"] = [

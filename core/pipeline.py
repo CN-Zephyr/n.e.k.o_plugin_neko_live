@@ -4,28 +4,28 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import pipeline_flow
+from .active_hook_answers import is_active_hook_answer_event
 from .contracts import (
     InteractionResult,
     PipelineStep,
     SafetyDecision,
     ViewerEvent,
 )
-from . import pipeline_flow
-from .active_hook_answers import is_active_hook_answer_event
+from .pipeline_results import (
+    reject_missing_uid,
+    skip_before_event,
+    skip_permission,
+)
 from .pipeline_routing import (
     PipelineRoute,
     is_live_danmaku_with_text,
     is_transient_event,
     route_for_event,
 )
-from .pipeline_results import (
-    reject_missing_uid,
-    skip_before_event,
-    skip_permission,
-)
 from .pipeline_session import PipelineSessionTracker
-from .runtime_timeline import ensure_trace_id, record_timeline
 from .runtime_live_session import bind_event_to_live_session
+from .runtime_timeline import ensure_trace_id, record_timeline
 
 AVATAR_ROAST_VIEWER_COUNT_LIMIT = 200
 AVATAR_ROAST_RECENT_REPLY_WINDOW_SECONDS = 60.0

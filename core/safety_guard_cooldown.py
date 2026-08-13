@@ -7,7 +7,6 @@ from typing import Any
 
 from .contracts import SafetyDecision, ViewerEvent
 
-
 THROTTLED_SUPPORT_EVENT_TYPES = {"gift"}
 UNTHROTTLED_SUPPORT_EVENT_TYPES = {"super_chat", "guard"}
 SUPPORT_EVENT_COOLDOWN_SECONDS = 1.5

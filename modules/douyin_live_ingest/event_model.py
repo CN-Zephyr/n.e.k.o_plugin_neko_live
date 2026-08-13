@@ -12,7 +12,6 @@ from ...core.contracts import LiveEvent
 from .public_projection import is_public_hostname, safe_public_text
 from .room_ref import parse_douyin_room_ref
 
-
 ROUTABLE_EVENT_TYPES = {"danmaku", "gift", "super_chat", "guard"}
 STATUS_ONLY_EVENT_TYPES = {"member", "follow", "like", "stats"}
 _EVENT_TYPE_ALIASES = {

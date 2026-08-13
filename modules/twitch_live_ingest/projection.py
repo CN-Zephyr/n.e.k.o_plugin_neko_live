@@ -8,7 +8,6 @@ from typing import Any
 from ...core.contracts import LiveEvent
 from .room_ref import parse_twitch_room_ref
 
-
 _SUPPORTED_NOTIFICATION_TYPES = {"sub", "resub", "sub_gift", "community_sub_gift"}
 
 

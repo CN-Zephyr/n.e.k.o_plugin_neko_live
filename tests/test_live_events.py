@@ -13,10 +13,9 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-
 from plugin.plugins.neko_live.core.contracts import (
-    LiveEvent,
     LiveConfig,
+    LiveEvent,
     ViewerEvent,
     ViewerIdentity,
     ViewerProfile,
@@ -29,9 +28,6 @@ from plugin.plugins.neko_live.modules.live_events import LiveEventsModule
 from plugin.plugins.neko_live.modules.live_events.module import (
     LIVE_CONTEXT_PROMPT_MAX_CHARS,
 )
-from plugin.plugins.neko_live.modules.live_events.ritual_memory import RitualPrompt
-from plugin.plugins.neko_live.modules.live_events.room_topic import RoomTopicContext
-from plugin.plugins.neko_live.modules.live_support_events import LiveSupportEventsModule
 from plugin.plugins.neko_live.modules.live_events.provider_event import (
     event_avatar_url,
     event_guard_level,
@@ -52,6 +48,9 @@ from plugin.plugins.neko_live.modules.live_events.recent_chat_relevance import (
     clean_relevance_query,
     relevance_score,
 )
+from plugin.plugins.neko_live.modules.live_events.ritual_memory import RitualPrompt
+from plugin.plugins.neko_live.modules.live_events.room_topic import RoomTopicContext
+from plugin.plugins.neko_live.modules.live_support_events import LiveSupportEventsModule
 
 
 def _danmaku(uid: str, text: str = "hi", guard: int = 0, user_level: int = 0, room_id: int = 1) -> LiveDanmaku:

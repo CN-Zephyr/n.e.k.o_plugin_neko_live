@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-
 REPLY_CONTRACT_NAME = "short_tts_line"
 PLUGIN_OUTPUT_POLICY_KEY = "neko_live_output_policy"
 REPLY_TARGET_CHARS = 14

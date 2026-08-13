@@ -19,9 +19,17 @@ from ._prompt_context_compaction import (
     NEKO_ALREADY_SAID_MARKER,
     REPLY_PATH_MARKER,
     SPENT_OUTPUT_FAMILY_MARKER,
+)
+from ._prompt_context_compaction import (
     compact_context_line as _compact_context_line,
+)
+from ._prompt_context_compaction import (
     compact_plain as _compact_plain,
+)
+from ._prompt_context_compaction import (
     compact_preserving_reply_path as _compact_preserving_reply_path,
+)
+from ._prompt_context_compaction import (
     compact_preserving_spent_output_family as _compact_preserving_spent_output_family,
 )
 from ._prompt_rules import (
@@ -32,7 +40,6 @@ from ._prompt_rules import (
     short_reply_rules,
     sustained_charm_rules,
 )
-
 
 __all__ = [
     "HOST_REPLY_CONTRACT",

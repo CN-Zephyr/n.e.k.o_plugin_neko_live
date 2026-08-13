@@ -8,7 +8,6 @@ from typing import Any
 from .contracts_public import public_text
 from .viewer_preferences import safe_int
 
-
 _REGULAR_VIEWER_MIN_EVENTS = 5
 _SEPARATOR_RE = re.compile(r"[\s_\-|/\\\u4e28\u00b7\u30fb]+")
 _CJK_ALIAS_BLOCK_CHARS = set("\u4e0a\u4e0b\u524d\u540e\u5de6\u53f3\u4e2d\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341\u96f6\u7684\u4e86\u7740\u8fc7\u662f\u6709\u6ca1\u4e0d\u8981\u6765\u53bb\u770b\u542c\u8bf4\u5403\u559d\u73a9\u505a\u7ed9\u628a\u88ab\u548c\u4e0e\u6216\u5c31\u90fd\u4e5f")

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import tomllib
 from importlib import import_module
 from pathlib import Path
-import tomllib
 
 import pytest
 
