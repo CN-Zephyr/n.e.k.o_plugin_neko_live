@@ -18,7 +18,7 @@ keywords = [
     "观众",
 ]
 passive = true
-version = "0.1.2"
+version = "0.1.3"
 entry = "plugin.plugins.neko_live:NekoLivePlugin"
 
 [plugin.author]
@@ -82,8 +82,8 @@ auto_start = false
 
 [neko_live]
 live_platform = "bilibili"
-live_room_ref = ""
-live_room_id = 0
+live_room_ref = "1817654314"
+live_room_id = 1817654314
 live_mode = "co_stream"
 live_enabled = false
 avatar_roast_enabled = true
@@ -110,10 +110,10 @@ safety_pipeline_failure_limit = 3
 safety_output_failure_limit = 2
 safety_queue_overflow_limit = 3
 viewer_store_dir = ""
-activity_level = "standard"
+activity_level = "active"
 co_stream_host_pause_fill_activation = "off"
 co_stream_host_pause_fill_auto_consent_version = 0
-stream_theme = ""
+stream_theme = "玩卡拉彼丘"
 stream_goal = ""
 stream_columns = ""
 stream_avoid_topics = ""
