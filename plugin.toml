@@ -82,8 +82,8 @@ auto_start = false
 
 [neko_live]
 live_platform = "bilibili"
-live_room_ref = "1817654314"
-live_room_id = 1817654314
+live_room_ref = ""
+live_room_id = 0
 live_mode = "co_stream"
 live_enabled = false
 avatar_roast_enabled = true
