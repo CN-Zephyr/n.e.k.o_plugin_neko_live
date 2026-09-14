@@ -155,6 +155,7 @@ def metadata_for_request(
     for key in (
         "candidate_ttl_seconds",
         "delivery_ttl_seconds",
+        "expires_in_s",
     ):
         value = request.metadata.get(key)
         if isinstance(value, (int, float)) and not isinstance(value, bool):

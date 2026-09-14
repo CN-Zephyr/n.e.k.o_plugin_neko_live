@@ -525,7 +525,7 @@ coalesce key 哈希、delivery key 哈希、epoch），不含原始 key 或任�
 | 路径 | 声明内容 |
 | --- | --- |
 | co_stream 全部支持事件 | `delivery_ttl_seconds=45`、`interrupt_policy=drop` |
-| co_stream 普通弹幕 | `delivery_ttl_seconds=20`、`interrupt_policy=drop` |
+| 普通弹幕 | `expires_in_s` / `delivery_ttl_seconds`（独播 30s，同播 20s）、`interrupt_policy=drop` |
 | solo_stream 全部路径 | 不声明，沿用宿主默认（打断即丢弃） |
 
 契约见 `docs/modules/live_support_events.md`「Delivery Policy」。

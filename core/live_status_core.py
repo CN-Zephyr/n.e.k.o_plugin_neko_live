@@ -57,7 +57,7 @@ def live_status_summary(
         summary = "cannot_stream"
         reason = "live_ingest_disconnected"
         can_output = False
-    elif room_live_status == "offline" and not bool(getattr(config, "dry_run", True)):
+    elif room_live_status == "offline" and not bool(getattr(config, "dry_run", False)):
         summary = "cannot_stream"
         reason = "live_room_offline"
         can_output = False
@@ -73,7 +73,7 @@ def live_status_summary(
         summary = "temporarily_not_speaking"
         reason = "safety_degraded"
         can_output = False
-    elif bool(getattr(config, "dry_run", True)):
+    elif bool(getattr(config, "dry_run", False)):
         summary = "test_only"
         reason = "dry_run"
         can_output = False
@@ -95,7 +95,7 @@ def live_status_summary(
         "room_id": room_id,
         "connected": connected,
         "live_status": room_live_status,
-        "dry_run": bool(getattr(config, "dry_run", True)),
+        "dry_run": bool(getattr(config, "dry_run", False)),
         "safety_status": safety_status,
         "cooldown_remaining": round(float(cooldown_remaining or 0.0), 1),
         "output_channel_ready": output_channel_ready,

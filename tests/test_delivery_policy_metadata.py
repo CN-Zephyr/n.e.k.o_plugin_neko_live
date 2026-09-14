@@ -1,9 +1,9 @@
 """Contract tests for conservative Live delivery metadata serialization.
 
-Co-stream cues may declare a bounded TTL and ``interrupt_policy=drop``. The
+Live cues may declare a bounded TTL and ``interrupt_policy=drop``. The
 plugin has no playback lifecycle, so compensation, replay/idempotency, and
 floor-dependent short-form declarations must not cross the host bridge.
-Solo stream keeps host defaults.
+Danmaku replies always expire by age; solo support still keeps host defaults.
 """
 from __future__ import annotations
 
@@ -144,15 +144,17 @@ def test_solo_stream_support_keeps_host_defaults():
 def test_co_stream_danmaku_expires_and_drops_on_interrupt():
     metadata = _danmaku_request("co_stream").metadata
 
+    assert metadata["expires_in_s"] == 20
     assert metadata["delivery_ttl_seconds"] == 20
     assert metadata["interrupt_policy"] == "drop"
 
 
-def test_solo_stream_danmaku_keeps_host_defaults():
+def test_solo_stream_danmaku_expires_even_when_the_queue_is_empty():
     metadata = _danmaku_request("solo_stream").metadata
 
-    assert "delivery_ttl_seconds" not in metadata
-    assert "interrupt_policy" not in metadata
+    assert metadata["expires_in_s"] == 30
+    assert metadata["delivery_ttl_seconds"] == 30
+    assert metadata["interrupt_policy"] == "drop"
 
 
 # ── bridge passthrough ───────────────────────────────────────────────────
@@ -166,6 +168,14 @@ def test_bridge_passes_only_conservative_delivery_metadata_through():
     assert metadata["delivery_ttl_seconds"] == 45
     for key in ("delivery_key", "compensation_text", "compensation_ttl_seconds", "brief_text"):
         assert key not in metadata
+
+
+def test_bridge_passes_danmaku_expires_in_s():
+    metadata = metadata_for_request(_danmaku_request("solo_stream"))
+
+    assert metadata["expires_in_s"] == 30
+    assert metadata["delivery_ttl_seconds"] == 30
+    assert metadata["interrupt_policy"] == "drop"
 
 
 def test_bridge_rejects_bool_ttl_and_blank_strings():

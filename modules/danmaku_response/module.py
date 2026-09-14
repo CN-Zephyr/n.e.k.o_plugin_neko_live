@@ -352,13 +352,14 @@ class DanmakuResponseModule(BaseModule):
         if DanmakuResponseModule._allows_room_bridge_length(danmaku_profile["kind"], room_context):
             metadata["reply_length_mode"] = ROOM_BRIDGE_REPLY_MODE
             metadata["max_reply_chars"] = DANMAKU_ROOM_BRIDGE_REPLY_CHARS
-        if str(getattr(event, "live_mode", "") or "") == "co_stream":
-            # Co-stream: the host may hold the floor for a long stretch, and a
-            # reply to a danmaku from a minute ago no longer fits the room.
-            # Expire it instead, and state the drop policy explicitly so an
-            # interrupted ordinary reply is consumed rather than re-delivered.
-            metadata["delivery_ttl_seconds"] = 20
-            metadata["interrupt_policy"] = "drop"
+        # Danmaku replies are time-bound regardless of queue length. Leaving
+        # live and coming back used to flush minutes-old lines; expire first.
+        expires_in_s = (
+            20 if str(getattr(event, "live_mode", "") or "") == "co_stream" else 30
+        )
+        metadata["expires_in_s"] = expires_in_s
+        metadata["delivery_ttl_seconds"] = expires_in_s
+        metadata["interrupt_policy"] = "drop"
         metadata.update(meme_knowledge_metadata(retrieve_meme_knowledge(event.danmaku_text or "", room_context)))
         return metadata
 

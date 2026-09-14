@@ -154,7 +154,6 @@ class NekoLivePlugin(NekoPluginBase):
                 "idle_hosting_enabled": {"type": "boolean"},
                 "active_engagement_enabled": {"type": "boolean"},
                 "live_mode": {"type": "string"},
-                "dry_run": {"type": "boolean"},
                 "developer_tools_enabled": {"type": "boolean"},
                 "rate_limit_seconds": {"type": "number"},
                 "queue_limit": {"type": "integer"},

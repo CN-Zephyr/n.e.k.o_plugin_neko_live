@@ -112,7 +112,7 @@ Rules:
 - Every co-stream support tier uses the same no-retry policy. Priority changes ordering, not delivery semantics.
 - `delivery_key`, `compensation_text`, `compensation_ttl_seconds`, and `brief_text` are not emitted or passed through the plugin bridge.
 - The passive support snapshot stores the verified fact and tier only. Whether an active acknowledgement was requested remains an audit outcome; it is not persisted into passive prompt state and is never presented as delivery evidence.
-- Ordinary co-stream danmaku (`danmaku_response`) similarly declares `delivery_ttl_seconds=20` and `interrupt_policy=drop`.
+- Ordinary danmaku (`danmaku_response`) declares `expires_in_s` / `delivery_ttl_seconds` (30s solo, 20s co-stream) and `interrupt_policy=drop`, so a queued reply dies by age even if the host queue is empty.
 
 Host-side terminal states and floor state remain outside the plugin boundary.
 
