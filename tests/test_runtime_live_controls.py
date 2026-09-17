@@ -779,6 +779,34 @@ async def test_update_config_reinjects_live_scene_when_stream_theme_changes(
 
 
 @pytest.mark.asyncio
+async def test_update_config_reinjects_live_scene_when_stream_sub_theme_changes(
+    runtime: LiveRuntime,
+) -> None:
+    runtime.config.live_room_id = 123
+    runtime.config.live_enabled = True
+    runtime.config.dry_run = False
+    runtime.config.live_mode = "solo_stream"
+    runtime.config.stream_theme = "play Strinova"
+    runtime.live_room_context = {"room_ref": "123", "live_status": "live"}
+    await runtime.bili_live_ingest.start_listening(123)
+    runtime.live_connection_state = "connected"
+    runtime.safety_guard.set_connected(True)
+    await runtime.sync_live_instructions()
+
+    await runtime.update_config({"stream_sub_theme": "ranked queue"})
+
+    assert runtime.config.stream_theme == "play Strinova"
+    assert runtime.config.stream_sub_theme == "ranked queue"
+    assert runtime.instructions_injected is True
+    assert len(runtime.plugin.pushed_messages) == 3
+    assert runtime.plugin.pushed_messages[1]["metadata"]["description"] == "NEKO Live behavior restore"
+    text = runtime.plugin.pushed_messages[2]["parts"][0]["text"]
+    assert "stream_theme: play Strinova" in text
+    assert "stream_sub_theme: ranked queue" in text
+    assert "prefer stream_sub_theme over stream_theme" in text
+
+
+@pytest.mark.asyncio
 async def test_update_config_reconciles_live_mode_context_ownership(
     runtime: LiveRuntime,
 ) -> None:

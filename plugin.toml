@@ -18,7 +18,7 @@ keywords = [
     "观众",
 ]
 passive = true
-version = "0.1.4"
+version = "0.1.5"
 entry = "plugin.plugins.neko_live:NekoLivePlugin"
 
 [plugin.author]
@@ -114,6 +114,7 @@ activity_level = "active"
 co_stream_host_pause_fill_activation = "off"
 co_stream_host_pause_fill_auto_consent_version = 0
 stream_theme = "玩卡拉彼丘"
+stream_sub_theme = ""
 stream_goal = ""
 stream_columns = ""
 stream_avoid_topics = ""

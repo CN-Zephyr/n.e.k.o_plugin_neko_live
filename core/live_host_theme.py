@@ -16,6 +16,7 @@ def live_host_theme_block(config: Any | None = None, *, kind: str = "reply") -> 
     if not isinstance(room_context, dict):
         room_context = {}
     stream_theme = _optional_text(getattr(config, "stream_theme", ""), max_len=120)
+    stream_sub_theme = _optional_text(getattr(config, "stream_sub_theme", ""), max_len=120)
     live_mode = _optional_text(getattr(config, "live_mode", ""), max_len=40)
     room_title = _optional_text(room_context.get("title"), max_len=120)
     anchor_name = _optional_text(room_context.get("anchor_name"), max_len=80)
@@ -55,6 +56,13 @@ def live_host_theme_block(config: Any | None = None, *, kind: str = "reply") -> 
                 "- premise: NEKO is a small cat host keeping a tiny room-radio desk alive while watching the room.",
                 "- recurring_motifs: tiny radio, desk patrol, paw stamp, room weather, snack inventory, password card.",
                 "- variety_rule: rotate motifs; do not force every line to mention radio, desk, paw, weather, or snacks.",
+            ]
+        )
+    if stream_sub_theme:
+        lines.extend(
+            [
+                f"- current_segment_theme: {stream_sub_theme}",
+                "- current_segment_rule: this is the current stretch; prefer it over human_theme when they differ; still never announce either name.",
             ]
         )
     if anchor_name:

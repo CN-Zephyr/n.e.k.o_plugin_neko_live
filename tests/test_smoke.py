@@ -254,10 +254,22 @@ def test_console_opens_stream_theme_modal_in_place_of_duplicate_diagnostics_acti
         assert 't("panel.actions.showAdvanced")' not in runtime_source
         assert 't("panel.actions.showAdvanced")' in session_source
         assert 't("panel.fields.streamTheme")' in source
+        assert 't("panel.fields.streamSubTheme")' in runtime_source
+        assert runtime_source.index('t("panel.fields.streamSubTheme")') < runtime_source.index(
+            'className="neko-live-inline-control"'
+        )
+        theme_form = source.split("const streamThemeForm = (", 1)[1].split("const pacingForm = (", 1)[0]
+        assert 't("panel.fields.streamSubTheme")' not in theme_form
         assert 't("panel.streamTheme.hint")' in source
+        assert 't("panel.streamSubTheme.hint")' in runtime_source
+        assert 't("panel.streamSubTheme.save")' in runtime_source
+        assert runtime_source.index('t("panel.streamSubTheme.save")') < runtime_source.index(
+            'className="neko-live-inline-control"'
+        )
         assert 't("panel.fields.mode")' in source
         assert 't("panel.fields.liveMode")' not in source
         assert "saveThemeSettings()" in source
+        assert "saveSubThemeSettings()" in source
 
 
 def test_console_modal_close_callback_stays_stable_while_typing() -> None:
@@ -840,6 +852,9 @@ def test_console_dialogs_keep_independent_drafts_and_scoped_saves():
         assert "async function saveThemeSettings()" in source
         assert "async function savePacingSettings()" in source
         assert "stream_theme: themeDraft.stream_theme.trim()" in source
+        assert "stream_sub_theme: themeDraft.stream_sub_theme.trim()" not in source
+        assert "async function saveSubThemeSettings()" in source
+        assert "saveConfig({ stream_sub_theme: next })" in source
         assert "activity_level: pacingDraft.activity_level" in source
         assert "saveConfig(advancedConfigPatch())" not in source
         assert "function advancedConfigPatch()" not in source
@@ -869,6 +884,7 @@ def test_console_dialogs_reopen_from_the_successfully_saved_local_config() -> No
             "rate_limit_seconds",
         ):
             assert f"configForm.values.{field}" in open_dialog
+        assert "configForm.values.stream_sub_theme" not in open_dialog
 
 
 def test_panel_renders_guarded_viewer_memory_controls():
@@ -1080,11 +1096,14 @@ def test_all_locales_define_live_status_summary_labels():
         "panel.liveModeRole.solo_stream",
         "panel.fields.activityLevel",
         "panel.fields.streamTheme",
+        "panel.fields.streamSubTheme",
         "panel.fields.streamGoal",
         "panel.fields.streamColumns",
         "panel.fields.streamAvoidTopics",
         "panel.streamTheme.title",
         "panel.streamTheme.hint",
+        "panel.streamSubTheme.hint",
+        "panel.streamSubTheme.save",
         "panel.activity.quiet",
         "panel.activity.standard",
         "panel.activity.active",
@@ -1327,7 +1346,7 @@ def test_compat_panel_mirrors_live_connection_and_theme_controls() -> None:
         assert "result.logged_in || result.has_cookie" in source
         assert "connection.listening ||" in source
         assert 'connectionState === "receiving"' in source
-        for field in ("streamGoal", "streamColumns", "streamAvoidTopics"):
+        for field in ("streamTheme", "streamSubTheme", "streamGoal", "streamColumns", "streamAvoidTopics"):
             assert f't("panel.fields.{field}")' in source
 
 

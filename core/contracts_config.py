@@ -86,6 +86,7 @@ class LiveConfig:
     safety_queue_overflow_limit: int = 3
     viewer_store_dir: str = ""  # Empty means the plugin data directory.
     stream_theme: str = ""
+    stream_sub_theme: str = ""
     stream_goal: str = ""
     stream_columns: str = ""
     stream_avoid_topics: str = ""
@@ -194,6 +195,7 @@ class LiveConfig:
                 else ""
             ),
             stream_theme=_safe_optional_text(raw.get("stream_theme"), max_len=120),
+            stream_sub_theme=_safe_optional_text(raw.get("stream_sub_theme"), max_len=120),
             stream_goal=_safe_optional_text(raw.get("stream_goal"), max_len=160),
             stream_columns=_safe_optional_text(raw.get("stream_columns"), max_len=160),
             stream_avoid_topics=_safe_optional_text(raw.get("stream_avoid_topics"), max_len=160),
@@ -270,6 +272,7 @@ class LiveConfig:
             ),
             "viewer_store_dir": public_text(self.viewer_store_dir),
             "stream_theme": public_text(self.stream_theme, max_len=120),
+            "stream_sub_theme": public_text(self.stream_sub_theme, max_len=120),
             "stream_goal": public_text(self.stream_goal, max_len=160),
             "stream_columns": public_text(self.stream_columns, max_len=160),
             "stream_avoid_topics": public_text(self.stream_avoid_topics, max_len=160),

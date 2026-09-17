@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+import urllib.request
 from collections import deque
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from plugin.plugins.neko_live.core.contracts import LiveRoomStatus
 from plugin.plugins.neko_live.core.runtime_live_listener import start_live_listener
 from plugin.plugins.neko_live.modules.bili_live_ingest import BiliLiveIngestModule, danmaku_core
 from plugin.plugins.neko_live.modules.bili_live_ingest.danmaku_core import (
@@ -14,6 +17,7 @@ from plugin.plugins.neko_live.modules.bili_live_ingest.danmaku_core import (
     DanmakuListener,
     _pack,
 )
+from plugin.plugins.neko_live.modules import bili_live_ingest as ingest_mod
 
 
 class _Audit:
@@ -80,6 +84,139 @@ def test_friendly_lookup_message_does_not_imply_accountless_listening() -> None:
     assert "直播间监听（弹幕）通常仍可用" not in message
     assert "已验证凭据" in message
     assert "已确认的直播间目标" in message
+
+
+def _logged_in_module() -> BiliLiveIngestModule:
+    module = BiliLiveIngestModule()
+    module.ctx = SimpleNamespace(
+        audit=_Audit(),
+        bili_credential=SimpleNamespace(
+            sessdata="sess",
+            bili_jct="jct",
+            dedeuserid="42",
+            buvid3="buvid",
+        ),
+    )
+    return module
+
+
+class _FakeHttpResponse:
+    def __init__(self, payload: dict[str, Any] | bytes, cookies: list[str] | None = None) -> None:
+        if isinstance(payload, bytes):
+            self._body = payload
+        else:
+            self._body = json.dumps(payload).encode("utf-8")
+        self.headers = SimpleNamespace(get_all=lambda _key: list(cookies or []))
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+
+def _ok_lookup_payload(room_id: int = 123) -> dict[str, Any]:
+    return {
+        "code": 0,
+        "data": {
+            "room_info": {"room_id": room_id, "title": "hi", "live_status": 1},
+            "anchor_info": {"base_info": {"uname": "alice"}},
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_lookup_skips_homepage_when_logged_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_urlopen(request, timeout):
+        calls.append({"url": request.full_url, "timeout": timeout})
+        assert "www.bilibili.com" not in request.full_url
+        return _FakeHttpResponse(_ok_lookup_payload(123))
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    status = await _logged_in_module().lookup_room_status(123)
+
+    assert status.ok is True
+    assert status.title == "hi"
+    assert status.anchor_name == "alice"
+    assert len(calls) == 1
+    assert "getInfoByRoom" in calls[0]["url"]
+    assert calls[0]["timeout"] == ingest_mod._LOOKUP_HTTP_TIMEOUT_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_lookup_does_not_retry_352_with_the_same_login_cookie(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_urlopen(request, timeout):
+        calls.append(request.full_url)
+        return _FakeHttpResponse({"code": -352, "message": "-352"})
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    status = await _logged_in_module().lookup_room_status(123)
+
+    assert status.ok is False
+    assert "-352" in status.message
+    assert calls == [
+        "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom?room_id=123",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_lookup_retries_once_on_352_when_anonymous(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_urlopen(request, timeout):
+        calls.append({"url": request.full_url, "timeout": timeout})
+        if request.full_url.startswith("https://www.bilibili.com"):
+            return _FakeHttpResponse(b"", cookies=["buvid3=anon-buvid; Path=/"])
+        if len([item for item in calls if "getInfoByRoom" in item["url"]]) == 1:
+            return _FakeHttpResponse({"code": -352, "message": "-352"})
+        return _FakeHttpResponse(_ok_lookup_payload(123))
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    module = _module()
+    status = await module.lookup_room_status(123)
+
+    assert status.ok is True
+    homepage = [item for item in calls if "www.bilibili.com" in item["url"]]
+    lookups = [item for item in calls if "getInfoByRoom" in item["url"]]
+    assert homepage
+    assert len(lookups) == 2
+    assert all(item["timeout"] == ingest_mod._BUVID3_HTTP_TIMEOUT_SECONDS for item in homepage)
+    assert all(item["timeout"] == ingest_mod._LOOKUP_HTTP_TIMEOUT_SECONDS for item in lookups)
+
+
+@pytest.mark.asyncio
+async def test_lookup_total_timeout_returns_before_hosted_ui_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert ingest_mod._LOOKUP_TOTAL_TIMEOUT_SECONDS < 30
+    assert (
+        ingest_mod._BUVID3_HTTP_TIMEOUT_SECONDS * 2
+        + ingest_mod._LOOKUP_HTTP_TIMEOUT_SECONDS * 2
+        <= ingest_mod._LOOKUP_TOTAL_TIMEOUT_SECONDS
+    )
+    monkeypatch.setattr(ingest_mod, "_LOOKUP_TOTAL_TIMEOUT_SECONDS", 0.05)
+
+    def slow_lookup(self, room_id: int) -> LiveRoomStatus:
+        time.sleep(0.4)
+        return LiveRoomStatus(room_id=room_id, ok=True, message="too late")
+
+    monkeypatch.setattr(BiliLiveIngestModule, "_lookup_room_status_sync", slow_lookup)
+    started = time.monotonic()
+    status = await _module().lookup_room_status(123)
+    elapsed = time.monotonic() - started
+
+    assert status.ok is False
+    assert "超时" in status.message
+    assert elapsed < 0.25
 
 
 @pytest.mark.asyncio

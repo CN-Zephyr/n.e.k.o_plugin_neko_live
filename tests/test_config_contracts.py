@@ -496,6 +496,7 @@ def test_roast_config_does_not_stringify_room_ref_or_platform_objects():
             "live_room_ref": _LooksLikeRoom(),
             "viewer_store_dir": _LooksLikeRoom(),
             "stream_theme": _LooksLikeRoom(),
+            "stream_sub_theme": _LooksLikeRoom(),
             "stream_goal": _LooksLikeRoom(),
             "stream_columns": _LooksLikeRoom(),
             "stream_avoid_topics": _LooksLikeRoom(),
@@ -508,6 +509,7 @@ def test_roast_config_does_not_stringify_room_ref_or_platform_objects():
     assert config.live_room_id == 0
     assert config.viewer_store_dir == ""
     assert config.stream_theme == ""
+    assert config.stream_sub_theme == ""
     assert config.stream_goal == ""
     assert config.stream_columns == ""
     assert config.stream_avoid_topics == ""
@@ -517,6 +519,7 @@ def test_roast_config_accepts_stream_theme_fields_as_public_text():
     config = LiveConfig.from_mapping(
         {
             "stream_theme": "  战雷陆战练车 + 轻松陪聊  ",
+            "stream_sub_theme": "  现在打陆战排位  ",
             "stream_goal": "让观众能知道猫猫正在围绕同一场直播营业",
             "stream_columns": "短评、接梗、低压二选一",
             "stream_avoid_topics": "不要催礼物，不要公开审判观众",
@@ -524,12 +527,14 @@ def test_roast_config_accepts_stream_theme_fields_as_public_text():
     )
 
     assert config.stream_theme == "战雷陆战练车 + 轻松陪聊"
+    assert config.stream_sub_theme == "现在打陆战排位"
     assert config.stream_goal == "让观众能知道猫猫正在围绕同一场直播营业"
     assert config.stream_columns == "短评、接梗、低压二选一"
     assert config.stream_avoid_topics == "不要催礼物，不要公开审判观众"
 
     public = config.to_public_dict()
     assert public["stream_theme"] == "战雷陆战练车 + 轻松陪聊"
+    assert public["stream_sub_theme"] == "现在打陆战排位"
     assert public["stream_goal"] == "让观众能知道猫猫正在围绕同一场直播营业"
     assert public["stream_columns"] == "短评、接梗、低压二选一"
     assert public["stream_avoid_topics"] == "不要催礼物，不要公开审判观众"
@@ -561,6 +566,7 @@ def test_roast_config_to_public_dict_is_public_projection_not_raw_asdict():
         safety_queue_overflow_limit=999999,
         viewer_store_dir=secret,  # type: ignore[arg-type]
         stream_theme=secret,  # type: ignore[arg-type]
+        stream_sub_theme=secret,  # type: ignore[arg-type]
         stream_goal=secret,  # type: ignore[arg-type]
         stream_columns=secret,  # type: ignore[arg-type]
         stream_avoid_topics=secret,  # type: ignore[arg-type]
@@ -589,6 +595,7 @@ def test_roast_config_to_public_dict_is_public_projection_not_raw_asdict():
     assert public["safety_queue_overflow_limit"] == 100
     assert public["viewer_store_dir"] == ""
     assert public["stream_theme"] == ""
+    assert public["stream_sub_theme"] == ""
     assert public["stream_goal"] == ""
     assert public["stream_columns"] == ""
     assert public["stream_avoid_topics"] == ""
@@ -652,6 +659,36 @@ def test_danmaku_response_prompt_uses_configured_stream_theme():
     assert "theme_name: NEKO tiny radio patrol" not in request.prompt_text
     assert "configured stream anchor" in request.prompt_text
     assert "human host set this" not in request.prompt_text
+    assert "current_segment_theme:" not in request.prompt_text
+
+
+def test_danmaku_response_prompt_uses_stream_sub_theme_as_current_segment():
+    module = DanmakuResponseModule()
+    module.ctx = SimpleNamespace(
+        config=LiveConfig(
+            roast_strength="normal",
+            dry_run=True,
+            stream_theme="战雷陆战练车 + 轻松陪聊",
+            stream_sub_theme="现在打陆战排位",
+        )
+    )
+    event = ViewerEvent(
+        uid="42",
+        nickname="viewer",
+        danmaku_text="这把能上分吗",
+        source="live_danmaku",
+        live_mode="solo_stream",
+    )
+
+    request = module.build_request(
+        event,
+        ViewerIdentity(uid="42", nickname="viewer"),
+        ViewerProfile(uid="42", nickname="viewer", roast_count=1),
+    )
+
+    assert "human_theme: 战雷陆战练车 + 轻松陪聊" in request.prompt_text
+    assert "current_segment_theme: 现在打陆战排位" in request.prompt_text
+    assert "prefer it over human_theme" in request.prompt_text
 
 
 def test_danmaku_response_prompt_uses_live_room_title_when_theme_is_blank():

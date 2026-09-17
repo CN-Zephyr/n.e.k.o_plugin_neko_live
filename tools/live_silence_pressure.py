@@ -49,6 +49,7 @@ RESTORE_KEYS = (
     "queue_limit",
     "activity_level",
     "stream_theme",
+    "stream_sub_theme",
     "stream_goal",
     "stream_columns",
     "stream_avoid_topics",

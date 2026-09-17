@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional
@@ -15,6 +16,14 @@ CredentialProvider = Callable[[], Awaitable[Optional[object]]]
 CredentialSaver = Callable[[Dict[str, str]], Awaitable[bool]]
 CredentialReloader = Callable[[], Awaitable[None]]
 QrCleanup = Callable[[], None]
+
+# Hosted UI 默认 30s 超时。资料接口和 passport 扫码接口近年常被风控拖住，
+# 没有上限时点「扫码登录」会空等一整段超时才出码。
+_PROFILE_FETCH_TIMEOUT_SECONDS = 3.0
+_CREDENTIAL_VALIDITY_TIMEOUT_SECONDS = 2.0
+_EXISTING_LOGIN_CHECK_TIMEOUT_SECONDS = 4.0
+_QR_GENERATE_TIMEOUT_SECONDS = 8.0
+_QR_POLL_TIMEOUT_SECONDS = 8.0
 
 
 class BiliAuthService:
@@ -57,8 +66,6 @@ class BiliAuthService:
             return None
         uid_text = str(getattr(credential, "dedeuserid", "") or "")
         try:
-            from bilibili_api import user
-
             uid = int(uid_text or 0)
             if uid <= 0:
                 if not await self._credential_is_valid(credential):
@@ -69,7 +76,7 @@ class BiliAuthService:
                     "uid": uid_text,
                     "username": "",
                 }
-            info = await user.User(uid=uid, credential=credential).get_user_info()
+            info = await self._fetch_user_info(uid, credential)
             return {
                 "status": "already_logged_in",
                 "message": "已登录B站，无需重复登录",
@@ -87,7 +94,13 @@ class BiliAuthService:
             return None
 
     async def login(self) -> Dict[str, Any]:
-        existing = await self._check_existing_login()
+        try:
+            existing = await asyncio.wait_for(
+                self._check_existing_login(),
+                timeout=_EXISTING_LOGIN_CHECK_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            existing = None
         if existing:
             return existing
 
@@ -96,7 +109,14 @@ class BiliAuthService:
 
         QrCodeLogin, _ = self._require_login_sdk()
         self._login_session = QrCodeLogin()
-        await self._login_session.generate_qrcode()
+        try:
+            await asyncio.wait_for(
+                self._login_session.generate_qrcode(),
+                timeout=_QR_GENERATE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as exc:
+            self.clear_qr_session()
+            raise RuntimeError("获取二维码超时，请检查网络后重试。") from exc
         self._login_generated_at = time.time()
         pic = self._login_session.get_qrcode_picture()
         png_bytes = pic.content
@@ -123,7 +143,13 @@ class BiliAuthService:
             }
 
         _, QrCodeLoginEvents = self._require_login_sdk()
-        state = await self._login_session.check_state()
+        try:
+            state = await asyncio.wait_for(
+                self._login_session.check_state(),
+                timeout=_QR_POLL_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as exc:
+            raise RuntimeError("检查扫码状态超时，请稍后重试。") from exc
         none_state = getattr(QrCodeLoginEvents, "NONE", None)
         if none_state is not None and state == none_state:
             return {"status": "waiting", "message": "等待扫码...", "next_step": "请用B站App扫描二维码"}
@@ -163,12 +189,10 @@ class BiliAuthService:
 
             username = ""
             try:
-                from bilibili_api import user as user_module
-
                 uid = int(getattr(cred, "dedeuserid", 0) or 0)
                 if uid > 0:
                     fresh_cred = await self._credential_provider()
-                    user_info = await user_module.User(uid=uid, credential=fresh_cred).get_user_info()
+                    user_info = await self._fetch_user_info(uid, fresh_cred)
                     username = user_info.get("name", "")
             except Exception:
                 if self.logger:
@@ -189,9 +213,7 @@ class BiliAuthService:
             return {"logged_in": False, "message": "未登录，请调用 bili_login 进行扫码登录"}
         uid = str(getattr(credential, "dedeuserid", "") or "")
         try:
-            from bilibili_api import user
-
-            info = await user.User(uid=int(uid or 0), credential=credential).get_user_info()
+            info = await self._fetch_user_info(int(uid or 0), credential)
             return {
                 "logged_in": True,
                 "uid": uid,
@@ -209,11 +231,24 @@ class BiliAuthService:
             return {"logged_in": False, "message": "credential may be invalid; please login again"}
 
     @staticmethod
+    async def _fetch_user_info(uid: int, credential: object) -> Dict[str, Any]:
+        from bilibili_api import user
+
+        info = await asyncio.wait_for(
+            user.User(uid=uid, credential=credential).get_user_info(),
+            timeout=_PROFILE_FETCH_TIMEOUT_SECONDS,
+        )
+        return info if isinstance(info, dict) else {}
+
+    @staticmethod
     async def _credential_is_valid(credential: object) -> bool:
         checker = getattr(credential, "check_valid", None)
         if not callable(checker):
             return False
         try:
-            return await checker() is True
+            return await asyncio.wait_for(
+                checker(),
+                timeout=_CREDENTIAL_VALIDITY_TIMEOUT_SECONDS,
+            ) is True
         except Exception:
             return False

@@ -190,6 +190,7 @@ def _live_scene_signature(runtime: Any) -> str:
     payload = {
         "mode": public_text(getattr(config, "live_mode", ""), max_len=40),
         "theme": public_text(getattr(config, "stream_theme", ""), max_len=120),
+        "sub_theme": public_text(getattr(config, "stream_sub_theme", ""), max_len=120),
         "goal": public_text(getattr(config, "stream_goal", ""), max_len=160),
         "columns": public_text(getattr(config, "stream_columns", ""), max_len=160),
         "avoid": public_text(getattr(config, "stream_avoid_topics", ""), max_len=160),
@@ -207,6 +208,7 @@ def _live_scene_text(runtime: Any) -> str:
         room = {}
     live_mode = public_text(getattr(config, "live_mode", "co_stream"), max_len=40) or "co_stream"
     stream_theme = public_text(getattr(config, "stream_theme", ""), max_len=120)
+    stream_sub_theme = public_text(getattr(config, "stream_sub_theme", ""), max_len=120)
     room_title = public_text(room.get("title", ""), max_len=120)
     anchor_name = public_text(room.get("anchor_name", ""), max_len=80)
     stream_goal = public_text(getattr(config, "stream_goal", ""), max_len=160)
@@ -234,6 +236,11 @@ def _live_scene_text(runtime: Any) -> str:
         lines.append(f"- stream_theme: {stream_theme}")
     elif room_title:
         lines.append(f"- live_room_title: {room_title}")
+    if stream_sub_theme:
+        lines.append(f"- stream_sub_theme: {stream_sub_theme}")
+        lines.append(
+            "- current_segment_rule: prefer stream_sub_theme over stream_theme for this stretch; do not announce either."
+        )
     if anchor_name:
         lines.append(f"- anchor_name: {anchor_name}")
     if stream_goal:

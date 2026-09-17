@@ -23,6 +23,7 @@ export type LiveConfig = {
   dry_run?: boolean
   viewer_store_dir?: string
   stream_theme?: string
+  stream_sub_theme?: string
   stream_goal?: string
   stream_columns?: string
   stream_avoid_topics?: string
@@ -79,6 +80,7 @@ export const configDefaults = {
   dry_run: false,
   viewer_store_dir: "",
   stream_theme: "",
+  stream_sub_theme: "",
   stream_goal: "",
   stream_columns: "",
   stream_avoid_topics: "",

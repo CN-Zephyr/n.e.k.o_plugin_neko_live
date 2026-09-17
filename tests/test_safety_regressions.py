@@ -1,4 +1,5 @@
 import asyncio
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -397,6 +398,167 @@ async def test_bili_existing_login_without_uid_requires_valid_credential():
     assert invalid_result is None
     assert valid.validity_checks == 1
     assert invalid.validity_checks == 1
+
+
+class _HangingCredential:
+    def __init__(self, uid: str = "42") -> None:
+        self.dedeuserid = uid
+        self.validity_checks = 0
+
+    async def check_valid(self) -> bool:
+        self.validity_checks += 1
+        await asyncio.sleep(30)
+        return True
+
+
+class _QrLoginStub:
+    async def generate_qrcode(self) -> None:
+        return None
+
+    def get_qrcode_picture(self):
+        return SimpleNamespace(content=b"png")
+
+    def get_qrcode_terminal(self) -> str:
+        return "QR"
+
+
+@pytest.mark.asyncio
+async def test_bili_login_hanging_profile_still_shows_qr_quickly(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from bilibili_api import user as bili_user_module
+    from plugin.plugins.neko_live.adapters import bili_auth_service as auth_mod
+
+    monkeypatch.setattr(auth_mod, "_PROFILE_FETCH_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(auth_mod, "_CREDENTIAL_VALIDITY_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(auth_mod, "_EXISTING_LOGIN_CHECK_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(auth_mod, "_QR_GENERATE_TIMEOUT_SECONDS", 1.0)
+
+    class User:
+        def __init__(self, *, uid: int, credential: object) -> None:
+            assert uid == 42
+            assert credential is not None
+
+        async def get_user_info(self) -> dict[str, str]:
+            await asyncio.sleep(5)
+            return {"name": "late"}
+
+    monkeypatch.setattr(bili_user_module, "User", User)
+    service = _bili_auth_for_credential(_HangingCredential())
+    service._require_login_sdk = lambda: (_QrLoginStub, object)
+
+    started = time.monotonic()
+    result = await service.login()
+    elapsed = time.monotonic() - started
+
+    assert result["status"] == "qrcode_ready"
+    assert result["qrcode_image"].startswith("data:image/png;base64,")
+    assert elapsed < 1.0
+    assert service._login_session is not None
+
+
+@pytest.mark.asyncio
+async def test_bili_login_generate_qrcode_timeout_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from plugin.plugins.neko_live.adapters import bili_auth_service as auth_mod
+
+    monkeypatch.setattr(auth_mod, "_QR_GENERATE_TIMEOUT_SECONDS", 0.05)
+
+    class SlowQrLogin:
+        async def generate_qrcode(self) -> None:
+            await asyncio.sleep(5)
+
+        def get_qrcode_picture(self):
+            raise AssertionError("timed-out QR generation must not build an image")
+
+    async def no_credential():
+        return None
+
+    service = BiliAuthService(
+        credential_provider=no_credential,
+        credential_saver=lambda _payload: True,
+        credential_reloader=lambda: None,
+    )
+    service._require_login_sdk = lambda: (SlowQrLogin, object)
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="获取二维码超时"):
+        await service.login()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0
+    assert service._login_session is None
+
+
+@pytest.mark.asyncio
+async def test_bili_login_check_hanging_poll_fails_quickly(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from plugin.plugins.neko_live.adapters import bili_auth_service as auth_mod
+
+    monkeypatch.setattr(auth_mod, "_QR_POLL_TIMEOUT_SECONDS", 0.05)
+
+    class Events:
+        NONE = object()
+        SCAN = object()
+        CONF = object()
+        TIMEOUT = object()
+        DONE = object()
+
+    class Session:
+        async def check_state(self):
+            await asyncio.sleep(5)
+            return Events.NONE
+
+    service = BiliAuthService(
+        credential_provider=lambda: None,
+        credential_saver=lambda _payload: True,
+        credential_reloader=lambda: None,
+    )
+    service._login_session = Session()
+    service._require_login_sdk = lambda: (object, Events)
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="检查扫码状态超时"):
+        await service.login_check()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0
+
+
+@pytest.mark.asyncio
+async def test_bili_credential_hanging_profile_falls_back_to_validity(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from bilibili_api import user as bili_user_module
+    from plugin.plugins.neko_live.adapters import bili_auth_service as auth_mod
+
+    monkeypatch.setattr(auth_mod, "_PROFILE_FETCH_TIMEOUT_SECONDS", 0.05)
+
+    class User:
+        def __init__(self, *, uid: int, credential: object) -> None:
+            assert uid == 42
+            assert credential is not None
+
+        async def get_user_info(self) -> dict[str, str]:
+            await asyncio.sleep(5)
+            return {"name": "late"}
+
+    monkeypatch.setattr(bili_user_module, "User", User)
+    credential = _CredentialCheckStub(valid=True)
+    started = time.monotonic()
+    result = await _bili_auth_for_credential(credential).check_credential()
+    elapsed = time.monotonic() - started
+
+    assert result == {
+        "logged_in": True,
+        "uid": "42",
+        "username": "",
+        "message": "credential valid; account profile temporarily unavailable",
+    }
+    assert credential.validity_checks == 1
+    assert elapsed < 1.0
 
 
 @pytest.mark.asyncio

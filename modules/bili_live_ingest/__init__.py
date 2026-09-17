@@ -26,6 +26,13 @@ from ..live_events.provider_event import (
 SUPPORT_EVENT_DEDUPE_SECONDS = 0.35
 SUPPORT_EVENT_DEDUPE_LIMIT = 4096
 
+# Hosted UI 默认 30s。匿名查询最多：首页 buvid3 + getInfoByRoom + -352 再来一轮。
+# 每段 8s 会叠到 32s，面板直接报超时。登录态下首页请求和同 cookie 重试都是空转。
+# 匿名最坏 3+4+3+4=14s；总预算必须盖住这条路径，又远低于 30s。
+_BUVID3_HTTP_TIMEOUT_SECONDS = 3.0
+_LOOKUP_HTTP_TIMEOUT_SECONDS = 4.0
+_LOOKUP_TOTAL_TIMEOUT_SECONDS = 16.0
+
 
 class _ListenerLog:
     """把 DanmakuListener 的日志收敛到 audit：info/debug 丢弃（避免刷屏+隐私），warning/error 入 audit。"""
@@ -610,7 +617,12 @@ class BiliLiveIngestModule(BaseModule):
         if room_id <= 0:
             return LiveRoomStatus(room_id=0, ok=False, message="room_id must be positive")
         try:
-            return await asyncio.to_thread(self._lookup_room_status_sync, room_id)
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._lookup_room_status_sync, room_id),
+                timeout=_LOOKUP_TOTAL_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            return LiveRoomStatus(room_id=room_id, ok=False, message="查询直播间超时，请稍后重试。")
         except Exception as exc:
             return LiveRoomStatus(
                 room_id=room_id,
@@ -644,7 +656,7 @@ class BiliLiveIngestModule(BaseModule):
                 "https://www.bilibili.com",
                 headers={"User-Agent": self._BROWSER_HEADERS["User-Agent"], "Accept": "text/html"},
             )
-            with urllib.request.urlopen(request, timeout=8) as response:
+            with urllib.request.urlopen(request, timeout=_BUVID3_HTTP_TIMEOUT_SECONDS) as response:
                 lines = response.headers.get_all("Set-Cookie") or []
             return self._parse_buvid3_from_cookies(lines)
         except Exception:
@@ -680,10 +692,15 @@ class BiliLiveIngestModule(BaseModule):
         cached = self._room_status_cache.get(room_id)
         if cached and (now - cached[1]) < self._room_status_ttl:
             return cached[0]
-        status, code = self._do_room_lookup(room_id, self._get_buvid3())
-        if code == -352:
-            # 风控：刷新 buvid3 再试一次（只重试一次，别硬刷加重风控）
-            status, code = self._do_room_lookup(room_id, self._get_buvid3(force=True))
+        login_cookie = self._credential_cookie()
+        if login_cookie:
+            # 登录态 cookie 已经覆盖 buvid3；再打首页或用同一 cookie 重试只会空耗超时。
+            status, _code = self._do_room_lookup(room_id, buvid3="")
+        else:
+            status, code = self._do_room_lookup(room_id, self._get_buvid3())
+            if code == -352:
+                # 风控：刷新 buvid3 再试一次（只重试一次，别硬刷加重风控）
+                status, _code = self._do_room_lookup(room_id, self._get_buvid3(force=True))
         if status.ok:
             self._room_status_cache[room_id] = (status, now)
         return status
@@ -699,7 +716,7 @@ class BiliLiveIngestModule(BaseModule):
             headers["Cookie"] = cookie
         request = urllib.request.Request(url, headers=headers)
         try:
-            with urllib.request.urlopen(request, timeout=8) as response:
+            with urllib.request.urlopen(request, timeout=_LOOKUP_HTTP_TIMEOUT_SECONDS) as response:
                 payload = json.loads(response.read().decode("utf-8", errors="replace"))
         except (urllib.error.URLError, TimeoutError) as exc:
             return LiveRoomStatus(room_id=room_id, ok=False, message=f"network error: {type(exc).__name__}"), -1

@@ -673,7 +673,7 @@ UI 侧：3 个 room action 的 `room_id` input_schema 收 `string`、handler 传
 「查询直播间」和「弹幕监听」走**两条不同网络路径**，反爬健壮性不同：
 
 - **弹幕 WS 路径**（`connect_live_room` → `bili_live_ingest.start_listening` → `danmaku_core.DanmakuListener`）：runtime 和 provider 入口都要求已验证并已装载的 B 站登录凭据；随后复用 WBI 签名、浏览器 headers、多服务器故障转移和断线重连。缺少凭据时不会构造 listener。
-- **查询 HTTP 路径**（`lookup_live_room` → `bili_live_ingest._lookup_room_status_sync`，urllib + `to_thread`）：A1 已补临时 buvid3 cookie + 浏览器 headers（`getInfoByRoom` **不需** WBI 签名——WS 的 `_get_real_room_id` 调它也没签）。但匿名 buvid3 在 IP 被重度风控时仍可能 `code=-352`，彻底消除需登录态。
+- **查询 HTTP 路径**（`lookup_live_room` → `bili_live_ingest.lookup_room_status` / `_lookup_room_status_sync`，urllib + `to_thread`）：A1 已补临时 buvid3 cookie + 浏览器 headers（`getInfoByRoom` **不需** WBI 签名——WS 的 `_get_real_room_id` 调它也没签）。HTTP 与总查询都有短超时，避免叠满 Hosted UI 30s。但匿名 buvid3 在 IP 被重度风控时仍可能 `code=-352`，彻底消除需登录态。
 
 **已落地处理（友好降级，非根治）**：
 - `BiliLiveIngestModule._friendly_lookup_message(code, raw)` 把失败码翻成人话：`-352` → 「B站风控校验失败（-352）：查询被反爬拦截，可稍后重试/换网络/登录后再查；底层弹幕传输可能技术可达，但监听仍须等待已验证凭据和已确认的直播间目标」；房间不存在（`code in {1, 19002000}` / 含「不存在」「未找到」）→ 「请确认房间号」；其它非零码 → 带 `code` + 原始 message（不再裸码）。
@@ -682,14 +682,16 @@ UI 侧：3 个 room action 的 `room_id` input_schema 收 `string`、handler 传
 **已落地（A1，反 -352，2026-06-17）**：`_lookup_room_status_sync` 重构为
 1. **临时 buvid3**：`_fetch_buvid3_sync` 访问 B站首页从 Set-Cookie 抽 buvid3（`_parse_buvid3_from_cookies`），`_get_buvid3(force=)` 带 6h TTL 缓存；
 2. **浏览器 headers**：`_BROWSER_HEADERS`（UA/Accept/Accept-Language/Origin）+ 每房 Referer + `Cookie: buvid3=...`；
-3. **撞 -352 重试一次**：`_do_room_lookup` 返回 `(status, code)`；`code==-352` 时刷新 buvid3 再试一次（只一次，别硬刷加重风控）；
+3. **撞 -352 重试一次**：`_do_room_lookup` 返回 `(status, code)`；`code==-352` 时刷新 buvid3 再试一次（只一次，别硬刷加重风控）；**仅匿名路径**。已登录则跳过首页 buvid3 与同 cookie 重试，只打一次 `getInfoByRoom`；
 4. **成功短期缓存**：`_room_status_cache` 按 room_id 缓存 60s，避免重复请求。
+
+**已落地（查询超时，2026-09-17）**：Hosted UI `api.call` 默认 30s。原先每段 urllib 8s，匿名最多首页 + 查询 + 刷新首页 + 再查 = 32s，面板直接报超时；登录态仍会打首页并用同一 cookie 重试，纯空转。现在首页 buvid3 3s、`getInfoByRoom` 4s，整次 lookup 总预算 16s（盖住匿名最坏 3+4+3+4=14s，远低于 30s）；超时返回「查询直播间超时，请稍后重试。」，不再空等 Hosted UI 上限。
 
 **关键认知**：**查询失败不等于底层 WS 一定不可连接**。lookup 撞 -352 时，弹幕 WS 传输在技术上可能仍可达；这种可达性不改变产品认证门槛，未验证并装载凭据时 runtime 与 provider 都不得启动监听。当前产品还要求先查询并确认直播间，正常面板不会在未确认目标时开放“开始直播”。不得绕过认证或确认流程；应优先登录、重试查询或更换网络，避免把可能可连误当成已经确认连接了正确房间。
 
 **稳定方向**：A1 只降低 -352 频率（匿名 buvid3 + 退避缓存），**重度风控 IP 仍可能撞墙**；P5 登录态已落地并作为正常产品路径，使用 `bili_auth_service.py` 取得 SESSDATA/buvid3。2026-06-17 真机：本机连日测试已重度风控，匿名 buvid3 能抓到（len=46）但 `getInfoByRoom` 4 房间仍一致 -352；扫码登录后同房 lookup 恢复，证明匿名不足、登录路径有效。
 
-测试：`test_friendly_lookup_message_translates_risk_control_and_codes`（码→人话映射）、`test_parse_buvid3_from_cookies`（buvid3 抽取）、`test_lookup_retries_once_on_352_with_fresh_buvid3`（-352 刷新 buvid3 重试）、`test_lookup_caches_successful_result`（成功缓存）。
+测试：`test_friendly_lookup_message_does_not_imply_accountless_listening`（码→人话，不暗示无账号监听）、`test_lookup_skips_homepage_when_logged_in`（登录态不打首页）、`test_lookup_does_not_retry_352_with_the_same_login_cookie`（登录态 -352 不空转重试）、`test_lookup_retries_once_on_352_when_anonymous`（匿名仍刷新 buvid3 再试一次）、`test_lookup_total_timeout_returns_before_hosted_ui_limit`（总预算低于 Hosted UI 30s）。
 
 ## B站登录态（P5）
 
@@ -699,7 +701,7 @@ UI 侧：3 个 room action 的 `room_id` input_schema 收 `string`、handler 传
 
 **安全模型**：凭据（SESSDATA/bili_jct/DedeUserID/buvid3）经 **Fernet 对称加密**落盘到 per-plugin data 目录（`plugin.data_path()`），密钥 `bili_credential.key` + 密文 `bili_credential.enc` 分别 `chmod 600`（非 Windows）。**凭据绝不写 audit / log / config / UI**——只回显 uid / 用户名 / 是否登录。可**本地注销**（删 key+enc）。
 
-登录状态校验和“开始登录前检查既有账号”都优先复用用户资料请求；资料请求成功时不会追加第二次校验。若资料接口瞬时异常，才调用 SDK 凭据有效性检查兜底：凭据仍有效时保持登录态但暂时不返回用户名，也不会错误生成新二维码；凭据检查失败或异常时才要求重新扫码。缺少可用 UID 的旧凭据也必须先通过该校验，不能仅凭本地文件存在就声明已登录。该兜底不做后台轮询、不记录异常正文或凭据，只在异常路径增加一次网络请求。
+登录状态校验和“开始登录前检查既有账号”都优先复用用户资料请求；资料请求成功时不会追加第二次校验。若资料接口瞬时异常，才调用 SDK 凭据有效性检查兜底：凭据仍有效时保持登录态但暂时不返回用户名，也不会错误生成新二维码；凭据检查失败或异常时才要求重新扫码。缺少可用 UID 的旧凭据也必须先通过该校验，不能仅凭本地文件存在就声明已登录。资料请求、凭据校验、二维码生成与扫码轮询都必须有短超时（资料 3s、校验 2s、既有登录检查总计 4s、生码/轮询 8s）；超时后不得继续空等到 Hosted UI 的 30s 上限。点「扫码登录」时既有登录检查超时则直接出新码。该兜底不做后台轮询、不记录异常正文或凭据，只在异常路径增加一次网络请求。
 
 **责任模块 / 入口数据流**：
 - `stores/credential_store.py` `CredentialStore`：命名空间加密 `save`/`load`/`delete`；默认 `bili` namespace 保持旧 `bili_credential.*` 文件名，抖音等新平台使用独立 `{namespace}_credential.*` 文件；`build_credential()` 仍只服务 B 站 `bilibili_api.Credential`，走 `to_thread` 不阻塞。
@@ -975,9 +977,9 @@ danmaku_core on_event(cmd, 富模型)
 
 任何需要让猫猫回应的功能都必须通过 `NekoDispatcher`。不要在模块里直接调用 `plugin.push_message()`。
 
-直播开启后允许注入一份**轻全局直播情景**，用于保证真实直播质量；它只能走 `NekoDispatcher.push_context_instructions()` / `ai_behavior="read"`，不能由 runtime、module 或 UI action 直接 `plugin.push_message()`。`sync_live_instructions()` 通常在 `live_enabled=true`、`dry_run=false`、直播连接可用且 `live_status_summary=ready_to_stream` 时注入；但 provider 的房间查询可能滞后或误报 `offline`，此时用户已经显式开始直播且 listener 同时报告 `connected=true`、`listening=true`，可把这组运行事实作为仅限直播情景注入的权威入口。已连接并监听的会话在输出冷却、手动暂停或短暂 safety gate 期间仍保留直播情景；这些状态只阻止本次输出，不代表直播会话结束。dry-run、listener 断连、未配置房间、关闭直播等稳定终态才 fail closed 并在必要时 restore。轻全局情景只允许包含直播身份、`live_mode`、独播/人猫同播角色边界、观众对象、禁止提主人/后台/操作员、短 TTS 输出边界，以及 `stream_theme` 的短主题锚点。当前弹幕、头像、UID、冷场/暖场节奏、具体回复合约和 recent-output 负例仍必须收束在插件发出的单次 `respond` 事件 prompt 内。
+直播开启后允许注入一份**轻全局直播情景**，用于保证真实直播质量；它只能走 `NekoDispatcher.push_context_instructions()` / `ai_behavior="read"`，不能由 runtime、module 或 UI action 直接 `plugin.push_message()`。`sync_live_instructions()` 通常在 `live_enabled=true`、`dry_run=false`、直播连接可用且 `live_status_summary=ready_to_stream` 时注入；但 provider 的房间查询可能滞后或误报 `offline`，此时用户已经显式开始直播且 listener 同时报告 `connected=true`、`listening=true`，可把这组运行事实作为仅限直播情景注入的权威入口。已连接并监听的会话在输出冷却、手动暂停或短暂 safety gate 期间仍保留直播情景；这些状态只阻止本次输出，不代表直播会话结束。dry-run、listener 断连、未配置房间、关闭直播等稳定终态才 fail closed 并在必要时 restore。轻全局情景只允许包含直播身份、`live_mode`、独播/人猫同播角色边界、观众对象、禁止提主人/后台/操作员、短 TTS 输出边界，以及 `stream_theme` / `stream_sub_theme` 的短主题锚点。当前弹幕、头像、UID、冷场/暖场节奏、具体回复合约和 recent-output 负例仍必须收束在插件发出的单次 `respond` 事件 prompt 内。
 
-轻全局直播情景必须可清理：显式断开直播间、关闭 `live_enabled`、listener 断连、切换直播模式、短主题签名变化或插件管理器整体停止时，通过 `NekoDispatcher.push_context_restore()` 退出旧语境，再按新签名决定是否重新注入。保存 `live_mode`、`stream_theme`、`stream_goal`、`stream_columns` 或 `stream_avoid_topics` 后会立刻按签名同步；随后到达的配置回调若签名相同应保持无操作。旧配置中只有数字 `live_room_id`、`live_room_ref` 为空时，规范化不得把主题或模式单独保存误判成用户换房；只有当前更新显式携带且实际修改平台 / 房间字段时，才允许把情景同步延后到重连。单独的房间查询 `offline/preparing` 只在 listener 未连接时触发清理，不能覆盖用户已开始且正在收事件的会话。直播情景、开发者模式和 co-stream 房间快照都使用各自稳定 key 的宿主可替换覆盖层；restore 发送同 key 的过期事件，不进入 callback/hot-swap 队列，也不触发模型回复。宿主会在角色管理器中有界保留当前覆盖层：Realtime 活跃会话和 pending 热切换会话同步更新，新会话 connect 后重新应用；无活跃会话时保留到下一次 connect；离线历史只能追加当前状态或过期标记；Gemini 因缺少无回复更新能力而 fail closed。
+轻全局直播情景必须可清理：显式断开直播间、关闭 `live_enabled`、listener 断连、切换直播模式、短主题签名变化或插件管理器整体停止时，通过 `NekoDispatcher.push_context_restore()` 退出旧语境，再按新签名决定是否重新注入。保存 `live_mode`、`stream_theme`、`stream_sub_theme`、`stream_goal`、`stream_columns` 或 `stream_avoid_topics` 后会立刻按签名同步；随后到达的配置回调若签名相同应保持无操作。旧配置中只有数字 `live_room_id`、`live_room_ref` 为空时，规范化不得把主题或模式单独保存误判成用户换房；只有当前更新显式携带且实际修改平台 / 房间字段时，才允许把情景同步延后到重连。单独的房间查询 `offline/preparing` 只在 listener 未连接时触发清理，不能覆盖用户已开始且正在收事件的会话。直播情景、开发者模式和 co-stream 房间快照都使用各自稳定 key 的宿主可替换覆盖层；restore 发送同 key 的过期事件，不进入 callback/hot-swap 队列，也不触发模型回复。宿主会在角色管理器中有界保留当前覆盖层：Realtime 活跃会话和 pending 热切换会话同步更新，新会话 connect 后重新应用；无活跃会话时保留到下一次 connect；离线历史只能追加当前状态或过期标记；Gemini 因缺少无回复更新能力而 fail closed。
 
 提示词覆盖层的注入、恢复和开发者模式切换共用一个 runtime-local `asyncio.Lock`，耗时宿主提交仍不新增 worker 或第二套队列。意外断线产生的异步 restore 必须在新 listener 认领会话前完成，避免旧完成清空新情景身份。宿主边界异常只允许审计固定操作名与异常类型，不得保留异常正文。provider 房间标题、主播名、观众昵称、UID、弹幕和头像元数据进入 prompt 前必须压成有界单行，并显式标记为不可信公开数据；它们可以作为回复事实，不能成为改变规则、索取隐藏上下文或要求执行动作的指令。
 

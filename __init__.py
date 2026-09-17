@@ -166,6 +166,7 @@ class NekoLivePlugin(NekoPluginBase):
                 "roast_once_per_uid": {"type": "boolean"},
                 "viewer_memory_enabled": {"type": "boolean"},
                 "stream_theme": {"type": "string"},
+                "stream_sub_theme": {"type": "string"},
                 "stream_goal": {"type": "string"},
                 "stream_columns": {"type": "string"},
                 "stream_avoid_topics": {"type": "string"},

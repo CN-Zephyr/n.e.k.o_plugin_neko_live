@@ -198,6 +198,9 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
     stream_columns: "",
     stream_avoid_topics: "",
   })
+  const [subThemeDraft, setSubThemeDraft] = useState("")
+  const subThemeDirtyRef = useRef(false)
+  const subThemeSavingRef = useRef(false)
   const [pacingDraft, setPacingDraft] = useState({
     activity_level: "standard",
     rate_limit_seconds: "20",
@@ -268,6 +271,7 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
       dry_run: config.dry_run === true,
       viewer_store_dir: String(config.viewer_store_dir || ""),
       stream_theme: String(config.stream_theme || ""),
+      stream_sub_theme: String(config.stream_sub_theme || ""),
       stream_goal: String(config.stream_goal || ""),
       stream_columns: String(config.stream_columns || ""),
       stream_avoid_topics: String(config.stream_avoid_topics || ""),
@@ -297,10 +301,16 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
     config.dry_run,
     config.viewer_store_dir,
     config.stream_theme,
+    config.stream_sub_theme,
     config.stream_goal,
     config.stream_columns,
     config.stream_avoid_topics,
   ])
+
+  useEffect(() => {
+    if (subThemeDirtyRef.current) return
+    setSubThemeDraft(String(config.stream_sub_theme || configForm.values.stream_sub_theme || ""))
+  }, [config.stream_sub_theme])
 
   useEffect(() => {
     const state = String(connection.state || "")
@@ -444,6 +454,27 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
     }
   }
 
+  async function saveSubThemeSettings() {
+    const next = subThemeDraft.trim()
+    const current = String(configForm.values.stream_sub_theme || "").trim()
+    if (next === current) {
+      subThemeDirtyRef.current = false
+      return true
+    }
+    if (subThemeSavingRef.current) return false
+    subThemeSavingRef.current = true
+    try {
+      const saved = await saveConfig({ stream_sub_theme: next })
+      if (saved) {
+        subThemeDirtyRef.current = false
+        setSubThemeDraft(next)
+      }
+      return saved
+    } finally {
+      subThemeSavingRef.current = false
+    }
+  }
+
   const pacingCooldownText = pacingDraft.rate_limit_seconds.trim()
   const pacingCooldownSeconds = Number(pacingCooldownText)
   const pacingCooldownValid = /^\d+$/.test(pacingCooldownText)
@@ -568,6 +599,7 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
 
   async function connectRoom() {
     if (connectPending || sessionInProgress) return
+    await saveSubThemeSettings()
     const roomRef = String(
       configForm.values.live_room_ref ||
       configForm.values.live_room_id ||
@@ -1380,6 +1412,25 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
             <Button tone="default" onClick={() => { openConsoleDialog("theme") }}>{t("panel.streamTheme.title")}</Button>
             <Button tone="default" onClick={() => { openConsoleDialog("pacing") }}>{t("panel.pacing.title")}</Button>
           </Grid>
+          <Field label={t("panel.fields.streamSubTheme")}>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "8px", alignItems: "center" }}>
+              <Input
+                value={subThemeDraft}
+                onChange={(value) => {
+                  subThemeDirtyRef.current = true
+                  setSubThemeDraft(value)
+                }}
+              />
+              <Button
+                tone="success"
+                disabled={subThemeDraft.trim() === String(configForm.values.stream_sub_theme || "").trim()}
+                onClick={() => { void saveSubThemeSettings() }}
+              >
+                {t("panel.streamSubTheme.save")}
+              </Button>
+            </div>
+          </Field>
+          <Text>{t("panel.streamSubTheme.hint")}</Text>
           <div
             className="neko-live-inline-control"
             aria-label={t("panel.console.runtimeTitle")}

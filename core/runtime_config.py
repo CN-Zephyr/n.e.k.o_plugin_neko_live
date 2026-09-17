@@ -39,6 +39,7 @@ _LIVE_SCENE_CONFIG_KEYS = frozenset(
         "active_engagement_enabled",
         "live_mode",
         "stream_theme",
+        "stream_sub_theme",
         "stream_goal",
         "stream_columns",
         "stream_avoid_topics",
