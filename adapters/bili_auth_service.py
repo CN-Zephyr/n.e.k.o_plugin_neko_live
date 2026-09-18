@@ -100,6 +100,14 @@ class BiliAuthService:
                 timeout=_EXISTING_LOGIN_CHECK_TIMEOUT_SECONDS,
             )
         except TimeoutError:
+            credential = await self._credential_provider()
+            if _has_local_sessdata(credential):
+                return {
+                    "status": "already_logged_in",
+                    "message": "B站凭据有效；账号资料暂不可用。",
+                    "uid": str(getattr(credential, "dedeuserid", "") or ""),
+                    "username": "",
+                }
             existing = None
         if existing:
             return existing
@@ -244,11 +252,19 @@ class BiliAuthService:
     async def _credential_is_valid(credential: object) -> bool:
         checker = getattr(credential, "check_valid", None)
         if not callable(checker):
-            return False
+            return _has_local_sessdata(credential)
         try:
             return await asyncio.wait_for(
                 checker(),
                 timeout=_CREDENTIAL_VALIDITY_TIMEOUT_SECONDS,
             ) is True
+        except TimeoutError:
+            return _has_local_sessdata(credential)
         except Exception:
             return False
+
+
+def _has_local_sessdata(credential: object | None) -> bool:
+    if credential is None:
+        return False
+    return bool(str(getattr(credential, "sessdata", "") or "").strip())

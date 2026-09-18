@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from .contracts import LiveConfig
 from .runtime_live_listener import refresh_live_room_context
 from .runtime_live_target import release_live_target_if_scene_restored
+
+_CONNECT_ROOM_CONTEXT_TIMEOUT_SECONDS = 4.0
 
 
 def _flush_runtime_log(runtime: Any, reason: str) -> None:
@@ -232,7 +235,7 @@ async def connect_live_room(
         runtime.live_connection_auth_mode = auth_mode
     if runtime.live_provider.is_listening() and target_room_ref == runtime.live_provider.configured_room_ref():
         return runtime.live_connection_snapshot()
-    await refresh_live_room_context(runtime, target_room_ref)
+    await _refresh_connect_room_context(runtime, target_room_ref)
     runtime.config.live_enabled = True
     started = await runtime._start_live_listener(target_room_ref)
     if not started:
@@ -256,6 +259,32 @@ async def connect_live_room(
         },
     )
     return runtime.live_connection_snapshot()
+
+
+async def _refresh_connect_room_context(runtime: Any, room_ref: str) -> None:
+    if _live_room_context_is_current(runtime, room_ref):
+        return
+    try:
+        await asyncio.wait_for(
+            refresh_live_room_context(runtime, room_ref),
+            timeout=_CONNECT_ROOM_CONTEXT_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        runtime.audit.record(
+            "live_room_context_lookup_timeout",
+            "room context lookup exceeded connect budget; starting listener anyway",
+            level="warning",
+            detail={"room_ref": str(room_ref or "")[:120]},
+        )
+
+
+def _live_room_context_is_current(runtime: Any, room_ref: str) -> bool:
+    context = getattr(runtime, "live_room_context", None)
+    if not isinstance(context, dict):
+        return False
+    if str(context.get("room_ref") or "").strip() != str(room_ref or "").strip():
+        return False
+    return str(context.get("live_status") or "unknown") not in {"", "unknown"}
 
 
 async def _resolve_connection_auth_mode(
@@ -294,6 +323,10 @@ async def _resolve_connection_auth_mode(
         raise ValueError("Twitch authorization is required; authorize the account and try again")
     if platform != "bilibili":
         return "provider_managed"
+
+    credential = getattr(runtime, "bili_credential", None)
+    if credential is not None and str(getattr(credential, "sessdata", "") or "").strip():
+        return "authenticated"
 
     try:
         candidate = await runtime.bili_login_status()

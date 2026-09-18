@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_twitch_network_actions_declare_entry_timeouts_above_host_default() -> None:
     expected = {
         "twitch_device_authorization_start": 25.0,
-        "twitch_device_authorization_check": 40.0,
-        "twitch_credential_validate": 55.0,
+        "twitch_device_authorization_check": 25.0,
+        "twitch_credential_validate": 25.0,
     }
 
     for method_name, timeout in expected.items():

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import math
@@ -23,6 +24,7 @@ _ROOM_ID_KEYS = ("room_id", "roomId", "webcast_room_id", "webcastRoomId")
 _USER_UNIQUE_ID_KEYS = ("user_unique_id", "userUniqueId", "webcast_user_id", "webcastUserId")
 _DEFAULT_FETCH_TIMEOUT_SECONDS = 8.0
 _MAX_FETCH_TIMEOUT_SECONDS = 15.0
+_FETCH_WAIT_SECONDS = 10.0
 _MAX_PAGE_BYTES = 4 * 1024 * 1024
 _ESCAPED_ROOM_RE = re.compile(
     r'\\?"room\\?":\{\\?"id_str\\?":\\?"(?P<room_id>\d+)\\?",'
@@ -94,6 +96,26 @@ def room_page_url(room_ref: Any) -> str:
         token = ""
     token = quote(token, safe="")
     return f"https://live.douyin.com/{token}"
+
+
+async def fetch_webcast_info_async(
+    room_ref: Any,
+    *,
+    cookie: str = "",
+    timeout: float = _DEFAULT_FETCH_TIMEOUT_SECONDS,
+) -> DouyinWebcastInfo:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(fetch_webcast_info, room_ref, cookie=cookie, timeout=timeout),
+            timeout=_FETCH_WAIT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        return DouyinWebcastInfo(
+            ok=False,
+            room_ref=safe_room_ref(room_ref),
+            live_status="unknown",
+            message="douyin room page fetch timed out",
+        )
 
 
 def fetch_webcast_info(room_ref: Any, *, cookie: str = "", timeout: float = _DEFAULT_FETCH_TIMEOUT_SECONDS) -> DouyinWebcastInfo:

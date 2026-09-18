@@ -380,7 +380,7 @@ async def _request_json(
 ) -> tuple[int, dict[str, Any]]:
     import aiohttp
 
-    timeout = aiohttp.ClientTimeout(total=15)
+    timeout = aiohttp.ClientTimeout(total=8)
     session_kwargs = aiohttp_session_kwargs_for_url(url)
     async with aiohttp.ClientSession(timeout=timeout, **session_kwargs) as session:
         async with session.request(method, url, headers=headers, data=data) as response:

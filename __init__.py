@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -29,7 +30,13 @@ class NekoLivePlugin(NekoPluginBase):
             if exc.name != "plugin.plugins.neko_live.core.runtime":
                 raise
             return Ok({"status": "ready", "runtime": "pending"})
+        previous = self.runtime
         self.runtime = LiveRuntime(self)
+        if previous is not None:
+            try:
+                await asyncio.wait_for(previous.stop(), timeout=1.0)
+            except Exception:
+                pass
         await self.runtime.start()
         self.register_dynamic_entry(
             "developer_lookup_bili_user",
@@ -138,6 +145,7 @@ class NekoLivePlugin(NekoPluginBase):
         id="update_config",
         name=tr("entries.update_config.name", default="更新 NEKO Live 设置"),
         description=tr("entries.update_config.description", default="更新 NEKO Live 的直播模式、开关和安全门设置。"),
+        timeout=25.0,
         input_schema={
             "type": "object",
             "properties": {
@@ -240,6 +248,7 @@ class NekoLivePlugin(NekoPluginBase):
         id="set_live_room",
         name=tr("entries.set_live_room.name", default="设置直播间"),
         description=tr("entries.set_live_room.description", default="设置当前平台下 NEKO Live 要监听的直播间目标。"),
+        timeout=25.0,
         input_schema={
             "type": "object",
             "properties": {"room_id": {"type": "string", "description": "直播间目标或链接"}},
@@ -266,6 +275,7 @@ class NekoLivePlugin(NekoPluginBase):
         id="lookup_live_room",
         name=tr("entries.lookup_live_room.name", default="查询直播间状态"),
         description=tr("entries.lookup_live_room.description", default="按当前平台的直播间目标查询标题、主播和开播状态。"),
+        timeout=20.0,
         input_schema={
             "type": "object",
             "properties": {"room_id": {"type": "string", "description": "直播间目标或链接"}},
@@ -284,6 +294,7 @@ class NekoLivePlugin(NekoPluginBase):
         id="connect_live_room",
         name=tr("entries.connect_live_room.name", default="开始监听直播间"),
         description=tr("entries.connect_live_room.description", default="开启 NEKO Live 直播接收状态。v0.1 不复制旧弹幕插件的 WebSocket 实现。"),
+        timeout=28.0,
         input_schema={
             "type": "object",
             "properties": {
@@ -453,7 +464,7 @@ class NekoLivePlugin(NekoPluginBase):
         id="twitch_device_authorization_check",
         name=tr("entries.twitch_device_authorization_check.name", default="检查 Twitch 设备授权"),
         description=tr("entries.twitch_device_authorization_check.description", default="执行一次定时 Device Code Flow 检查；成功后加密保存 token。"),
-        timeout=40.0,
+        timeout=25.0,
     )
     async def twitch_device_authorization_check(self, **_):
         try:
@@ -490,7 +501,7 @@ class NekoLivePlugin(NekoPluginBase):
         id="twitch_credential_validate",
         name=tr("entries.twitch_credential_validate.name", default="校验 Twitch 授权"),
         description=tr("entries.twitch_credential_validate.description", default="向 Twitch 校验 token，并在需要时原子刷新加密凭据。"),
-        timeout=55.0,
+        timeout=25.0,
     )
     async def twitch_credential_validate(self, **_):
         try:

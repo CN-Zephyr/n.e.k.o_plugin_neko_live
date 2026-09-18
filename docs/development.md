@@ -642,14 +642,14 @@ host 的 `update_own_config`（把配置写回 `plugin.toml`）在「只重后�
 现在反过来：
 
 1. **先内存生效**：`_activate_config(LiveConfig.from_mapping(...))` 一步把新配置装进 `self.config`（gate / safety_guard 共享同一对象，即时权威）；若改了 `developer_tools_enabled` 顺带 `sync_developer_mode`。
-2. **再带预算尽力持久化**：`_persist_config_best_effort` 用 `asyncio.wait_for(self._persist_config_update(clean), timeout=_CONFIG_PERSIST_BUDGET_SECONDS)`（默认 4.0s，远低于 host 的 10s entry 限），超时记 `config_persist_timeout`、失败记 `config_persist_failed`，**都不回滚已生效的内存配置、不阻塞**。
-3. **串行化**：`asyncio.Lock`（`_get_config_lock`，懒初始化）覆盖旧配置快照、内存 apply、提示词副作用、持久化和 listener reconcile，避免并发 `update_config` 读取过期状态。平台或房间变化时必须先捕获并停止旧平台的具体 provider 实例，再启动新平台；不能在激活新配置后通过动态 router 反查并误停新 provider。
+2. **再带预算尽力持久化**：`persist_config_best_effort` 用 `asyncio.wait_for(asyncio.shield(task), timeout=_CONFIG_PERSIST_BUDGET_SECONDS)`（默认 4.0s）。超时只结束插件侧等待，宿主写仍可能完成；task 带着 `_config_revision`，完成后若 revision 已变则再写当前配置，避免迟到写入盖掉更新值。超时记 `config_persist_timeout`、失败记 `config_persist_failed`，**都不回滚已生效的内存配置**。
+3. **串行化**：`asyncio.Lock` 覆盖旧配置快照、内存 apply、提示词副作用和持久化。listener reconcile 在锁外执行，避免 20s ready 把保存设置卡死在锁里。平台或房间变化时必须先捕获并停止旧平台的具体 provider 实例，再启动新平台；不能在激活新配置后通过动态 router 反查并误停新 provider。
 
 平台切换若没有在同一 patch 中提供新 `live_room_ref`，必须清空旧平台目标、旧数字房号和 `live_enabled`；不同 provider 的目标字符串不能互相继承。房间元数据查询完成后还必须核对当前 provider 与当前配置目标，旧房间的迟到标题、主播名、直播状态或失败结果不得覆盖新房间语境。
 
-效果：host 持久化即便卡死，action 也在 ≤4s 内成功返回、runtime 行为已按新配置生效。代价：写竞争时那一次改动**不落盘**（stop/start 后还原成 `plugin.toml` 的值），且每次 `update_config` 等满 4s 预算（无竞争时秒过）。
+效果：host 持久化即便卡死，action 也在 ≤4s 内成功返回、runtime 行为已按新配置生效。迟到宿主写若对应过期 revision，会用当前内存配置再写一次。
 
-> 边界：这是**插件侧免疫**；host/core 修复 `Fix plugin host config and data root handling (#1884)` / `08b317f6` 已进入当前 `Roast` 分支，但插件仍保留这层预算兜底，避免未来 host 持久化异常拖垮直播 action。`connect/disconnect_live_room` 另对 `live_enabled` 做内存直设，不依赖持久化即时性。测试：契约 `test_update_config_does_not_block_on_hanging_persistence`、`test_connect_does_not_block_on_hanging_config_persistence`（注入卡死的 `update_own_config`，断言 action 不阻塞、内存生效、记 `config_persist_timeout`）。
+> 边界：这是**插件侧免疫**；host/core 修复 `Fix plugin host config and data root handling (#1884)` / `08b317f6` 已进入当前 `Roast` 分支，但插件仍保留这层预算兜底，避免未来 host 持久化异常拖垮直播 action。`connect/disconnect_live_room` 另对 `live_enabled` 做内存直设，不依赖持久化即时性。测试：契约 `test_update_config_does_not_block_on_hanging_persistence`、`test_connect_does_not_block_on_hanging_config_persistence`、`test_late_persist_does_not_overwrite_newer_config`。
 >
 > Hosted UI 的局部设置保存必须保持 patch 语义：修改 `rate_limit_seconds`、队列、dry-run、模块开关等非直播目标字段时，不得顺手提交 `live_platform` / `live_room_ref` / `live_room_id` 的表单默认值；否则前端默认值可能把抖音监听目标覆盖回 B 站。契约测试：`test_update_config_preserves_douyin_target_on_partial_rate_limit_update` 与 `test_panel_advanced_save_does_not_resubmit_live_target_defaults`。
 
@@ -672,7 +672,7 @@ UI 侧：3 个 room action 的 `room_id` input_schema 收 `string`、handler 传
 
 「查询直播间」和「弹幕监听」走**两条不同网络路径**，反爬健壮性不同：
 
-- **弹幕 WS 路径**（`connect_live_room` → `bili_live_ingest.start_listening` → `danmaku_core.DanmakuListener`）：runtime 和 provider 入口都要求已验证并已装载的 B 站登录凭据；随后复用 WBI 签名、浏览器 headers、多服务器故障转移和断线重连。缺少凭据时不会构造 listener。
+- **弹幕 WS 路径**（`connect_live_room` → `bili_live_ingest.start_listening` → `danmaku_core.DanmakuListener`）：runtime 和 provider 入口都要求已验证并已装载的 B 站登录凭据；随后复用 WBI 签名、浏览器 headers、多服务器故障转移和断线重连。缺少凭据时不会构造 listener。解析真实房间号与 `getDanmuInfo` 共用登录 Cookie。启动 HTTP 单次 4s，四段串行仍落在 20s ready 窗口内。`connect_live_room` 若面板刚查过房则复用 context，否则查房最多再等 4s，然后才等 listener ready。
 - **查询 HTTP 路径**（`lookup_live_room` → `bili_live_ingest.lookup_room_status` / `_lookup_room_status_sync`，urllib + `to_thread`）：A1 已补临时 buvid3 cookie + 浏览器 headers（`getInfoByRoom` **不需** WBI 签名——WS 的 `_get_real_room_id` 调它也没签）。HTTP 与总查询都有短超时，避免叠满 Hosted UI 30s。但匿名 buvid3 在 IP 被重度风控时仍可能 `code=-352`，彻底消除需登录态。
 
 **已落地处理（友好降级，非根治）**：
@@ -701,7 +701,7 @@ UI 侧：3 个 room action 的 `room_id` input_schema 收 `string`、handler 传
 
 **安全模型**：凭据（SESSDATA/bili_jct/DedeUserID/buvid3）经 **Fernet 对称加密**落盘到 per-plugin data 目录（`plugin.data_path()`），密钥 `bili_credential.key` + 密文 `bili_credential.enc` 分别 `chmod 600`（非 Windows）。**凭据绝不写 audit / log / config / UI**——只回显 uid / 用户名 / 是否登录。可**本地注销**（删 key+enc）。
 
-登录状态校验和“开始登录前检查既有账号”都优先复用用户资料请求；资料请求成功时不会追加第二次校验。若资料接口瞬时异常，才调用 SDK 凭据有效性检查兜底：凭据仍有效时保持登录态但暂时不返回用户名，也不会错误生成新二维码；凭据检查失败或异常时才要求重新扫码。缺少可用 UID 的旧凭据也必须先通过该校验，不能仅凭本地文件存在就声明已登录。资料请求、凭据校验、二维码生成与扫码轮询都必须有短超时（资料 3s、校验 2s、既有登录检查总计 4s、生码/轮询 8s）；超时后不得继续空等到 Hosted UI 的 30s 上限。点「扫码登录」时既有登录检查超时则直接出新码。该兜底不做后台轮询、不记录异常正文或凭据，只在异常路径增加一次网络请求。
+登录状态校验和“开始登录前检查既有账号”都优先复用用户资料请求；资料请求成功时不会追加第二次校验。若资料接口瞬时异常，才调用 SDK 凭据有效性检查兜底：凭据仍有效时保持登录态但暂时不返回用户名，也不会错误生成新二维码；有效性检查自己超时且本地仍有 SESSDATA 时同样保持已登录，不得当成掉线。凭据检查明确失败时才要求重新扫码。缺少可用 UID 的旧凭据也必须先通过该校验，不能仅凭本地文件存在就声明已登录。资料请求、凭据校验、二维码生成与扫码轮询都必须有短超时（资料 3s、校验 2s、既有登录检查总计 4s、生码/轮询 8s）；超时后不得继续空等到 Hosted UI 的 30s 上限。点「扫码登录」时既有登录检查超时：本地有 SESSDATA 则保持已登录，没有才出新码。该兜底不做后台轮询、不记录异常正文或凭据，只在异常路径增加一次网络请求。
 
 **责任模块 / 入口数据流**：
 - `stores/credential_store.py` `CredentialStore`：命名空间加密 `save`/`load`/`delete`；默认 `bili` namespace 保持旧 `bili_credential.*` 文件名，抖音等新平台使用独立 `{namespace}_credential.*` 文件；`build_credential()` 仍只服务 B 站 `bilibili_api.Credential`，走 `to_thread` 不阻塞。

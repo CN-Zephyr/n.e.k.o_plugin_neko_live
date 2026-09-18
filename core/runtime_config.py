@@ -76,6 +76,7 @@ async def reload_config(runtime: Any) -> LiveConfig:
             level="warning",
         )
     loaded = LiveConfig.from_mapping(data)
+    pending: dict[str, Any] | None = None
     async with get_config_lock(runtime):
         old_config = runtime.config
         old_live_mode = str(getattr(old_config, "live_mode", "co_stream") or "co_stream")
@@ -87,17 +88,16 @@ async def reload_config(runtime: Any) -> LiveConfig:
         activate_config(runtime, loaded)
         _reconcile_live_mode(runtime, old_live_mode, runtime.config.live_mode)
         runtime._config_revision += 1
-        clean = _live_config_diff(old_config, runtime.config)
-        await reconcile_live_listener_after_config(
-            runtime,
-            clean,
-            old_room_id=old_room_id,
-            old_platform=old_platform,
-            old_room_ref=old_room_ref,
-            was_listening=was_listening,
-            old_provider=old_provider,
-        )
-        return runtime.config
+        pending = {
+            "clean": _live_config_diff(old_config, runtime.config),
+            "old_room_id": old_room_id,
+            "old_platform": old_platform,
+            "old_room_ref": old_room_ref,
+            "was_listening": was_listening,
+            "old_provider": old_provider,
+        }
+    await reconcile_live_listener_after_config(runtime, **pending)
+    return runtime.config
 
 
 def get_config_lock(runtime: Any) -> asyncio.Lock:
@@ -110,6 +110,7 @@ async def update_config(runtime: Any, updates: dict[str, Any]) -> LiveConfig:
     clean = clean_config_updates(updates)
     if not clean:
         return runtime.config
+    pending: dict[str, Any] | None = None
     async with get_config_lock(runtime):
         _normalize_live_target_update(runtime, clean)
         old_room_id = int(runtime.config.live_room_id or 0)
@@ -150,16 +151,16 @@ async def update_config(runtime: Any, updates: dict[str, Any]) -> LiveConfig:
         if developer_mode_changed:
             await runtime.sync_developer_mode(announce=False, force=True)
         await persist_config_best_effort(runtime, clean)
-        await reconcile_live_listener_after_config(
-            runtime,
-            clean,
-            old_room_id=old_room_id,
-            old_platform=old_platform,
-            old_room_ref=old_room_ref,
-            was_listening=was_listening,
-            old_provider=old_provider,
-        )
-        return runtime.config
+        pending = {
+            "clean": clean,
+            "old_room_id": old_room_id,
+            "old_platform": old_platform,
+            "old_room_ref": old_room_ref,
+            "was_listening": was_listening,
+            "old_provider": old_provider,
+        }
+    await reconcile_live_listener_after_config(runtime, **pending)
+    return runtime.config
 
 
 def _captured_provider(runtime: Any, platform: str) -> Any:

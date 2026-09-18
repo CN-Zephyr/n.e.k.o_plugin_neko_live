@@ -562,7 +562,68 @@ async def test_bili_credential_hanging_profile_falls_back_to_validity(
 
 
 @pytest.mark.asyncio
-async def test_pipeline_once_per_uid_gate_is_atomic_for_concurrent_events():
+async def test_bili_credential_validity_timeout_keeps_local_sessdata(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from bilibili_api import user as bili_user_module
+    from plugin.plugins.neko_live.adapters import bili_auth_service as auth_mod
+
+    monkeypatch.setattr(auth_mod, "_PROFILE_FETCH_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(auth_mod, "_CREDENTIAL_VALIDITY_TIMEOUT_SECONDS", 0.05)
+
+    class User:
+        def __init__(self, *, uid: int, credential: object) -> None:
+            assert uid == 42
+            assert credential is not None
+
+        async def get_user_info(self) -> dict[str, str]:
+            await asyncio.sleep(5)
+            return {"name": "late"}
+
+    monkeypatch.setattr(bili_user_module, "User", User)
+    credential = _HangingCredential()
+    credential.sessdata = "sess"
+    started = time.monotonic()
+    result = await _bili_auth_for_credential(credential).check_credential()
+    elapsed = time.monotonic() - started
+
+    assert result["logged_in"] is True
+    assert result["uid"] == "42"
+    assert elapsed < 1.0
+
+
+@pytest.mark.asyncio
+async def test_bili_login_timeout_keeps_existing_sessdata(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from bilibili_api import user as bili_user_module
+    from plugin.plugins.neko_live.adapters import bili_auth_service as auth_mod
+
+    monkeypatch.setattr(auth_mod, "_PROFILE_FETCH_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(auth_mod, "_CREDENTIAL_VALIDITY_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(auth_mod, "_EXISTING_LOGIN_CHECK_TIMEOUT_SECONDS", 0.05)
+
+    class User:
+        def __init__(self, *, uid: int, credential: object) -> None:
+            assert credential is not None
+
+        async def get_user_info(self) -> dict[str, str]:
+            await asyncio.sleep(5)
+            return {"name": "late"}
+
+    monkeypatch.setattr(bili_user_module, "User", User)
+    credential = _HangingCredential()
+    credential.sessdata = "sess"
+    service = _bili_auth_for_credential(credential)
+    service._require_login_sdk = lambda: (_QrLoginStub, object)
+
+    started = time.monotonic()
+    result = await service.login()
+    elapsed = time.monotonic() - started
+
+    assert result["status"] == "already_logged_in"
+    assert elapsed < 1.0
+    assert service._login_session is None
     class Audit:
         def __init__(self):
             self.records = []

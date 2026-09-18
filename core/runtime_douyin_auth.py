@@ -234,7 +234,10 @@ async def validate_cookie(runtime: Any, room_ref: Any = "") -> dict[str, Any]:
         runtime.audit.record("douyin_cookie_validate_failed", result["message"], level="warning")
         return result
     try:
-        info = await asyncio.to_thread(fetch_webcast_info, parsed.room_ref, cookie=cookie)
+        info = await asyncio.wait_for(
+            asyncio.to_thread(fetch_webcast_info, parsed.room_ref, cookie=cookie),
+            timeout=10.0,
+        )
     except Exception as exc:
         message = f"douyin cookie validation failed: {type(exc).__name__}"
         runtime.audit.record("douyin_cookie_validate_failed", message, level="warning")

@@ -8,13 +8,39 @@ from typing import Any
 
 
 async def persist_config_best_effort(runtime: Any, clean: dict[str, Any]) -> None:
-    try:
-        await asyncio.wait_for(
-            persist_config_update(runtime, clean),
-            timeout=runtime._CONFIG_PERSIST_BUDGET_SECONDS,
-        )
+    revision = int(getattr(runtime, "_config_revision", 0) or 0)
+    keys = tuple(clean)
+    payload = dict(clean)
+
+    async def _run() -> None:
+        try:
+            await persist_config_update(runtime, payload)
+        except Exception:
+            if int(getattr(runtime, "_config_revision", 0) or 0) == revision:
+                raise
+            return
+        latest_revision = int(getattr(runtime, "_config_revision", 0) or 0)
+        if latest_revision != revision:
+            latest = runtime.config.to_dict()
+            replacement = {key: latest[key] for key in keys if key in latest}
+            if replacement:
+                await persist_config_update(runtime, replacement)
+            return
         runtime._config_last_persist_at = time.time()
         runtime._config_last_error = ""
+
+    task = asyncio.create_task(_run())
+    inflight = getattr(runtime, "_config_persist_tasks", None)
+    if inflight is None:
+        inflight = set()
+        runtime._config_persist_tasks = inflight
+    inflight.add(task)
+    task.add_done_callback(inflight.discard)
+    try:
+        await asyncio.wait_for(
+            asyncio.shield(task),
+            timeout=runtime._CONFIG_PERSIST_BUDGET_SECONDS,
+        )
     except asyncio.TimeoutError:
         runtime._config_last_error = "config_persist_timeout"
         runtime.audit.record(

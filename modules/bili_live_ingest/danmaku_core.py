@@ -185,7 +185,8 @@ class DanmakuListener:
         self._wbi_key_ttl: float = 43200  # 12小时
         self._real_room_id_cache: dict[int, tuple[int, float]] = {}
         self._real_room_id_ttl: float = 300
-        self._http_timeout = 8
+        # Four serial HTTP calls at 8s exceed the 20s listener ready window.
+        self._http_timeout = 4
 
     def _log(self, msg: str, level: str = "info"):
         if self.logger:
@@ -244,6 +245,25 @@ class DanmakuListener:
             ) as resp:
                 return await resp.json()
 
+    def _credential_cookies(self, extra_buvid3: str = "") -> dict[str, str]:
+        cookies: dict[str, str] = {}
+        credential = self.credential
+        if credential is not None:
+            try:
+                cookies = {
+                    "SESSDATA": str(getattr(credential, "sessdata", "") or ""),
+                    "bili_jct": str(getattr(credential, "bili_jct", "") or ""),
+                    "DedeUserID": str(getattr(credential, "dedeuserid", "") or ""),
+                    "buvid3": str(getattr(credential, "buvid3", "") or ""),
+                }
+            except Exception as exc:
+                self._log(f"credential cookie extraction failed: {exc}", "debug")
+                cookies = {}
+        buvid3 = extra_buvid3 or cookies.get("buvid3") or self._buvid3_temp
+        if buvid3:
+            cookies["buvid3"] = buvid3
+        return {key: value for key, value in cookies.items() if value}
+
     async def _get_wbi_mixin_key(self, cookies: dict) -> str:
         """
         获取 WBI mixin_key（带12小时缓存）。
@@ -294,7 +314,7 @@ class DanmakuListener:
         try:
             url = f"https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom?room_id={room_id}"
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            data = await self._request_json(url, headers=headers)
+            data = await self._request_json(url, headers=headers, cookies=self._credential_cookies())
             if data.get("code") == 0:
                 real_id = data["data"]["room_info"]["room_id"]
                 self._real_room_id_cache[room_id] = (real_id, now)
@@ -378,19 +398,7 @@ class DanmakuListener:
                 "Referer": f"https://live.bilibili.com/{real_room_id}",
             }
 
-            # 构建 Cookie
-            cookies = {"buvid3": buvid3} if buvid3 else {}
-            if self.credential:
-                try:
-                    cookies.update({
-                        "SESSDATA": getattr(self.credential, "sessdata", "") or "",
-                        "bili_jct": getattr(self.credential, "bili_jct", "") or "",
-                        "DedeUserID": getattr(self.credential, "dedeuserid", "") or "",
-                    })
-                    # 过滤空值
-                    cookies = {k: v for k, v in cookies.items() if v}
-                except Exception as e:
-                    self._log(f"credential cookie extraction failed: {e}", "debug")
+            cookies = self._credential_cookies(extra_buvid3=buvid3)
 
             # ── WBI 签名 ────────────────────────────────────────────
             params = {"id": real_room_id, "type": 0}

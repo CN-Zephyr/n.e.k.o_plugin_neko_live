@@ -14,6 +14,9 @@ from .runtime_live_target import (
     release_live_target_if_scene_restored,
 )
 
+_LIVE_LISTENER_CLEANUP_WAIT_SECONDS = 1.5
+_RECONNECT_ROOM_CONTEXT_TIMEOUT_SECONDS = 4.0
+
 
 def begin_live_listener_operation(runtime: Any) -> int:
     """Claim ownership of the next listener state transition."""
@@ -130,7 +133,18 @@ async def reconcile_live_listener_after_config(
         runtime.live_connection_auth_mode = "unknown"
     else:
         runtime.live_connection_auth_mode = "provider_managed"
-    await refresh_live_room_context(runtime, room_ref)
+    try:
+        await asyncio.wait_for(
+            refresh_live_room_context(runtime, room_ref),
+            timeout=_RECONNECT_ROOM_CONTEXT_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        runtime.audit.record(
+            "live_room_context_lookup_timeout",
+            "room context lookup exceeded reconnect budget; starting listener anyway",
+            level="warning",
+            detail={"room_ref": str(room_ref or "")[:120]},
+        )
     started = await start_live_listener(runtime, room_ref)
     runtime._accepting_live_events = bool(started)
     if started:
@@ -336,7 +350,14 @@ async def _await_pending_live_listener_cleanup(runtime: Any) -> None:
     task = getattr(runtime, "_live_listener_cleanup_task", None)
     if task is None or task.done() or task is asyncio.current_task():
         return
-    await asyncio.shield(task)
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=_LIVE_LISTENER_CLEANUP_WAIT_SECONDS)
+    except asyncio.TimeoutError:
+        runtime.audit.record(
+            "live_listener_cleanup_timeout",
+            "previous listener cleanup exceeded reconnect budget; continuing with new listener",
+            level="warning",
+        )
 
 
 def _mark_unexpected_live_listener_stop(

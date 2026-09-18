@@ -202,10 +202,13 @@ class DouyinLiveIngestModule(BaseModule):
         if not parsed.ok:
             return LiveRoomStatus(room_id=0, ok=False, message=parsed.message)
         try:
-            info = await asyncio.to_thread(
-                fetch_webcast_info,
-                parsed.room_ref,
-                cookie=self._credential_cookie(),
+            info = await asyncio.wait_for(
+                asyncio.to_thread(
+                    fetch_webcast_info,
+                    parsed.room_ref,
+                    cookie=self._credential_cookie(),
+                ),
+                timeout=10.0,
             )
         except Exception as exc:
             return LiveRoomStatus(

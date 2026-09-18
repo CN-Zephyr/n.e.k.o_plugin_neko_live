@@ -286,6 +286,43 @@ async def test_connect_live_room_uses_authenticated_mode(
 
 
 @pytest.mark.asyncio
+async def test_connect_with_local_sessdata_skips_login_network(runtime: LiveRuntime) -> None:
+    runtime.config.live_room_id = 123
+    runtime.bili_credential = SimpleNamespace(sessdata="sess")
+
+    async def boom() -> dict[str, object]:
+        raise AssertionError("login status must not run when SESSDATA is already loaded")
+
+    runtime.bili_login_status = boom  # type: ignore[method-assign]
+    snapshot = await runtime.connect_live_room()
+
+    assert snapshot["auth_mode"] == "authenticated"
+    assert snapshot["connected"] is True
+
+
+@pytest.mark.asyncio
+async def test_connect_hanging_room_lookup_returns_before_hosted_ui_limit(
+    runtime: LiveRuntime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from plugin.plugins.neko_live.core import runtime_live_controls as controls
+
+    runtime.config.live_room_id = 123
+    runtime.bili_credential = SimpleNamespace(sessdata="sess")
+
+    async def hang_lookup(*_args, **_kwargs):
+        await asyncio.sleep(20)
+        raise AssertionError("unbounded lookup must not finish")
+
+    monkeypatch.setattr(controls, "refresh_live_room_context", hang_lookup)
+    started = time.monotonic()
+    snapshot = await runtime.connect_live_room()
+    elapsed = time.monotonic() - started
+
+    assert snapshot["connected"] is True
+    assert elapsed < 6.0
+
+
+@pytest.mark.asyncio
 async def test_connect_attempt_retries_pending_passive_clear_even_when_start_fails(
     runtime: LiveRuntime,
 ) -> None:
@@ -3386,23 +3423,104 @@ async def test_stop_cancels_idle_hosting_loop(runtime: LiveRuntime) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cancelled_stop_can_be_retried(runtime: LiveRuntime, monkeypatch: pytest.MonkeyPatch) -> None:
-    async def cancel_stop() -> None:
+async def test_cancelled_stop_finishes_remaining_steps(runtime: LiveRuntime, monkeypatch: pytest.MonkeyPatch) -> None:
+    ran: list[str] = []
+    original_stop_listener = runtime._stop_live_listener
+
+    async def cancel_idle() -> None:
+        ran.append("idle")
         raise asyncio.CancelledError
 
-    async def complete_stop() -> None:
-        return None
+    async def track_listener(*, mark_disabled: bool = False):
+        ran.append("listener")
+        return await original_stop_listener(mark_disabled=mark_disabled)
 
-    monkeypatch.setattr(runtime, "_stop_idle_hosting_loop", cancel_stop)
+    monkeypatch.setattr(runtime, "_stop_idle_hosting_loop", cancel_idle)
+    monkeypatch.setattr(runtime, "_stop_live_listener", track_listener)
     with pytest.raises(asyncio.CancelledError):
         await runtime.stop()
 
-    assert runtime._stopping is False
-
-    monkeypatch.setattr(runtime, "_stop_idle_hosting_loop", complete_stop)
-    await runtime.stop()
-
     assert runtime._stopping is True
+    assert ran[:2] == ["idle", "listener"]
+    await runtime.stop()
+    assert runtime._stopping is True
+
+
+@pytest.mark.asyncio
+async def test_update_config_does_not_block_on_hanging_persistence(runtime: LiveRuntime) -> None:
+    runtime._CONFIG_PERSIST_BUDGET_SECONDS = 0.05
+
+    async def hang(_payload: dict, timeout: float = 10.0) -> None:
+        await asyncio.Event().wait()
+
+    runtime.plugin.ctx = SimpleNamespace(update_own_config=hang)
+    started = time.monotonic()
+    config = await runtime.update_config({"queue_limit": 7})
+    elapsed = time.monotonic() - started
+
+    assert config.queue_limit == 7
+    assert elapsed < 0.4
+    assert any(row["op"] == "config_persist_timeout" for row in runtime.audit.recent())
+    await _cancel_persist_tasks(runtime)
+
+
+@pytest.mark.asyncio
+async def test_connect_does_not_block_on_hanging_config_persistence(runtime: LiveRuntime) -> None:
+    runtime.config.live_room_id = 123
+    runtime._CONFIG_PERSIST_BUDGET_SECONDS = 0.05
+
+    async def hang(_payload: dict, timeout: float = 10.0) -> None:
+        await asyncio.Event().wait()
+
+    runtime.plugin.ctx = SimpleNamespace(update_own_config=hang)
+    started = time.monotonic()
+    snapshot = await runtime.connect_live_room(200)
+    elapsed = time.monotonic() - started
+
+    assert snapshot["connected"] is True
+    assert runtime.config.live_room_id == 200
+    assert elapsed < 0.5
+    assert any(row["op"] == "config_persist_timeout" for row in runtime.audit.recent())
+    await _cancel_persist_tasks(runtime)
+
+
+@pytest.mark.asyncio
+async def test_late_persist_does_not_overwrite_newer_config(runtime: LiveRuntime) -> None:
+    writes: list[dict] = []
+    first_release = asyncio.Event()
+
+    async def slow_write(payload: dict, timeout: float = 10.0) -> None:
+        writes.append(payload)
+        if len(writes) == 1:
+            await first_release.wait()
+
+    runtime.plugin.ctx = SimpleNamespace(update_own_config=slow_write)
+    runtime._CONFIG_PERSIST_BUDGET_SECONDS = 0.05
+    await runtime.update_config({"queue_limit": 1})
+    await runtime.update_config({"queue_limit": 2})
+    first_release.set()
+    await asyncio.sleep(0.05)
+    await _drain_persist_tasks(runtime)
+
+    assert runtime.config.queue_limit == 2
+    assert writes[-1]["neko_live"]["queue_limit"] == 2
+
+
+async def _cancel_persist_tasks(runtime: LiveRuntime) -> None:
+    for task in list(getattr(runtime, "_config_persist_tasks", ())):
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
+async def _drain_persist_tasks(runtime: LiveRuntime) -> None:
+    for task in list(getattr(runtime, "_config_persist_tasks", ())):
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=1.0)
+        except Exception:
+            pass
 
 
 @pytest.mark.asyncio

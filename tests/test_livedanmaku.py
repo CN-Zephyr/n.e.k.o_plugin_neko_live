@@ -12,6 +12,7 @@ import asyncio
 import json
 import sys
 
+import pytest
 from plugin.plugins.neko_live.modules.bili_live_ingest.danmaku_core import (
     PROTOCOL_VERSION_BROTLI,
     WS_FALLBACK_URLS,
@@ -516,3 +517,35 @@ def test_brotli_missing_uses_supplied_log_callback(monkeypatch):
 
     assert result == b""
     assert logs == [("brotli 库未安装，无法解压 brotli 数据包，跳过", "warning")]
+
+
+def test_listener_http_timeout_fits_ready_window():
+    listener = DanmakuListener(room_id=123, credential=object(), callbacks={})
+    assert listener._http_timeout * 4 <= 20
+
+
+@pytest.mark.asyncio
+async def test_real_room_id_lookup_sends_login_cookies(monkeypatch):
+    from types import SimpleNamespace
+
+    captured: dict[str, object] = {}
+
+    async def fake_request(self, url, *, headers=None, cookies=None, params=None, allow_redirects=True):
+        captured["cookies"] = cookies
+        captured["url"] = url
+        return {"code": 0, "data": {"room_info": {"room_id": 999}}}
+
+    monkeypatch.setattr(DanmakuListener, "_request_json", fake_request)
+    listener = DanmakuListener(
+        room_id=123,
+        credential=SimpleNamespace(sessdata="SESS", bili_jct="JCT", dedeuserid="42", buvid3="b3"),
+        callbacks={},
+    )
+
+    assert await listener._get_real_room_id(123) == 999
+    assert captured["cookies"] == {
+        "SESSDATA": "SESS",
+        "bili_jct": "JCT",
+        "DedeUserID": "42",
+        "buvid3": "b3",
+    }

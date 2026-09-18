@@ -47,6 +47,7 @@ class LiveRuntime(
 ):
     # The host persists plugin config with a small budget; explicit update/connect actions still await persistence.
     _CONFIG_PERSIST_BUDGET_SECONDS = 4.0
+    _SHUTDOWN_STEP_TIMEOUT_SECONDS = 0.25
     _LIVE_STATE_ENGAGED_SECONDS = 60.0
     _LIVE_STATE_IDLE_SECONDS = 120.0
     _IDLE_HOSTING_CHECK_INTERVAL_SECONDS = 5.0
@@ -108,6 +109,7 @@ class LiveRuntime(
             return
         self._stopping = True
         failures: list[str] = []
+        cancelled = False
         steps = (
             ("idle_hosting", self._stop_idle_hosting_loop),
             ("live_listener", lambda: self._stop_live_listener(mark_disabled=False)),
@@ -118,10 +120,18 @@ class LiveRuntime(
         )
         for step, operation in steps:
             try:
-                await operation()
+                await asyncio.wait_for(operation(), timeout=self._SHUTDOWN_STEP_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                failures.append(step)
+                self.audit.record(
+                    "runtime_stop_step_failed",
+                    "shutdown step exceeded budget",
+                    level="warning",
+                    detail={"step": step},
+                )
             except asyncio.CancelledError:
-                self._stopping = False
-                raise
+                cancelled = True
+                failures.append(step)
             except Exception as exc:
                 failures.append(step)
                 self.audit.record(
@@ -142,3 +152,5 @@ class LiveRuntime(
             level="warning" if failures else "info",
             detail={"failed_steps": failures},
         )
+        if cancelled:
+            raise asyncio.CancelledError

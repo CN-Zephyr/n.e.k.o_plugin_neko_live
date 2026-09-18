@@ -31,6 +31,7 @@ def initialize_runtime_state(runtime: Any) -> None:
     runtime._config_last_error = ""
     runtime._config_lock = None
     runtime._config_revision = 0
+    runtime._config_persist_tasks: set[asyncio.Task[Any]] = set()
     runtime._stopping = False
     runtime._accepting_live_events = False
     runtime._live_session_generation = 0
