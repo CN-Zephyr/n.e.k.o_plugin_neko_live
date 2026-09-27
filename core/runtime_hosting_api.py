@@ -42,26 +42,14 @@ class RuntimeHostingApiMixin:
     def _is_similar_idle_hosting_beat_title(self, title: str) -> bool:
         return self.live_hosting_director.is_similar_idle_hosting_beat_title(title)
 
-    def _record_idle_hosting_skip(self, event: ViewerEvent, reason: str) -> InteractionResult:
-        return self.live_hosting_director.record_idle_hosting_skip(event, reason)
-
     async def trigger_warmup_hosting(self) -> InteractionResult:
         return await self.live_hosting_director.trigger_warmup_hosting()
 
     async def maybe_trigger_warmup_hosting(self) -> InteractionResult | None:
         return await self.live_hosting_director.maybe_trigger_warmup_hosting()
 
-    def _warmup_hosting_event(self, live_state: dict[str, Any]) -> ViewerEvent:
-        return self.live_hosting_director.warmup_hosting_event(live_state)
-
-    def _record_warmup_hosting_skip(self, event: ViewerEvent, reason: str) -> InteractionResult:
-        return self.live_hosting_director.record_warmup_hosting_skip(event, reason)
-
     def _start_idle_hosting_loop(self) -> None:
         self.live_hosting_director.start_loop()
 
     async def _stop_idle_hosting_loop(self) -> None:
         await self.live_hosting_director.stop_loop()
-
-    async def _idle_hosting_loop(self) -> None:
-        await self.live_hosting_director.idle_hosting_loop()

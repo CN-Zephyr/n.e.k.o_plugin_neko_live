@@ -988,7 +988,7 @@ danmaku_core on_event(cmd, 富模型)
 
 2026-08-01 补充：`live_status_summary()` 仍如实保留 provider 的 `cannot_stream/live_room_offline`，自动暖场、冷场和主动营业也继续等待真实可播状态；只对轻全局直播情景增加“用户已开始 + listener connected/listening”的窄例外。这样既不会让离线房间自动营业，也不会因为房间查询误报而让主语音对话丢失直播主题和人猫同播角色。
 
-2026-07-09 补充：宿主通用 `push_message(ai_behavior="respond")` wrapper 会把事件描述成“回应主人”的通用回调。NEKO Live 请求进入 dispatcher 时必须携带插件侧 live delivery boundary，明确这是直播间发言生成请求，不是给 `{MASTER_NAME}` 的私聊；该边界用于抵消通用 wrapper 的语义偏移，但仍不修改宿主 `send_lanlan_response()` / final TTS 出口。
+2026-07-09 补充：宿主通用 `push_message(ai_behavior="respond")` wrapper 会把事件描述成“回应主人”的通用回调。NEKO Live 请求进入 dispatcher 时必须携带插件侧 live delivery boundary，明确这是直播间发言生成请求，不是给 `{MASTER_NAME}` 的私聊；该边界用于抵消通用 wrapper 的语义偏移，但仍不修改宿主 `send_lanlan_response()` / final TTS 出口。宿主会从尾部截断过长的回调文本，所以 delivery boundary 必须放在 `prompt_text` 之前，不能追加到末尾；`test_delivery_boundary_survives_host_tail_truncation` 锁定这一顺序。`solo_stream` 下主题块不再注入房间主播名（`live_room_anchor_name`），避免模型把真人主播当成在场对象去称呼；`co_stream` 保持原样。
 如果 `developer_tools_enabled=true`，插件会通过 `NekoDispatcher.push_developer_instructions()` 叠加开发者调试语境。手动从面板开启开发者模式时，额外通过 `respond` 播报一次进入调试状态；插件启动或配置重载时只静默注入，不自动播报。
 关闭开发者模式时，插件会发送开发者调试恢复语境，只退出调试态，不关闭直播锐评语境，也不清空沙盒记录。
 插件停止、断开直播间或关闭 `live_enabled` 时会通过 `NekoDispatcher.push_context_restore()` 发送一段 `ai_behavior="read"` 的恢复上下文，提醒猫猫停止把后续普通对话理解成直播间弹幕、头像锐评事件或观众互动事件。这是兼容历史常驻注入的清理路径，不是新的直播状态入口。

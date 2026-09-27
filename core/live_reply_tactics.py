@@ -32,13 +32,3 @@ _TACTICS_BY_THEME: dict[str, tuple[str, str]] = {
         "Mirror the shared mood in one short line without opening a new segment.",
     ),
 }
-
-
-def tactic_for_theme(theme_key: str) -> tuple[str, str]:
-    key = str(theme_key or "").strip()
-    if key.startswith("topic:"):
-        return (
-            "theme_bridge",
-            "Reply to the shared point, then add one small expansion tied to the theme.",
-        )
-    return _TACTICS_BY_THEME.get(key, _TACTICS_BY_THEME["small_chat"])

@@ -11,6 +11,7 @@ from ...core.live_host_theme import live_host_theme_block
 from ...core.live_reply_contract import DANMAKU_ROOM_BRIDGE_REPLY_CHARS, ROOM_BRIDGE_REPLY_MODE
 from ...core.live_text_guards import (
     context_mentions_idiom_chain,
+    dense_text,
     looks_like_idiom_chain_start,
     looks_like_idiom_chain_turn,
     looks_like_support_claim_text,
@@ -501,10 +502,7 @@ class DanmakuResponseModule(BaseModule):
         value = re.sub(r"\s*\(\d+\s+signals?\)\s*$", "", value).strip()
         return value[:80]
 
-    @staticmethod
-    def _dense_text(text: str) -> str:
-        lowered = str(text or "").casefold()
-        return "".join(ch for ch in lowered if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
+    _dense_text = staticmethod(dense_text)
 
     @staticmethod
     def _looks_like_reaction(text: str, dense: str) -> bool:

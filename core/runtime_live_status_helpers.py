@@ -71,16 +71,6 @@ class RuntimeLiveStatusHelperMixin:
             rows, self.recent_results, self._iso_age_sec
         )
 
-    def _last_output_age_sec(self, rows: list[dict[str, Any]]) -> float | None:
-        return live_status_rules.last_output_age_sec(
-            rows, self.recent_results, self._iso_age_sec
-        )
-
-    def _recent_live_danmaku_event_age_sec(self) -> float | None:
-        return live_status_rules.recent_live_danmaku_event_age_sec(
-            self.recent_results, self._iso_age_sec
-        )
-
     @staticmethod
     def _age_sec(timestamp: Any) -> float | None:
         return live_status_rules.age_sec(timestamp)

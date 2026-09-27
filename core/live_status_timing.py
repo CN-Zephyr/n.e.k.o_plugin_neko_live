@@ -86,6 +86,54 @@ def iso_age_sec(value: Any) -> float | None:
 IsoAgeFn = Callable[[Any], float | None]
 
 
+LIVE_REPLY_MODULES = frozenset({"danmaku_response", "avatar_roast"})
+
+
+def safe_result_age_sec(result: dict[str, Any], age_fn: Any) -> float | None:
+    created_at = result.get("created_at")
+    if not created_at or not callable(age_fn):
+        return None
+    try:
+        value = float(age_fn(created_at))
+    except Exception:
+        return None
+    return value if value >= 0 else None
+
+
+def count_recent_live_replies(
+    recent_results: Any,
+    *,
+    window_seconds: float,
+    age_fn: Any,
+    count_undated: bool,
+) -> int:
+    """Count pushed/dry-run live danmaku replies, newest first, until the window ends.
+
+    Iterates the (deque/list) ring in place instead of copying it; the scan stops at the
+    first result older than ``window_seconds`` so only in-window timestamps are parsed.
+    """
+    count = 0
+    for result in reversed(recent_results or ()):
+        if not isinstance(result, dict):
+            continue
+        age = safe_result_age_sec(result, age_fn)
+        if age is None:
+            if not count_undated:
+                continue
+        elif age > window_seconds:
+            break
+        if str(result.get("status") or "") not in {"pushed", "dry_run"}:
+            continue
+        event = result.get("event") if isinstance(result.get("event"), dict) else {}
+        if str(event.get("source") or "") != "live_danmaku":
+            continue
+        module = str(result.get("response_module") or "")
+        if module and module not in LIVE_REPLY_MODULES:
+            continue
+        count += 1
+    return count
+
+
 def recent_live_danmaku_output_age_sec(recent_results: Any, iso_age_fn: IsoAgeFn = iso_age_sec) -> float | None:
     for result in reversed(list(recent_results or [])):
         if not isinstance(result, dict):

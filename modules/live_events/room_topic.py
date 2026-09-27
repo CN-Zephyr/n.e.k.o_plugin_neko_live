@@ -8,7 +8,7 @@ from collections import Counter, deque
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ...core.viewer_preferences import infer_viewer_preferences
+from ...core.live_text_guards import dense_text
 from .provider_event import (
     event_nickname,
     event_prompt_text,
@@ -96,17 +96,6 @@ class DanmakuCandidate:
 
 
 @dataclass
-class _ViewerMemory:
-    uid: str
-    nickname: str = ""
-    message_count: int = 0
-    summaries: Counter[str] = field(default_factory=Counter)
-    style: str = ""
-    response_preference: str = ""
-    last_seen_at: float = 0.0
-
-
-@dataclass
 class _Theme:
     key: str
     title: str
@@ -131,7 +120,8 @@ class RoomTopicContext:
         self._now = now
         self._window_seconds = float(window_seconds)
         self._recent: deque[DanmakuCandidate] = deque(maxlen=max_candidates)
-        self._viewer_memory: dict[str, _ViewerMemory] = {}
+        # Only the distinct-viewer count is consumed (status/dashboard); keep uids, not profiles.
+        self._viewer_uids: set[str] = set()
         self._last_theme_keys: list[str] = []
 
     def status(self) -> dict[str, Any]:
@@ -139,7 +129,7 @@ class RoomTopicContext:
         context = self._build_context(list(self._recent))
         status = {
             "recent_danmaku_candidates": len(self._recent),
-            "viewer_memory_count": len(self._viewer_memory),
+            "viewer_memory_count": len(self._viewer_uids),
             "last_theme_keys": [
                 key
                 for key in (public_room_theme_key(item) for item in self._last_theme_keys)
@@ -153,7 +143,7 @@ class RoomTopicContext:
         """Discard short-lived room context at a live-session boundary."""
 
         self._recent.clear()
-        self._viewer_memory.clear()
+        self._viewer_uids.clear()
         self._last_theme_keys = []
         self._last_repeated_signal = ("", 0, "")
 
@@ -367,23 +357,7 @@ class RoomTopicContext:
         }
 
     def _remember_viewer(self, candidate: DanmakuCandidate) -> None:
-        memory = self._viewer_memory.get(candidate.uid)
-        if memory is None:
-            memory = _ViewerMemory(uid=candidate.uid)
-            self._viewer_memory[candidate.uid] = memory
-        memory.nickname = candidate.nickname or memory.nickname
-        memory.message_count += 1
-        memory.last_seen_at = candidate.ts
-        preference = self._infer_viewer_preferences(candidate.text)
-        summary = str(preference.get("summary") or "").strip()
-        if summary:
-            memory.summaries[summary] += 1
-        style = str(preference.get("interaction_style") or "").strip()
-        if style:
-            memory.style = style
-        response = str(preference.get("response_preference") or "").strip()
-        if response:
-            memory.response_preference = response
+        self._viewer_uids.add(candidate.uid)
 
     def _prune(self) -> None:
         cutoff = self._safe_now() - self._window_seconds
@@ -540,9 +514,7 @@ class RoomTopicContext:
             return True
         return False
 
-    @staticmethod
-    def _dense_text(text: str) -> str:
-        return "".join(ch for ch in str(text or "").casefold() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
+    _dense_text = staticmethod(dense_text)
 
     @staticmethod
     def _classify(text: str) -> tuple[str, str, str, str]:
@@ -570,9 +542,6 @@ class RoomTopicContext:
             return cleaned
         return cleaned[: max(0, limit - 1)] + "..."
 
-    @staticmethod
-    def _infer_viewer_preferences(text: str) -> dict[str, Any]:
-        return infer_viewer_preferences(text)
 
     @staticmethod
     def _looks_like_question(text: str) -> bool:

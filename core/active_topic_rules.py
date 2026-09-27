@@ -8,31 +8,15 @@ runtime compatibility delegates.
 
 from __future__ import annotations
 
-import importlib
-from typing import Any
-
 from . import (
     active_engagement_copy,
-    active_topic_core_fallbacks,
     active_topic_filters,
     active_topic_meaning,
+    active_topic_materials,
     active_topic_mentions,
+    active_topic_rotation,
     active_topic_safety,
 )
-
-
-def _optional_split_module(name: str) -> Any | None:
-    qualified_name = f"{__package__}.{name}"
-    try:
-        return importlib.import_module(qualified_name)
-    except ModuleNotFoundError as exc:
-        if exc.name != qualified_name:
-            raise
-        return None
-
-
-_active_topic_materials = _optional_split_module("active_topic_materials")
-_active_topic_rotation = _optional_split_module("active_topic_rotation")
 
 
 _is_meaningful_active_topic_text = active_topic_meaning.is_meaningful_active_topic_text
@@ -59,32 +43,12 @@ _is_viewer_to_viewer_mention_text = (
 )
 _is_neko_mention_target = active_topic_mentions.is_neko_mention_target
 
-_has_active_engagement_streak = (
-    _active_topic_rotation.has_active_engagement_streak
-    if _active_topic_rotation is not None
-    else active_topic_core_fallbacks.has_active_engagement_streak
-)
-_normalize_active_topic_title = (
-    _active_topic_rotation.normalize_active_topic_title
-    if _active_topic_rotation is not None
-    else active_topic_core_fallbacks.normalize_active_topic_title
-)
-_is_similar_active_topic_title = (
-    _active_topic_rotation.is_similar_active_topic_title
-    if _active_topic_rotation is not None
-    else active_topic_core_fallbacks.is_similar_active_topic_title
-)
+_has_active_engagement_streak = active_topic_rotation.has_active_engagement_streak
+_normalize_active_topic_title = active_topic_rotation.normalize_active_topic_title
+_is_similar_active_topic_title = active_topic_rotation.is_similar_active_topic_title
 
-_host_material_family = (
-    _active_topic_materials.host_material_family
-    if _active_topic_materials is not None
-    else active_topic_core_fallbacks.host_material_family
-)
-_active_topic_material_profile = (
-    _active_topic_materials.active_topic_material_profile
-    if _active_topic_materials is not None
-    else active_topic_core_fallbacks.active_topic_material_profile
-)
+_host_material_family = active_topic_materials.host_material_family
+_active_topic_material_profile = active_topic_materials.active_topic_material_profile
 
 _active_engagement_hook_text = active_engagement_copy.active_engagement_hook_text
 _active_engagement_pattern_text = active_engagement_copy.active_engagement_pattern_text

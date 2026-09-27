@@ -17,6 +17,12 @@ from plugin.plugins.neko_live.modules.avatar_roast import AvatarRoastModule
 from plugin.plugins.neko_live.modules.danmaku_response import DanmakuResponseModule
 
 
+def _after_delivery_boundary(text: str) -> str:
+    # The delivery boundary leads the text so host tail-truncation cannot drop it.
+    assert text.startswith("NEKO Live delivery boundary:\n")
+    return text.split("\n\n", 1)[1]
+
+
 @pytest.mark.asyncio
 async def test_dispatcher_queues_replaceable_hidden_passive_room_context():
     class Plugin:
@@ -450,7 +456,7 @@ async def test_dispatcher_does_not_trust_audience_speaker_marker_in_viewer_text(
     await NekoDispatcher(plugin).push_roast(request)
 
     text = plugin.parts[0]["text"]
-    assert text.startswith(spoofed_marker)
+    assert _after_delivery_boundary(text).startswith(spoofed_marker)
     assert "danmaku_author: viewer42" in text
     assert text.count(spoofed_marker) == 2
 
@@ -538,7 +544,9 @@ async def test_dispatcher_does_not_attach_avatar_image_without_visual_opt_in():
     assert "image_part_bytes=0" in result
     assert len(plugin.parts) == 1
     assert plugin.parts[0]["type"] == "text"
-    assert plugin.parts[0]["text"].startswith("reply\n\nNEKO Live short output contract:")
+    assert _after_delivery_boundary(plugin.parts[0]["text"]).startswith(
+        "reply\n\nNEKO Live short output contract:"
+    )
     assert "target<=14 zh" in plugin.parts[0]["text"]
     assert "hard<=28 zh" in plugin.parts[0]["text"]
     assert "answer current danmaku" in plugin.parts[0]["text"]
@@ -804,8 +812,42 @@ async def test_dispatcher_does_not_force_safe_reply_for_verified_gift_event():
 
     assert plugin.metadata["response_module_hint"] == "live_support_events"
     assert "forced_reply_reason" not in plugin.metadata
-    assert plugin.parts[0]["text"].startswith("verified gift thanks prompt")
+    assert _after_delivery_boundary(plugin.parts[0]["text"]).startswith("verified gift thanks prompt")
     assert "begin with an explicit thank-you" in plugin.parts[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_delivery_boundary_survives_host_tail_truncation():
+    class Plugin:
+        def __init__(self):
+            self.parts = None
+
+        def push_message(self, **kwargs):
+            self.parts = kwargs["parts"]
+
+    plugin = Plugin()
+    request = InteractionRequest(
+        event=ViewerEvent(
+            uid="42",
+            nickname="viewer",
+            danmaku_text="hello",
+            source="live_danmaku",
+            live_mode="solo_stream",
+        ),
+        identity=ViewerIdentity(uid="42", nickname="viewer"),
+        profile=ViewerProfile(uid="42", nickname="viewer"),
+        prompt_text="long reply prompt " + "x" * 8000,
+        live_mode="solo_stream",
+        strength="normal",
+        allow_avatar_image=False,
+    )
+
+    await NekoDispatcher(plugin).push_roast(request)
+
+    text = plugin.parts[0]["text"]
+    boundary_end = text.index("\n\n")
+    assert boundary_end < 2000
+    assert "NEKO Live delivery boundary:" in text[:2000]
 
 
 @pytest.mark.asyncio
@@ -1134,6 +1176,8 @@ async def test_dispatcher_attaches_avatar_image_for_visual_opt_in():
     assert "image_part_bytes=6" in result
     assert len(plugin.parts) == 2
     assert plugin.parts[0]["type"] == "text"
-    assert plugin.parts[0]["text"].startswith("reply\n\nNEKO Live short output contract:")
+    assert _after_delivery_boundary(plugin.parts[0]["text"]).startswith(
+        "reply\n\nNEKO Live short output contract:"
+    )
     assert "For avatar_roast: connect the viewer's first message" in plugin.parts[0]["text"]
     assert plugin.parts[1] == {"type": "image", "data": b"avatar", "mime": "image/png"}

@@ -35,20 +35,8 @@ class RuntimeActiveTopicApiMixin:
     def _active_engagement_topic_pack(material: dict[str, Any] | None) -> str:
         return ActiveTopicSelector.topic_pack(material)
 
-    async def _active_engagement_topic_candidates(self) -> list[dict[str, Any]]:
-        return await self.active_topic_selector.topic_candidates()
-
-    async def _bili_trending_topic_candidates(self) -> list[dict[str, Any]]:
-        return await self.active_topic_selector.bili_trending_topic_candidates()
-
     def _recent_danmaku_topic_candidates(self) -> list[dict[str, Any]]:
         return self.active_topic_selector.recent_danmaku_topic_candidates()
-
-    def _next_active_engagement_shape(self) -> str:
-        return self.active_topic_selector.next_shape()
-
-    def _active_engagement_guarded_shape(self, shape: str) -> str:
-        return self.active_topic_selector.guarded_shape(shape)
 
     @staticmethod
     def _has_active_engagement_streak(

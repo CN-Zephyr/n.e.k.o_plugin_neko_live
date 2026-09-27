@@ -124,14 +124,14 @@ class BiliIdentityModule(BaseModule):
             return identity
         if not avatar_url or identity.is_default_avatar:
             return identity
-        cached = self.ctx.avatar_cache.get(avatar_url) if self.ctx else None
+        avatar_cache = self.ctx.avatar_cache if self.ctx else None
+        cached = avatar_cache.get(avatar_url) if avatar_cache is not None else None
         if cached:
+            # 缓存只收解码验证过的头像，命中时不再重复解码。
             data, mime = cached
-            usable, animated = self._inspect_avatar(data)
-            if usable:
-                identity.avatar_bytes = data
-                identity.avatar_mime = mime
-                identity.is_animated_avatar = animated
+            identity.avatar_bytes = data
+            identity.avatar_mime = mime
+            identity.is_animated_avatar = bool(avatar_cache.is_animated(avatar_url))
             return identity
         timeout = self.ctx.config.avatar_fetch_timeout_seconds if self.ctx else 8
         try:
@@ -140,7 +140,7 @@ class BiliIdentityModule(BaseModule):
             else:
                 data, mime = await asyncio.to_thread(self._fetch_avatar, avatar_url, timeout)
             if data:
-                usable, animated = self._inspect_avatar(data)
+                usable, animated = await asyncio.to_thread(self._inspect_avatar, data)
                 if not usable:
                     raise ValueError("avatar_decode_failed")
                 identity.avatar_bytes = data
@@ -148,7 +148,7 @@ class BiliIdentityModule(BaseModule):
                 identity.is_animated_avatar = animated
                 ctx = self.ctx
                 if ctx is not None:
-                    ctx.avatar_cache.put(avatar_url, data, mime)
+                    ctx.avatar_cache.put(avatar_url, data, mime, animated=animated)
         except Exception as exc:
             identity.fetched = False
             avatar_error = f"avatar_fetch_failed: {type(exc).__name__}"

@@ -18,8 +18,5 @@ class RuntimeDeveloperApiMixin:
     def clear_sandbox_data(self) -> dict[str, Any]:
         return runtime_developer_tools.clear_sandbox_data(self)
 
-    def _require_developer_mode(self) -> None:
-        runtime_developer_tools.require_developer_mode(self)
-
     async def handle_manual_event(self, **kwargs: Any) -> InteractionResult:
         return await runtime_developer_tools.handle_manual_event(self, **kwargs)

@@ -194,7 +194,6 @@ class DanmakuListener:
 
     async def _emit(self, event: str, *args, **kwargs):
         cb = self.callbacks.get(event)
-        self._log(f"_emit: event={event}, cb={'有' if cb else '无'}, callbacks_keys={list(self.callbacks.keys())}", "debug")
         if cb:
             try:
                 if asyncio.iscoroutinefunction(cb):
@@ -513,55 +512,56 @@ class DanmakuListener:
 
     async def _dispatch_message(self, cmd: str, data: dict):
         """根据 cmd 分发事件"""
-        self._log(f"_dispatch_message: cmd={cmd}", "debug")
         try:
             if cmd == "DANMU_MSG":
                 info = data.get("info", [])
                 if not isinstance(info, list) or len(info) < 2:
                     return
-                content = str(info[1]) if info[1] is not None else ""
+                # 旧版字典格式只在有人订阅 on_danmaku 时才解析。
+                if "on_danmaku" in self.callbacks:
+                    content = str(info[1]) if info[1] is not None else ""
 
-                user_info = info[2] if len(info) > 2 else []
-                if isinstance(user_info, list):
-                    user_id = user_info[0] if len(user_info) > 0 else 0
-                    user_name = str(user_info[1]) if len(user_info) > 1 else "未知"
-                else:
-                    user_id, user_name = 0, "未知"
+                    user_info = info[2] if len(info) > 2 else []
+                    if isinstance(user_info, list):
+                        user_id = user_info[0] if len(user_info) > 0 else 0
+                        user_name = str(user_info[1]) if len(user_info) > 1 else "未知"
+                    else:
+                        user_id, user_name = 0, "未知"
 
-                user_level = 0
-                if len(info) > 4 and isinstance(info[4], list) and len(info[4]) > 0:
+                    user_level = 0
+                    if len(info) > 4 and isinstance(info[4], list) and len(info[4]) > 0:
+                        try:
+                            user_level = int(info[4][0])
+                        except (ValueError, TypeError):
+                            user_level = 0
+
                     try:
-                        user_level = int(info[4][0])
-                    except (ValueError, TypeError):
-                        user_level = 0
+                        ts = info[0][4] / 1000 if isinstance(info[0], list) and len(info[0]) > 4 else None
+                        time_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else datetime.now().strftime("%H:%M:%S")
+                    except Exception:
+                        time_str = datetime.now().strftime("%H:%M:%S")
 
-                try:
-                    ts = info[0][4] / 1000 if isinstance(info[0], list) and len(info[0]) > 4 else None
-                    time_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else datetime.now().strftime("%H:%M:%S")
-                except Exception:
-                    time_str = datetime.now().strftime("%H:%M:%S")
+                    medal_text = ""
+                    medal_level = 0
+                    medal_name = ""
+                    if len(info) > 3 and isinstance(info[3], list) and len(info[3]) >= 2:
+                        try:
+                            medal_level = int(info[3][0])
+                            medal_name = str(info[3][1])
+                            medal_text = f"[{medal_name}{medal_level}]"
+                        except Exception as e:
+                            self._log(f"fans medal parse failed: {e}", "debug")
 
-                medal_text = ""
-                medal_level = 0
-                medal_name = ""
-                if len(info) > 3 and isinstance(info[3], list) and len(info[3]) >= 2:
-                    try:
-                        medal_level = int(info[3][0])
-                        medal_name = str(info[3][1])
-                        medal_text = f"[{medal_name}{medal_level}]"
-                    except Exception as e:
-                        self._log(f"fans medal parse failed: {e}", "debug")
-
-                await self._emit("on_danmaku", {
-                    "time": time_str,
-                    "content": content,
-                    "user_id": user_id,
-                    "user_name": user_name,
-                    "user_level": user_level,
-                    "medal_text": medal_text,
-                    "medal_level": medal_level,
-                    "medal_name": medal_name,
-                })
+                    await self._emit("on_danmaku", {
+                        "time": time_str,
+                        "content": content,
+                        "user_id": user_id,
+                        "user_name": user_name,
+                        "user_level": user_level,
+                        "medal_text": medal_text,
+                        "medal_level": medal_level,
+                        "medal_name": medal_name,
+                    })
 
                 # LiveDanmaku 事件（增强协议）
                 try:
@@ -1025,8 +1025,6 @@ class DanmakuListener:
                     cmd = msg.get("cmd", "")
                     # 有些 cmd 带 : 后缀，取前部分
                     cmd = cmd.split(":")[0]
-                    if cmd == "DANMU_MSG":
-                        self._log("📨 收到弹幕包 cmd=DANMU_MSG")
                     await self._dispatch_message(cmd, msg)
                 except Exception as e:
                     self._log(f"解析消息失败: {e}", "warning")

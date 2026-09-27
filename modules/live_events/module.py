@@ -25,10 +25,12 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import OrderedDict
 from typing import Any
 
 from ...core.active_hook_answers import is_active_hook_answer_event
 from ...core.contracts import ViewerEvent
+from ...core.live_status_timing import count_recent_live_replies
 from ...core.runtime_live_input import mark_recent_chat_observed
 from ...core.runtime_timeline import record_payload_timeline
 from .._base import BaseModule
@@ -154,7 +156,7 @@ class LiveEventsModule(BaseModule):
         self._last_selected_type: str = ""
         self._last_candidate_count: int = 0
         self._last_skip_reason: str = ""
-        self._recent_viewer_uids: dict[str, float] = {}
+        self._recent_viewer_uids: OrderedDict[str, float] = OrderedDict()
         self._last_new_viewer_batch_welcome_at: float = 0.0
         # EventBus 订阅句柄（fake ctx 无 event_bus 时保持空列表）。
         self._unsubscribes: list[Any] = []
@@ -285,7 +287,7 @@ class LiveEventsModule(BaseModule):
         self._last_selected_type = ""
         self._last_candidate_count = 0
         self._last_skip_reason = ""
-        self._recent_viewer_uids = {}
+        self._recent_viewer_uids = OrderedDict()
         self._last_new_viewer_batch_welcome_at = 0.0
         self._room_topic.reset()
         self._recent_chat.reset()
@@ -386,15 +388,6 @@ class LiveEventsModule(BaseModule):
         status.update(self._ritual_memory.status())
         status.update(self._room_verdict.status())
         return status
-
-    def is_confirmed_room_ritual(self, phrase: str) -> bool:
-        """True when a phrase is an established room ritual that has not retired.
-
-        Anti-repeat consumers use this to tell a callback apart from drift: an
-        established ritual returning after its gap is the payoff the recent
-        material windows must not suppress.
-        """
-        return self._ritual_memory.is_confirmed_ritual(phrase)
 
     def recent_chat_snapshot(self, *, limit: int = 1) -> list[dict[str, object]]:
         """Return the bounded session tail for exact positional chat questions."""
@@ -1099,35 +1092,27 @@ class LiveEventsModule(BaseModule):
     def _recent_live_reply_count(self) -> int:
         if self.ctx is None:
             return 0
-        recent_results = getattr(self.ctx, "recent_results", []) or []
-        count = 0
-        for result in reversed(list(recent_results)):
-            if not isinstance(result, dict):
-                continue
-            age = self._recent_result_age_sec(result)
-            if age is not None and age > LIVE_REPLY_PRESSURE_WINDOW_SECONDS:
-                break
-            status = str(result.get("status") or "")
-            if status not in {"pushed", "dry_run"}:
-                continue
-            event = result.get("event") if isinstance(result.get("event"), dict) else {}
-            source = str(event.get("source") or "")
-            if source != "live_danmaku":
-                continue
-            response_module = str(result.get("response_module") or "")
-            if response_module and response_module not in {"danmaku_response", "avatar_roast"}:
-                continue
-            count += 1
-        return count
+        return count_recent_live_replies(
+            getattr(self.ctx, "recent_results", None),
+            window_seconds=LIVE_REPLY_PRESSURE_WINDOW_SECONDS,
+            age_fn=getattr(self.ctx, "_iso_age_sec", None),
+            count_undated=True,
+        )
 
     def _remember_recent_viewer(self, uid: str) -> None:
         now = self._now()
         cutoff = now - NEW_VIEWER_BURST_WINDOW_SECONDS
-        self._recent_viewer_uids = {
-            key: ts for key, ts in self._recent_viewer_uids.items() if ts >= cutoff
-        }
+        recent = self._recent_viewer_uids
+        # Insertion order == last-seen order (re-seen uids move to the end), so expire from the front.
+        while recent:
+            oldest_uid, oldest_ts = next(iter(recent.items()))
+            if oldest_ts >= cutoff:
+                break
+            recent.popitem(last=False)
         if uid:
-            self._recent_viewer_uids[str(uid)] = now
+            key = str(uid)
+            recent[key] = now
+            recent.move_to_end(key)
 
     def _recent_viewer_count(self) -> int:
         now = self._now()
@@ -1151,22 +1136,6 @@ class LiveEventsModule(BaseModule):
     def reserve_batch_welcome(self) -> None:
         self._last_new_viewer_batch_welcome_at = self._now()
 
-    def _recent_result_age_sec(self, result: dict[str, Any]) -> float | None:
-        created_at = result.get("created_at")
-        if not created_at:
-            return None
-        age_fn = getattr(self.ctx, "_iso_age_sec", None)
-        if not callable(age_fn):
-            return None
-        try:
-            age = age_fn(created_at)
-        except Exception:
-            return None
-        try:
-            value = float(age)
-        except (TypeError, ValueError):
-            return None
-        return value if value >= 0 else None
 
     def _looks_like_active_hook_answer(self, event: Any, *, text: str) -> bool:
         if self.ctx is None:
@@ -1462,24 +1431,6 @@ class LiveEventsModule(BaseModule):
             await self.ctx.handle_live_payload(payload)
         except Exception as exc:
             self.ctx.audit.record("live_event_roast_failed", type(exc).__name__, level="warning")
-
-    async def _record_signal_only(self, event: Any) -> None:
-        if self.ctx is None:
-            return
-        selected_event_type = event_type(event)
-        payload = self._payload_for_event(event, selected_event_type)
-        record_payload_timeline(
-            self.ctx,
-            payload,
-            stage="live_events.signal",
-            status="skipped",
-            reason=f"signal_only.{selected_event_type}",
-            route=selected_event_type,
-        )
-        try:
-            await self.ctx.handle_live_payload(payload)
-        except Exception as exc:
-            self.ctx.audit.record("live_event_signal_failed", type(exc).__name__, level="warning")
 
 
 def _looks_reply_worthy_text(text: str) -> bool:

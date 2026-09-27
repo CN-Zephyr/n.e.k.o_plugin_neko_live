@@ -20,6 +20,9 @@ def live_host_theme_block(config: Any | None = None, *, kind: str = "reply") -> 
     live_mode = _optional_text(getattr(config, "live_mode", ""), max_len=40)
     room_title = _optional_text(room_context.get("title"), max_len=120)
     anchor_name = _optional_text(room_context.get("anchor_name"), max_len=80)
+    if live_mode == "solo_stream":
+        # Solo: NEKO is the host; a human anchor name invites the model to address them.
+        anchor_name = ""
     live_status = _prompt_live_status(room_context.get("live_status"))
     stream_goal = _optional_text(getattr(config, "stream_goal", ""), max_len=160)
     stream_columns = _optional_text(getattr(config, "stream_columns", ""), max_len=160)

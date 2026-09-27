@@ -1277,3 +1277,31 @@ async def test_bili_identity_proxy_fetch_rejects_private_redirect(monkeypatch):
 )
 def test_bili_identity_proxy_allowlist_rejects_unsafe_urls(url):
     assert BiliIdentityModule._is_bili_avatar_url(url) is False
+
+
+@pytest.mark.asyncio
+async def test_bili_identity_avatar_cache_hit_skips_redecode():
+    from plugin.plugins.neko_live.stores.avatar_cache import AvatarCache
+
+    module = BiliIdentityModule()
+    cache = AvatarCache()
+    cache.put("https://example.test/a.gif", b"avatar", "image/gif", animated=True)
+    module.ctx = SimpleNamespace(
+        avatar_cache=cache,
+        config=SimpleNamespace(avatar_fetch_timeout_seconds=1),
+        audit=SimpleNamespace(record=lambda *args, **kwargs: None),
+    )
+    module._inspect_avatar = lambda _data: (_ for _ in ()).throw(
+        AssertionError("cached avatars must not be decoded again")
+    )
+    module._fetch_avatar = lambda *_args: (_ for _ in ()).throw(
+        AssertionError("cached avatars must not be fetched again")
+    )
+
+    identity = await module.resolve(
+        ViewerEvent(uid="7", nickname="七", avatar_url="https://example.test/a.gif")
+    )
+
+    assert identity.avatar_bytes == b"avatar"
+    assert identity.avatar_mime == "image/gif"
+    assert identity.is_animated_avatar is True

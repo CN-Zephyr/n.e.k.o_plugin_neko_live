@@ -623,3 +623,32 @@ async def test_event_bus_close_drains_handlers_and_rejects_late_publish():
     assert received == ["before-close"]
     assert bus.status()["accepting_events"] is False
     assert bus.status()["pending_tasks"] == 0
+
+
+def _danmu_packet(text: str = "hello") -> dict:
+    return {
+        "cmd": "DANMU_MSG",
+        "info": [[0, 1, 25, 16777215, 1700000000000], text, [42, "Viewer"], [5, "Medal"], [10]],
+    }
+
+
+async def test_bili_danmu_legacy_dict_is_skipped_without_on_danmaku_subscriber():
+    got: list[tuple[str, object]] = []
+    listener = DanmakuListener(room_id=100, callbacks={"on_event": lambda cmd, event: got.append((cmd, event))})
+
+    await listener._dispatch_message("DANMU_MSG", _danmu_packet())
+
+    assert [cmd for cmd, _event in got] == ["DANMU_MSG"]
+    assert got[0][1].text == "hello"
+
+
+async def test_bili_danmu_legacy_dict_still_emitted_for_on_danmaku_subscriber():
+    legacy: list[dict] = []
+    listener = DanmakuListener(room_id=100, callbacks={"on_danmaku": legacy.append})
+
+    await listener._dispatch_message("DANMU_MSG", _danmu_packet())
+
+    assert len(legacy) == 1
+    assert legacy[0]["content"] == "hello"
+    assert legacy[0]["user_name"] == "Viewer"
+    assert legacy[0]["medal_text"] == "[Medal5]"

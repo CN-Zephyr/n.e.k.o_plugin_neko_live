@@ -214,3 +214,33 @@ def test_audit_store_redacts_complete_cookie_header() -> None:
         assert "theme" not in text
         assert "blue" not in text
         assert "status=500" in text
+
+
+def test_audit_store_redacts_json_quoted_authorization_value() -> None:
+    audit = AuditStore()
+    audit.record(
+        "provider_error",
+        '{"authorization": "Bearer QUOTED-SECRET", "status": 401}',
+        detail={"reason": "headers={'Authorization': 'Basic QUOTED-BASIC'}"},
+    )
+
+    dumped = json.dumps(audit.recent(), ensure_ascii=False)
+    assert "QUOTED-SECRET" not in dumped
+    assert "QUOTED-BASIC" not in dumped
+    assert "401" in dumped
+
+
+def test_audit_store_ring_keeps_newest_and_resizes() -> None:
+    audit = AuditStore(limit=3)
+    for index in range(5):
+        audit.record("op", f"event-{index}")
+
+    assert [item["message"] for item in audit.recent()] == ["event-4", "event-3", "event-2"]
+    assert [item["message"] for item in audit.recent(2)] == ["event-4", "event-3"]
+
+    audit.set_limit(2)
+    assert [item["message"] for item in audit.recent()] == ["event-4", "event-3"]
+
+    audit.set_limit(4)
+    audit.record("op", "event-5")
+    assert [item["message"] for item in audit.recent()] == ["event-5", "event-4", "event-3"]
