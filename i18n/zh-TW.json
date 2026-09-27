@@ -14,7 +14,7 @@
   "panel.stats.queue": "隊列",
   "panel.stats.room": "直播間",
   "panel.stats.connection": "監聽",
-  "panel.stats.viewers": "人氣值",
+  "panel.stats.viewers": "線上人數",
   "panel.connection.connected": "正在監聽",
   "panel.connection.disconnected": "未監聽",
   "panel.safety.running": "運行中",

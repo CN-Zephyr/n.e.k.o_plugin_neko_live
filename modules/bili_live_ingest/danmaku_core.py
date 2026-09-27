@@ -175,7 +175,7 @@ class DanmakuListener:
         # 直播结束标记：收到 PREPARING 后置位，阻止重连循环
         self._live_ended: bool = False
         self._current_server: str = ""  # 当前连接的服务器地址
-        self._viewer_count: int = 0  # 当前观看人数（人气值）
+        self._viewer_count: int = 0  # 当前在线人数，来自 ONLINE_RANK_COUNT；0 表示尚未收到
         self._reconnect_count: int = 0
         self._last_packet_at: float = 0.0
 
@@ -650,6 +650,9 @@ class DanmakuListener:
                 self._live_ended = True
                 await self._emit("on_preparing")
 
+            elif cmd == "ONLINE_RANK_COUNT":
+                self._apply_online_count(data)
+
             # ── 新增协议指令（MagicalDanmaku 增强） ────────────────────────
             elif cmd in self._CMD_HANDLERS:
                 handler = self._CMD_HANDLERS[cmd]
@@ -668,6 +671,17 @@ class DanmakuListener:
 
         except Exception as e:
             self._log(f"分发消息 {cmd} 异常: {e}", "debug")
+
+    def _apply_online_count(self, packet: dict) -> None:
+        inner = packet.get("data") if isinstance(packet, dict) else None
+        if not isinstance(inner, dict):
+            return
+        for name in ("online_count", "count"):
+            value = inner.get(name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                continue
+            self._viewer_count = value
+            return
 
     @staticmethod
     def _apply_support_metadata(event: Any, packet: dict) -> None:
@@ -978,17 +992,8 @@ class DanmakuListener:
         body = raw[header_len:total_len]
 
         if operation == OPERATION_HEARTBEAT_REPLY:
-            # 解析人气值（心跳回复前4字节是大端序int）
-            try:
-                if len(body) >= 4:
-                    viewer_count = struct.unpack(">I", body[:4])[0]
-                    if viewer_count != self._viewer_count:
-                        self._viewer_count = viewer_count
-                        self._log(f"📊 人气值: {viewer_count:,}")
-                    # 可选：触发人气值变化回调
-                    await self._emit("on_viewer_count", viewer_count)
-            except Exception as e:
-                self._log(f"viewer count callback failed: {e}", "debug")
+            # 心跳回复前 4 字节是已下线的人气值（恒为 1），不再作为在线人数来源。
+            return
 
         elif operation == OPERATION_AUTH_REPLY:
             try:
@@ -1228,7 +1233,7 @@ class DanmakuListener:
         self.running = False
         self._connection_state = ConnectionState.DISCONNECTED
         self._current_server = ""
-        self._viewer_count = 0  # 清空人气值
+        self._viewer_count = 0
         self._stop_event.set()  # 唤醒所有等待此事件的协程
         if self._heartbeat_task and not self._heartbeat_task.done():
             self._heartbeat_task.cancel()

@@ -15,6 +15,7 @@ from plugin.plugins.neko_live.modules import bili_live_ingest as ingest_mod
 from plugin.plugins.neko_live.modules.bili_live_ingest import BiliLiveIngestModule, danmaku_core
 from plugin.plugins.neko_live.modules.bili_live_ingest.danmaku_core import (
     OPERATION_AUTH_REPLY,
+    OPERATION_HEARTBEAT_REPLY,
     DanmakuListener,
     _pack,
 )
@@ -639,3 +640,36 @@ def test_bili_normalize_projects_only_public_scalar_fields() -> None:
     assert event.raw == {"event_type": "danmaku"}
     assert "must-not-leak" not in dumped
     assert "must-not-leak" not in raw_dumped
+
+
+@pytest.mark.asyncio
+async def test_online_rank_count_sets_viewer_count() -> None:
+    listener = DanmakuListener(room_id=123)
+    await listener._dispatch_message(
+        "ONLINE_RANK_COUNT",
+        {"cmd": "ONLINE_RANK_COUNT", "data": {"count": 297, "online_count": 298}},
+    )
+    assert listener.get_connection_state()["viewer_count"] == 298
+
+    await listener._dispatch_message("ONLINE_RANK_COUNT", {"cmd": "ONLINE_RANK_COUNT", "data": {"count": 301}})
+    assert listener.get_connection_state()["viewer_count"] == 301
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_reply_popularity_does_not_override_viewer_count() -> None:
+    listener = DanmakuListener(room_id=123)
+    await listener._dispatch_message("ONLINE_RANK_COUNT", {"cmd": "ONLINE_RANK_COUNT", "data": {"online_count": 298}})
+    await listener._process_packet(_pack(OPERATION_HEARTBEAT_REPLY, (1).to_bytes(4, "big")))
+    assert listener.get_connection_state()["viewer_count"] == 298
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "data",
+    [None, "298", {"online_count": -1}, {"online_count": "298"}, {"online_count": True}, {"count": 1.5}],
+)
+async def test_invalid_online_rank_count_is_ignored(data: Any) -> None:
+    listener = DanmakuListener(room_id=123)
+    await listener._dispatch_message("ONLINE_RANK_COUNT", {"cmd": "ONLINE_RANK_COUNT", "data": {"online_count": 42}})
+    await listener._dispatch_message("ONLINE_RANK_COUNT", {"cmd": "ONLINE_RANK_COUNT", "data": data})
+    assert listener.get_connection_state()["viewer_count"] == 42
