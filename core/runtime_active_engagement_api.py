@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 from . import runtime_active_engagement
 from .contracts import InteractionResult
 from .runtime_active_topic_api import RuntimeActiveTopicApiMixin

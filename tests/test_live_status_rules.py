@@ -300,7 +300,8 @@ def test_count_recent_live_replies_filters_and_stops_at_window():
         row(1.0),
         "junk",
     ])
-    age_fn = lambda value: value
+    def age_fn(value):
+        return value
 
     assert count_recent_live_replies(rows, window_seconds=60.0, age_fn=age_fn, count_undated=False) == 2
     assert count_recent_live_replies(rows, window_seconds=60.0, age_fn=age_fn, count_undated=True) == 3

@@ -6,13 +6,13 @@ from typing import Any
 
 from . import pipeline_flow
 from .active_hook_answers import is_active_hook_answer_event
-from .live_status_timing import count_recent_live_replies
 from .contracts import (
     InteractionResult,
     PipelineStep,
     SafetyDecision,
     ViewerEvent,
 )
+from .live_status_timing import count_recent_live_replies
 from .pipeline_results import (
     reject_missing_uid,
     skip_before_event,

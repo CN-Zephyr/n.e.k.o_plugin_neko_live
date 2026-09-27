@@ -11,13 +11,12 @@ from __future__ import annotations
 from . import (
     active_engagement_copy,
     active_topic_filters,
-    active_topic_meaning,
     active_topic_materials,
+    active_topic_meaning,
     active_topic_mentions,
     active_topic_rotation,
     active_topic_safety,
 )
-
 
 _is_meaningful_active_topic_text = active_topic_meaning.is_meaningful_active_topic_text
 _active_topic_filter_reason = active_topic_meaning.active_topic_filter_reason
