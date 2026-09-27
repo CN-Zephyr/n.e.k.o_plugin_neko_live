@@ -22,6 +22,7 @@ from ..live_events.provider_event import (
     event_signal_fields,
     event_support_fields,
 )
+from .browser_headers import BROWSER_USER_AGENT
 
 SUPPORT_EVENT_DEDUPE_SECONDS = 0.35
 SUPPORT_EVENT_DEDUPE_LIMIT = 4096
@@ -629,7 +630,7 @@ class BiliLiveIngestModule(BaseModule):
     # 反 -352：lookup 走的 getInfoByRoom（HTTP）补上临时 buvid3 + 浏览器 headers。
     # getInfoByRoom 不需要 WBI 签名（弹幕 WS 的 _get_real_room_id 调它也没签）。
     _BROWSER_HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": BROWSER_USER_AGENT,
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "zh-CN,zh;q=0.9",
         "Origin": "https://live.bilibili.com",

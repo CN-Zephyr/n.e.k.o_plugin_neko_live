@@ -410,7 +410,7 @@ class LiveDanmaku:
         names = []
         if "list" in d:
             for item in d["list"][:3]:
-                names.append(str(item.get("name", "")))
+                names.append(str(item.get("uname") or item.get("name") or ""))
         elif "name" in d:
             names = [str(d.get("name", ""))]
         text = "高能榜: " + ", ".join(names) if names else "高能榜更新"

@@ -22,6 +22,8 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 from urllib.parse import urlencode
 
+from .browser_headers import BROWSER_USER_AGENT
+
 # ── WBI 签名常量 ──────────────────────────────────────────────────
 # 重排映射表（固定不变）
 _MIXIN_KEY_ENC_TAB = [
@@ -176,6 +178,10 @@ class DanmakuListener:
         self._live_ended: bool = False
         self._current_server: str = ""  # 当前连接的服务器地址
         self._viewer_count: int = 0  # 当前在线人数，来自 ONLINE_RANK_COUNT；0 表示尚未收到
+        # GUARD_BUY 与 USER_TOAST_MSG_V2 会描述同一次上舰，按 uid+等级在 30s 内去重。
+        self._recent_guard_keys: dict[str, float] = {}
+        self._guard_dedupe_seconds: float = 30.0
+        self._guard_dedupe_limit: int = 256
         self._reconnect_count: int = 0
         self._last_packet_at: float = 0.0
 
@@ -275,7 +281,7 @@ class DanmakuListener:
 
         try:
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": BROWSER_USER_AGENT,
                 "Referer": "https://www.bilibili.com/",
             }
             data = await self._request_json(
@@ -312,7 +318,7 @@ class DanmakuListener:
             return cached[0]
         try:
             url = f"https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom?room_id={room_id}"
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            headers = {"User-Agent": BROWSER_USER_AGENT}
             data = await self._request_json(url, headers=headers, cookies=self._credential_cookies())
             if data.get("code") == 0:
                 real_id = data["data"]["room_info"]["room_id"]
@@ -328,7 +334,7 @@ class DanmakuListener:
         try:
             import aiohttp
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": BROWSER_USER_AGENT,
             }
             timeout = aiohttp.ClientTimeout(total=self._http_timeout)
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -393,7 +399,7 @@ class DanmakuListener:
                 self._buvid3_temp = buvid3
 
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": BROWSER_USER_AGENT,
                 "Referer": f"https://live.bilibili.com/{real_room_id}",
             }
 
@@ -512,6 +518,14 @@ class DanmakuListener:
 
     async def _dispatch_message(self, cmd: str, data: dict):
         """根据 cmd 分发事件"""
+        if cmd in ("SEND_GIFT_V2", "INTERACT_WORD_V2", "ONLINE_RANK_V3"):
+            await self._dispatch_protobuf_command(cmd, data)
+            return
+        if cmd == "USER_TOAST_MSG_V2":
+            guard_packet = self._user_toast_v2_guard_packet(data)
+            if guard_packet:
+                await self._dispatch_message("GUARD_BUY", guard_packet)
+            return
         try:
             if cmd == "DANMU_MSG":
                 info = data.get("info", [])
@@ -653,6 +667,10 @@ class DanmakuListener:
             elif cmd == "ONLINE_RANK_COUNT":
                 self._apply_online_count(data)
 
+            elif cmd == "GUARD_BUY" and not self._claim_guard_purchase(data):
+                # 同一次上舰已由 GUARD_BUY 或 USER_TOAST_MSG_V2 中先到的那条处理过。
+                pass
+
             # ── 新增协议指令（MagicalDanmaku 增强） ────────────────────────
             elif cmd in self._CMD_HANDLERS:
                 handler = self._CMD_HANDLERS[cmd]
@@ -671,6 +689,84 @@ class DanmakuListener:
 
         except Exception as e:
             self._log(f"分发消息 {cmd} 异常: {e}", "debug")
+
+    async def _dispatch_protobuf_command(self, cmd: str, data: dict) -> None:
+        """把 protobuf 编码的 *_V2 指令翻译成旧版包后复用原有分发路径。"""
+        from .protobuf_commands import (
+            interact_word_v2_to_legacy,
+            online_rank_v3_to_legacy,
+            send_gift_v2_to_legacy,
+        )
+
+        try:
+            if cmd == "SEND_GIFT_V2":
+                legacy_packets = send_gift_v2_to_legacy(data)
+            elif cmd == "ONLINE_RANK_V3":
+                legacy_packets = [online_rank_v3_to_legacy(data)]
+            else:
+                legacy_packets = [interact_word_v2_to_legacy(data)]
+        except Exception as e:
+            self._log(f"{cmd} protobuf decode failed: {type(e).__name__}", "debug")
+            return
+        for legacy in legacy_packets:
+            await self._dispatch_message(legacy["cmd"], legacy)
+
+    def _claim_guard_purchase(self, packet: dict) -> bool:
+        """同一次上舰只放行一次；返回 False 表示已被先到的 GUARD_BUY / USER_TOAST_MSG_V2 处理。"""
+        inner = packet.get("data") if isinstance(packet, dict) else None
+        if not isinstance(inner, dict):
+            return True
+        # 两条消息的 start_time 口径未必一致，只用 uid + 等级在短窗口内去重。
+        key = f"{inner.get('uid') or 0}|{inner.get('guard_level') or 0}"
+        now = time.monotonic()
+        while self._recent_guard_keys:
+            oldest_key, seen_at = next(iter(self._recent_guard_keys.items()))
+            if now - seen_at <= self._guard_dedupe_seconds:
+                break
+            self._recent_guard_keys.pop(oldest_key)
+        if key in self._recent_guard_keys:
+            return False
+        self._recent_guard_keys[key] = now
+        while len(self._recent_guard_keys) > self._guard_dedupe_limit:
+            self._recent_guard_keys.pop(next(iter(self._recent_guard_keys)))
+        return True
+
+    @staticmethod
+    def _user_toast_v2_guard_packet(packet: dict) -> Optional[dict]:
+        """``USER_TOAST_MSG_V2``（明文 JSON）→ 旧版 ``GUARD_BUY`` 包。
+
+        上舰时会先后下发 source=0（付费）与 source=2（赠送）两条，官方评论栏只显示
+        source=0，这里同样只接受 source=0。字段参考 xfgryujk/blivedm ``UserToastV2Message``。
+        """
+        inner = packet.get("data") if isinstance(packet, dict) else None
+        if not isinstance(inner, dict):
+            return None
+        sections = {}
+        for name in ("sender_uinfo", "guard_info", "pay_info", "gift_info", "option"):
+            value = inner.get(name)
+            sections[name] = value if isinstance(value, dict) else {}
+        if sections["option"].get("source") != 0:
+            return None
+        guard_info = sections["guard_info"]
+        pay_info = sections["pay_info"]
+        sender = sections["sender_uinfo"]
+        base = sender.get("base") if isinstance(sender.get("base"), dict) else {}
+        guard_level = DanmakuListener._first_int(guard_info, keys=("guard_level",))
+        if guard_level not in (1, 2, 3):
+            return None
+        return {
+            "cmd": "GUARD_BUY",
+            "data": {
+                "uid": DanmakuListener._first_int(sender, keys=("uid",)),
+                "username": DanmakuListener._first_text(base, keys=("name",)),
+                "guard_level": guard_level,
+                "num": DanmakuListener._first_int(pay_info, keys=("num",)) or 1,
+                "price": DanmakuListener._first_int(pay_info, keys=("price",)),
+                "gift_id": DanmakuListener._first_int(sections["gift_info"], keys=("gift_id",)),
+                "start_time": DanmakuListener._first_int(guard_info, keys=("start_time",)),
+                "end_time": DanmakuListener._first_int(guard_info, keys=("end_time",)),
+            },
+        }
 
     def _apply_online_count(self, packet: dict) -> None:
         inner = packet.get("data") if isinstance(packet, dict) else None
@@ -896,7 +992,7 @@ class DanmakuListener:
 
     @staticmethod
     def _handle_online_rank(data: dict):
-        """ONLINE_RANK_V2 / ONLINE_RANK_TOP3 — 高能榜"""
+        """ONLINE_RANK_V2 / ONLINE_RANK_V3（译为 V2）/ ONLINE_RANK_TOP3 — 高能榜"""
         from .livedanmaku import LiveDanmaku as _LD
         return _LD.from_online_rank(data)
 
@@ -1133,7 +1229,7 @@ class DanmakuListener:
         auth_body = self._build_auth_body(real_room_id, token)
 
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "User-Agent": BROWSER_USER_AGENT,
             "Origin": "https://live.bilibili.com",
         }
 
