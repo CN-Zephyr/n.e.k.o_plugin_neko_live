@@ -213,7 +213,8 @@ def _prepend_live_delivery_boundary(text: str, request: InteractionRequest) -> s
     source = str(request.event.source or "").strip()
     if source not in _NEKO_LIVE_LIVE_SOURCES:
         return text
-    if "NEKO Live delivery boundary:" in text:
+    # Only an already-prepended boundary counts; viewer text may contain the marker string.
+    if str(text or "").lstrip().startswith("NEKO Live delivery boundary:"):
         return text
     mode = str(request.live_mode or request.event.live_mode or "").strip() or "co_stream"
     boundary_lines = [
