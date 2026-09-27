@@ -213,7 +213,8 @@ def _prepend_live_delivery_boundary(text: str, request: InteractionRequest) -> s
     source = str(request.event.source or "").strip()
     if source not in _NEKO_LIVE_LIVE_SOURCES:
         return text
-    if "NEKO Live delivery boundary:" in text:
+    # Only an already-prepended boundary counts; viewer text may contain the marker string.
+    if str(text or "").lstrip().startswith("NEKO Live delivery boundary:"):
         return text
     mode = str(request.live_mode or request.event.live_mode or "").strip() or "co_stream"
     boundary_lines = [
@@ -232,8 +233,9 @@ def _prepend_live_delivery_boundary(text: str, request: InteractionRequest) -> s
             "- co_stream: {LANLAN_NAME} is a low-interrupt partner and must not direct the human streamer to carry the room."
         )
     boundary = "\n".join(boundary_lines)
-    base = str(text or "").rstrip()
-    return f"{base}\n\n{boundary}" if base else boundary
+    # Keep the boundary at the head: the host truncates long callback text from the tail.
+    base = str(text or "").strip()
+    return f"{boundary}\n\n{base}" if base else boundary
 
 
 def _mark_live_audience_speaker(metadata: dict[str, Any], request: InteractionRequest) -> None:

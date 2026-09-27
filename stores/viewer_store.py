@@ -33,6 +33,10 @@ _PROFILE_RETENTION_DAYS = 90
 _RECENT_PROFILE_CACHE_LIMIT = 200
 
 
+class ViewerStoreUnavailableError(OSError):
+    """档案文件存在但暂时读不了；变更操作必须放弃写回，避免覆盖真实档案。"""
+
+
 class ViewerStore:
     def __init__(
         self,
@@ -49,6 +53,7 @@ class ViewerStore:
         # 串行化读改写，避免并发 upsert/mark_roasted 互相覆盖（lost update）。
         self._lock = asyncio.Lock()
         self._fallback_warned = False
+        self._load_failure_warned = False
         self._active_fallback_file: Path | None = None
         # Dashboard state is polled every few seconds while live. Cache only
         # its bounded public projection; the canonical JSON remains the sole
@@ -155,25 +160,56 @@ class ViewerStore:
         }
 
     def _write_json(self, file: Path, profiles: dict[str, dict[str, Any]]) -> bool:
-        """原子写（tmp + os.replace）；成功 True，失败 False（不抛）。"""
-        tmp = file.with_suffix(file.suffix + ".tmp")
+        """原子写（唯一 tmp + fsync + os.replace）；成功 True，失败 False（不抛）。
+
+        tmp 用 mkstemp 取唯一名，避免与残留/并发 tmp 撞名；替换前 fsync，
+        断电时磁盘上要么是完整旧文件、要么是完整新文件，不会留下截断的 JSON。
+        """
+        tmp: Path | None = None
         try:
             file.parent.mkdir(parents=True, exist_ok=True)
-            tmp.write_text(json.dumps(profiles, ensure_ascii=False, indent=2), encoding="utf-8")
+            data = json.dumps(profiles, ensure_ascii=False, indent=2).encode("utf-8")
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=f".{file.name}.",
+                suffix=".tmp",
+                dir=file.parent,
+            )
+            tmp = Path(tmp_name)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(str(tmp), str(file))
+            tmp = None
             return True
         except Exception:  # noqa: BLE001
-            try:
-                tmp.unlink(missing_ok=True)
-            except Exception:  # noqa: BLE001 — cleanup failure must not mask the write result
-                pass
             return False
+        finally:
+            if tmp is not None:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except Exception:  # noqa: BLE001 — cleanup failure must not mask the write result
+                    pass
 
     async def _load_all(
         self,
         *,
         include_expired: bool = False,
     ) -> dict[str, dict[str, Any]]:
+        profiles, _writable = await self._load_profiles(include_expired=include_expired)
+        return profiles
+
+    async def _load_profiles(
+        self,
+        *,
+        include_expired: bool = False,
+    ) -> tuple[dict[str, dict[str, Any]], bool]:
+        """返回 (档案, 是否可安全写回)。
+
+        文件存在但读不了（如被杀软/备份软件暂时占用）时返回 ``({}, False)``：
+        调用方不得把这份空结果写回，否则会覆盖掉整份真实档案。
+        内容损坏（非 JSON / 顶层非对象）时先改名隔离成 ``.corrupt-*`` 备份，再按空库继续。
+        """
         file, custom = self._resolve_file()
         candidates: list[Path] = []
         if self._active_fallback_file is not None:
@@ -183,37 +219,84 @@ class ViewerStore:
             fallback = self._default_dir() / _STORE_FILE
             if fallback not in candidates:
                 candidates.append(fallback)
+        unreadable = False
         for candidate in candidates:
             if not candidate.exists():
                 continue
             try:
-                text = await asyncio.to_thread(candidate.read_text, encoding="utf-8")
-                data = json.loads(text)
-            except Exception as exc:  # noqa: BLE001
-                self._audit("viewer_store_load_failed", f"{type(exc).__name__}: {exc}")
+                raw = await asyncio.to_thread(candidate.read_bytes)
+            except OSError as exc:
+                unreadable = True
+                self._audit_load_failure(f"{type(exc).__name__}: {candidate.name}")
                 continue
-            if isinstance(data, dict):
-                self._active_fallback_file = candidate if candidate != file else None
-                profiles: dict[str, dict[str, Any]] = {}
-                for key, value in data.items():
-                    if not isinstance(value, dict):
-                        continue
-                    uid = _safe_profile_uid(value.get("uid")) or _safe_profile_uid(key)
-                    if not uid:
-                        continue
-                    item = _safe_profile_item(value, fallback_uid=uid)
-                    if item and (
-                        include_expired or not _profile_is_expired(item)
-                    ):
-                        profiles[uid] = item
-                return profiles
-        return {}
+            try:
+                data = json.loads(raw.decode("utf-8"))
+            except ValueError:
+                data = None
+            if not isinstance(data, dict):
+                if not await self._quarantine_corrupt_file(candidate):
+                    unreadable = True
+                continue
+            if not unreadable:
+                self._load_failure_warned = False
+            self._active_fallback_file = candidate if candidate != file else None
+            profiles: dict[str, dict[str, Any]] = {}
+            for key, value in data.items():
+                if not isinstance(value, dict):
+                    continue
+                uid = _safe_profile_uid(value.get("uid")) or _safe_profile_uid(key)
+                if not uid:
+                    continue
+                item = _safe_profile_item(value, fallback_uid=uid)
+                if item and (
+                    include_expired or not _profile_is_expired(item)
+                ):
+                    profiles[uid] = item
+            return profiles, not unreadable
+        return {}, not unreadable
+
+    def _audit_load_failure(self, message: str) -> None:
+        # 直播中每条弹幕都会读档案；同一段故障只告警一次，成功读到后再重新计数。
+        if self._load_failure_warned:
+            return
+        self._load_failure_warned = True
+        self._audit("viewer_store_load_failed", message)
+
+    async def _quarantine_corrupt_file(self, candidate: Path) -> bool:
+        """把损坏的档案文件改名隔离，成功 True；隔离失败 False（调用方需拒绝写回）。"""
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        target = candidate.with_name(f"{candidate.name}.corrupt-{stamp}")
+        try:
+            await asyncio.to_thread(os.replace, str(candidate), str(target))
+        except OSError as exc:
+            self._audit_load_failure(f"corrupt, quarantine failed ({type(exc).__name__}): {candidate.name}")
+            return False
+        self._audit("viewer_store_corrupt_quarantined", f"档案文件损坏，已隔离为 {target.name}")
+        return True
+
+    async def _load_for_write(
+        self,
+        *,
+        include_expired: bool = False,
+    ) -> dict[str, dict[str, Any]]:
+        """变更路径专用：档案读不了时抛错，绝不拿空结果覆盖真实档案。"""
+        profiles, writable = await self._load_profiles(include_expired=include_expired)
+        if not writable:
+            raise ViewerStoreUnavailableError("viewer profile store is temporarily unreadable")
+        return profiles
 
     async def prune_expired_profiles(self) -> dict[str, Any]:
         """Delete profiles inactive for the fixed retention window."""
 
         async with self._lock:
-            profiles = await self._load_all(include_expired=True)
+            try:
+                profiles = await self._load_for_write(include_expired=True)
+            except ViewerStoreUnavailableError:
+                return {
+                    "pruned": 0,
+                    "applied": False,
+                    "retention_days": _PROFILE_RETENTION_DAYS,
+                }
             active = {
                 uid: item
                 for uid, item in profiles.items()
@@ -266,13 +349,23 @@ class ViewerStore:
             return await self._upsert_identity_locked(identity)
 
     async def _upsert_identity_locked(self, identity: ViewerIdentity) -> ViewerProfile:
-        profiles = await self._load_all()
         now = utc_now_iso()
         uid = _safe_profile_uid(identity.uid)
         nickname = _safe_profile_text(identity.nickname)
         avatar_url = _safe_profile_text(identity.avatar_url)
         if not uid:
             return ViewerProfile(uid="", nickname=nickname, avatar_url=avatar_url)
+        try:
+            profiles = await self._load_for_write()
+        except ViewerStoreUnavailableError:
+            # 读不到真实档案时只给本次事件一个临时画像，不写盘。
+            return ViewerProfile(
+                uid=uid,
+                nickname=nickname or uid,
+                avatar_url=avatar_url,
+                first_seen_at=now,
+                last_seen_at=now,
+            )
         existing = profiles.get(uid)
         if existing:
             profile = ViewerProfile(
@@ -315,13 +408,13 @@ class ViewerStore:
         remember_preferences: bool | None = None,
     ) -> ViewerProfile:
         async with self._lock:
-            profiles = await self._load_all()
             now = utc_now_iso()
             uid = _safe_profile_uid(identity.uid)
             nickname = _safe_profile_text(identity.nickname)
             avatar_url = _safe_profile_text(identity.avatar_url)
             if not uid:
                 return ViewerProfile(uid="", nickname=nickname, avatar_url=avatar_url)
+            profiles = await self._load_for_write()
             item = _safe_profile_item(profiles.get(uid) or {"uid": uid}, fallback_uid=uid)
             memory_enabled = (
                 self._memory_enabled()
@@ -384,9 +477,12 @@ class ViewerStore:
             return await self._mark_roasted_locked(uid, output)
 
     async def _mark_roasted_locked(self, uid: str, output: str) -> bool:
-        profiles = await self._load_all()
         safe_uid = _safe_profile_uid(uid)
         if not safe_uid:
+            return False
+        try:
+            profiles = await self._load_for_write()
+        except ViewerStoreUnavailableError:
             return False
         item = _safe_profile_item(profiles.get(safe_uid) or {"uid": safe_uid}, fallback_uid=safe_uid)
         item["roast_count"] = public_int(item.get("roast_count"), default=0, minimum=0) + 1
@@ -408,7 +504,9 @@ class ViewerStore:
         async with self._lock:
             if requested <= _RECENT_PROFILE_CACHE_LIMIT and self._recent_cache_matches_store():
                 return copy.deepcopy(self._recent_cache[:requested])
-            profiles = await self._load_all()
+            profiles, readable = await self._load_profiles()
+            if not readable:
+                return _recent_profile_projection(profiles, requested)
             self._update_recent_cache(profiles)
             if requested <= _RECENT_PROFILE_CACHE_LIMIT:
                 return copy.deepcopy(self._recent_cache[:requested])
@@ -416,9 +514,13 @@ class ViewerStore:
 
     async def clear_profiles(self) -> dict[str, Any]:
         async with self._lock:
-            profiles = await self._load_all()
+            try:
+                profiles = await self._load_for_write()
+            except ViewerStoreUnavailableError:
+                profiles, persisted = {}, False
+            else:
+                persisted = await self._save_all({}, allow_fallback=False)
             cleared = len(profiles)
-            persisted = await self._save_all({}, allow_fallback=False)
             file, _custom = self._resolve_file()
             if self._active_fallback_file is not None:
                 file = self._active_fallback_file
@@ -433,10 +535,15 @@ class ViewerStore:
         if not key:
             raise ValueError("uid is required")
         async with self._lock:
-            profiles = await self._load_all()
-            found = key in profiles
-            profiles.pop(key, None)
-            persisted = await self._save_all(profiles, allow_fallback=False)
+            try:
+                profiles = await self._load_for_write()
+            except ViewerStoreUnavailableError:
+                profiles, persisted = {}, False
+                found = False
+            else:
+                found = key in profiles
+                profiles.pop(key, None)
+                persisted = await self._save_all(profiles, allow_fallback=False)
             file, _custom = self._resolve_file()
             if self._active_fallback_file is not None:
                 file = self._active_fallback_file
@@ -463,7 +570,8 @@ class ViewerStore:
             "last_interaction_at",
         )
         async with self._lock:
-            profiles = await self._load_all()
+            # 读不了时直接抛 OSError，避免被上层误报成“档案不存在”。
+            profiles = await self._load_for_write()
             item = profiles.get(key)
             found = isinstance(item, dict)
             persisted = False

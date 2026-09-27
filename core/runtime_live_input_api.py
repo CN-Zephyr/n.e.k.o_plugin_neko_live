@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import runtime_live_input, runtime_live_listener
-from .contracts import InteractionResult, ViewerEvent
+from .contracts import InteractionResult
 
 
 class RuntimeLiveInputApiMixin:
@@ -21,9 +21,6 @@ class RuntimeLiveInputApiMixin:
 
     async def handle_live_payload(self, payload: dict[str, Any]) -> InteractionResult:
         return await runtime_live_input.handle_live_payload(self, payload)
-
-    def _record_live_signal_only_skip(self, event: ViewerEvent, event_type: str) -> InteractionResult:
-        return runtime_live_input.record_live_signal_only_skip(self, event, event_type)
 
     async def lookup_live_room(self, room_id: Any) -> dict[str, Any]:
         return await runtime_live_input.lookup_live_room(self, room_id)

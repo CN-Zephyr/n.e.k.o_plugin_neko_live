@@ -719,6 +719,33 @@ def test_danmaku_response_prompt_uses_live_room_title_when_theme_is_blank():
     assert "theme_name: NEKO tiny radio patrol" not in request.prompt_text
 
 
+def test_solo_stream_theme_omits_human_anchor_name():
+    module = DanmakuResponseModule()
+    module.ctx = SimpleNamespace(
+        config=LiveConfig(roast_strength="normal", dry_run=True, live_mode="solo_stream"),
+        live_room_context={
+            "title": "战雷陆战练车：今晚只打轻松局",
+            "anchor_name": "水水",
+            "live_status": "live",
+        },
+    )
+    event = ViewerEvent(
+        uid="42",
+        nickname="viewer",
+        danmaku_text="今天玩什么车",
+        source="live_danmaku",
+        live_mode="solo_stream",
+    )
+    identity = ViewerIdentity(uid="42", nickname="viewer")
+    profile = ViewerProfile(uid="42", nickname="viewer", roast_count=1)
+
+    request = module.build_request(event, identity, profile)
+
+    assert "live_room_title_theme: 战雷陆战练车：今晚只打轻松局" in request.prompt_text
+    assert "水水" not in request.prompt_text
+    assert "live_room_anchor_name" not in request.prompt_text
+
+
 def test_danmaku_response_prompt_omits_stale_offline_room_status():
     module = DanmakuResponseModule()
     module.ctx = SimpleNamespace(

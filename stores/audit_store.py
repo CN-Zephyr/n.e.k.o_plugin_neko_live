@@ -3,38 +3,27 @@
 from __future__ import annotations
 
 import math
-import re
+from collections import deque
 from copy import deepcopy
 from typing import Any
 
 from ..core.contracts import utc_now_iso
-from ..core.contracts_public import is_sensitive_public_key, public_topic_material
+from ..core.contracts_public import is_sensitive_public_key, public_text, public_topic_material
 
 _MAX_TEXT = 240
 _MAX_DEPTH = 4
 _ALLOWED_LEVELS = {"debug", "info", "warning", "error"}
-_SENSITIVE_AUTH_RE = re.compile(
-    r"\b(?:proxy[-_]?authorization|authorization)\b\s*[:=]\s*(?:bearer|basic)?\s*[^\s;,]+",
-    re.IGNORECASE,
-)
-_SENSITIVE_COOKIE_HEADER_RE = re.compile(r"\bcookie\s*:\s*[^\r\n]*", re.IGNORECASE)
-_SENSITIVE_TEXT_RE = re.compile(
-    r"[\"']?\b(?:cookie|token|access_token|refresh_token|signature|webcast_sign|ttwid|odin_tt|sessionid|"
-    r"sessdata|bili_jct|dedeuserid|buvid3|x-tt-token|password|passwd|secret|client_secret|"
-    r"api_key|apikey|credentials?)\b[\"']?\s*[:=]\s*[\"']?[^'\";}\s,&]+[\"']?",
-    re.IGNORECASE,
-)
 
 
 class AuditStore:
     def __init__(self, limit: int = 100) -> None:
         self.limit = max(1, limit)
-        self._events: list[dict[str, Any]] = []
+        self._events: deque[dict[str, Any]] = deque(maxlen=self.limit)
 
     def set_limit(self, limit: int) -> None:
         self.limit = max(1, limit)
-        if len(self._events) > self.limit:
-            self._events = self._events[-self.limit :]
+        if self._events.maxlen != self.limit:
+            self._events = deque(self._events, maxlen=self.limit)
 
     def record(self, op: str, message: str, *, level: str = "info", detail: dict[str, Any] | None = None) -> None:
         item = {
@@ -45,12 +34,11 @@ class AuditStore:
             "detail": _safe_detail(detail),
         }
         self._events.append(item)
-        if len(self._events) > self.limit:
-            self._events = self._events[-self.limit :]
 
     def recent(self, limit: int | None = None) -> list[dict[str, Any]]:
         cap = limit or self.limit
-        return deepcopy(list(reversed(self._events[-cap:])))
+        events = list(self._events)
+        return deepcopy(list(reversed(events[-cap:])))
 
 
 def _safe_level(value: Any) -> str:
@@ -105,14 +93,5 @@ def _safe_public_value(value: Any, *, depth: int) -> Any:
 
 
 def _safe_text(value: Any) -> str:
-    if not isinstance(value, str):
-        return ""
-    text = _SENSITIVE_COOKIE_HEADER_RE.sub("[redacted]", value)
-    text = " ".join(text.replace("\r", " ").replace("\n", " ").split())
-    if not text:
-        return ""
-    text = _SENSITIVE_AUTH_RE.sub("[redacted]", text)
-    text = _SENSITIVE_TEXT_RE.sub("[redacted]", text)
-    if len(text) > _MAX_TEXT:
-        return text[: _MAX_TEXT - 1] + "..."
-    return text
+    # Single redaction source shared with the public projections (contracts_public).
+    return public_text(value, max_len=_MAX_TEXT)

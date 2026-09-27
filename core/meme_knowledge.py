@@ -40,10 +40,6 @@ def default_meme_knowledge() -> tuple[MemeKnowledgeEntry, ...]:
     return load_meme_knowledge(DEFAULT_MEME_KNOWLEDGE_PATH)
 
 
-def clear_meme_knowledge_cache() -> None:
-    default_meme_knowledge.cache_clear()
-
-
 def load_meme_knowledge(path: str | Path = DEFAULT_MEME_KNOWLEDGE_PATH) -> tuple[MemeKnowledgeEntry, ...]:
     try:
         raw = Path(path).read_text(encoding="utf-8")

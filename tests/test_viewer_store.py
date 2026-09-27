@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from plugin.plugins.neko_live.core.contracts import ViewerIdentity
@@ -186,7 +187,54 @@ def test_failed_atomic_replace_removes_temporary_file(tmp_path, monkeypatch):
 
     assert store._write_json(target, {"42": {"uid": "42"}}) is False
     assert not target.exists()
-    assert not (tmp_path / "viewer_profiles.json.tmp").exists()
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_atomic_write_fsyncs_unique_temp_before_replace(tmp_path, monkeypatch):
+    import os
+
+    store = ViewerStore(_FakePlugin(tmp_path), audit=None)
+    target = tmp_path / "viewer_profiles.json"
+    # 残留的旧式固定名 tmp 不能被当成本次写入的临时文件复用或误删。
+    stale = tmp_path / "viewer_profiles.json.tmp"
+    stale.write_text("stale", encoding="utf-8")
+    calls: list[str] = []
+    real_fsync = os.fsync
+    real_replace = os.replace
+
+    def _fsync(fd):
+        calls.append("fsync")
+        return real_fsync(fd)
+
+    def _replace(src, dst):
+        calls.append("replace")
+        assert Path(src) != stale
+        assert Path(src).parent == tmp_path
+        return real_replace(src, dst)
+
+    monkeypatch.setattr("plugin.plugins.neko_live.stores.viewer_store.os.fsync", _fsync)
+    monkeypatch.setattr("plugin.plugins.neko_live.stores.viewer_store.os.replace", _replace)
+
+    assert store._write_json(target, {"42": {"uid": "42"}}) is True
+    assert calls == ["fsync", "replace"]
+    assert json.loads(target.read_text(encoding="utf-8")) == {"42": {"uid": "42"}}
+    assert stale.read_text(encoding="utf-8") == "stale"
+    assert [p for p in tmp_path.glob("*.tmp") if p != stale] == []
+
+
+def test_failed_fsync_keeps_previous_file_intact(tmp_path, monkeypatch):
+    store = ViewerStore(_FakePlugin(tmp_path), audit=None)
+    target = tmp_path / "viewer_profiles.json"
+    target.write_text('{"1": {"uid": "1"}}', encoding="utf-8")
+
+    def _fail_fsync(_fd):
+        raise OSError("disk gone")
+
+    monkeypatch.setattr("plugin.plugins.neko_live.stores.viewer_store.os.fsync", _fail_fsync)
+
+    assert store._write_json(target, {"42": {"uid": "42"}}) is False
+    assert target.read_text(encoding="utf-8") == '{"1": {"uid": "1"}}'
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 @pytest.mark.asyncio
@@ -435,3 +483,111 @@ async def test_mark_roasted_reports_failed_persistence(tmp_path, monkeypatch):
     restarted = ViewerStore(_FakePlugin(tmp_path), audit=None)
     profile = (await restarted.recent_profiles())[0]
     assert profile["roast_count"] == 0
+
+
+class _RecordingAudit:
+    def __init__(self):
+        self.events = []
+
+    def record(self, op, message, **_kwargs):
+        self.events.append((op, message))
+
+
+def _seed_two_profiles(tmp_path):
+    file = tmp_path / "viewer_profiles.json"
+    file.write_text(
+        json.dumps(
+            {
+                "1001": {"uid": "1001", "nickname": "a"},
+                "1002": {"uid": "1002", "nickname": "b"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return file
+
+
+def _fail_read_bytes(monkeypatch, file):
+    original = type(file).read_bytes
+
+    def flaky_read_bytes(self):
+        if self == file:
+            raise PermissionError("locked by another process")
+        return original(self)
+
+    monkeypatch.setattr(type(file), "read_bytes", flaky_read_bytes)
+
+
+@pytest.mark.asyncio
+async def test_unreadable_file_is_never_overwritten_by_mutations(tmp_path, monkeypatch):
+    file = _seed_two_profiles(tmp_path)
+    before = file.read_bytes()
+    audit = _RecordingAudit()
+    store = ViewerStore(_FakePlugin(tmp_path), audit=audit)
+    _fail_read_bytes(monkeypatch, file)
+
+    profile = await store.upsert_identity(ViewerIdentity(uid="2001", nickname="new"))
+    assert profile.uid == "2001"
+    with pytest.raises(OSError):
+        await store.record_live_danmaku(ViewerIdentity(uid="2001", nickname="new"), "hi")
+    assert await store.mark_roasted("1001", "roast") is False
+    assert (await store.delete_profile("1001"))["applied"] is False
+    assert (await store.clear_profiles())["applied"] is False
+    with pytest.raises(OSError):
+        await store.reset_profile_impression("1001")
+    assert (await store.prune_expired_profiles())["applied"] is False
+
+    monkeypatch.undo()
+    assert file.read_bytes() == before
+    load_failures = [op for op, _ in audit.events if op == "viewer_store_load_failed"]
+    assert len(load_failures) == 1
+
+
+@pytest.mark.asyncio
+async def test_unreadable_file_recovers_once_readable_again(tmp_path, monkeypatch):
+    file = _seed_two_profiles(tmp_path)
+    store = ViewerStore(_FakePlugin(tmp_path), audit=None)
+    _fail_read_bytes(monkeypatch, file)
+    assert await store.recent_profiles() == []
+    monkeypatch.undo()
+
+    await store.upsert_identity(ViewerIdentity(uid="2001", nickname="new"))
+    data = json.loads(file.read_text(encoding="utf-8"))
+    assert set(data) == {"1001", "1002", "2001"}
+
+
+@pytest.mark.asyncio
+async def test_corrupt_file_is_quarantined_before_new_writes(tmp_path):
+    file = tmp_path / "viewer_profiles.json"
+    file.write_bytes(b'{"1001": {"uid": "10')
+    audit = _RecordingAudit()
+    store = ViewerStore(_FakePlugin(tmp_path), audit=audit)
+
+    await store.upsert_identity(ViewerIdentity(uid="2001", nickname="new"))
+
+    backups = list(tmp_path.glob("viewer_profiles.json.corrupt-*"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == b'{"1001": {"uid": "10'
+    assert set(json.loads(file.read_text(encoding="utf-8"))) == {"2001"}
+    assert any(op == "viewer_store_corrupt_quarantined" for op, _ in audit.events)
+
+
+@pytest.mark.asyncio
+async def test_corrupt_file_that_cannot_be_quarantined_is_not_overwritten(
+    tmp_path, monkeypatch
+):
+    import os
+
+    file = tmp_path / "viewer_profiles.json"
+    file.write_text("[1, 2, 3]", encoding="utf-8")
+    store = ViewerStore(_FakePlugin(tmp_path), audit=None)
+    real_replace = os.replace
+
+    def refuse_quarantine(src, dst):
+        if ".corrupt-" in str(dst):
+            raise PermissionError("locked")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", refuse_quarantine)
+    assert await store.mark_roasted("1001", "roast") is False
+    assert file.read_text(encoding="utf-8") == "[1, 2, 3]"

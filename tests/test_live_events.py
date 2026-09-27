@@ -27,6 +27,7 @@ from plugin.plugins.neko_live.modules.danmaku_response import DanmakuResponseMod
 from plugin.plugins.neko_live.modules.live_events import LiveEventsModule
 from plugin.plugins.neko_live.modules.live_events.module import (
     LIVE_CONTEXT_PROMPT_MAX_CHARS,
+    NEW_VIEWER_BURST_WINDOW_SECONDS,
 )
 from plugin.plugins.neko_live.modules.live_events.provider_event import (
     event_avatar_url,
@@ -2804,3 +2805,21 @@ async def test_support_module_dispatches_pending_high_value_event_before_light_e
 
     assert dispatched == ["active", "high", "light"]
     await support.teardown()
+
+
+def test_recent_viewer_window_expires_from_front_and_refreshes_reseen_uid():
+    hub = LiveEventsModule()
+    clock = {"now": 0.0}
+    hub._now = lambda: clock["now"]
+    window = NEW_VIEWER_BURST_WINDOW_SECONDS
+
+    hub._remember_recent_viewer("a")
+    clock["now"] = 1.0
+    hub._remember_recent_viewer("b")
+    clock["now"] = window - 1.0
+    hub._remember_recent_viewer("a")  # re-seen: must move behind "b"
+    clock["now"] = window + 2.0
+    hub._remember_recent_viewer("c")
+
+    assert list(hub._recent_viewer_uids) == ["a", "c"]
+    assert hub.new_viewer_burst_count() == 2

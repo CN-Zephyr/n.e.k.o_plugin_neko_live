@@ -64,3 +64,18 @@ def test_avatar_normalization_bounds_payload_and_dimensions():
     assert len(data) <= 64 * 1024
     with Image.open(io.BytesIO(data)) as normalized:
         assert max(normalized.size) <= 384
+
+
+def test_avatar_cache_tracks_animated_flag_through_replace_and_evict():
+    cache = AvatarCache(max_items=1, max_bytes=16)
+
+    cache.put("a", b"gif", "image/gif", animated=True)
+    assert cache.is_animated("a") is True
+
+    cache.put("a", b"png", "image/png")
+    assert cache.is_animated("a") is False
+
+    cache.put("a", b"gif", "image/gif", animated=True)
+    cache.put("b", b"png", "image/png")
+    assert cache.get("a") is None
+    assert cache.is_animated("a") is False

@@ -12,6 +12,7 @@ from .contracts import (
     SafetyDecision,
     ViewerEvent,
 )
+from .live_status_timing import count_recent_live_replies
 from .pipeline_results import (
     reject_missing_uid,
     skip_before_event,
@@ -177,39 +178,12 @@ class LivePipeline:
         return max(1, queue_limit - 1)
 
     def _recent_live_reply_count(self) -> int:
-        recent_results = getattr(self.ctx, "recent_results", []) or []
-        count = 0
-        for result in reversed(list(recent_results)):
-            if not isinstance(result, dict):
-                continue
-            age = self._recent_result_age_sec(result)
-            if age is None:
-                continue
-            if age > AVATAR_ROAST_RECENT_REPLY_WINDOW_SECONDS:
-                break
-            if str(result.get("status") or "") not in {"pushed", "dry_run"}:
-                continue
-            event = result.get("event") if isinstance(result.get("event"), dict) else {}
-            if str(event.get("source") or "") != "live_danmaku":
-                continue
-            module = str(result.get("response_module") or "")
-            if module and module not in {"danmaku_response", "avatar_roast"}:
-                continue
-            count += 1
-        return count
-
-    def _recent_result_age_sec(self, result: dict[str, Any]) -> float | None:
-        created_at = result.get("created_at")
-        if not created_at:
-            return None
-        age_fn = getattr(self.ctx, "_iso_age_sec", None)
-        if not callable(age_fn):
-            return None
-        try:
-            age = float(age_fn(created_at))
-        except Exception:
-            return None
-        return age if age >= 0 else None
+        return count_recent_live_replies(
+            getattr(self.ctx, "recent_results", None),
+            window_seconds=AVATAR_ROAST_RECENT_REPLY_WINDOW_SECONDS,
+            age_fn=getattr(self.ctx, "_iso_age_sec", None),
+            count_undated=False,
+        )
 
     def _live_status_gate_decision(self, event: ViewerEvent) -> SafetyDecision | None:
         if event.source not in LIVE_STATUS_GATED_SOURCES:

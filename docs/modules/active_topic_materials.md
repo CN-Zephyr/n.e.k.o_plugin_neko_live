@@ -37,5 +37,4 @@ Focused coverage locks explicit-family precedence, A/B marker boundaries, option
 
 - Heuristic classification is intentionally conservative; unknown titles may return no profile and be skipped by topic sources.
 - A literal `A/B` or `A|B` marker is recognized as a choice, while normal words containing `ab` are not.
-- Before this materials slice is present, the active-topic core uses small safe defaults from `active_topic_core_fallbacks.py`.
 - Removing this slice restores those defaults; the pipeline, safety guard, dispatcher, and stores remain unchanged.

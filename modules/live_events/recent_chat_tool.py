@@ -24,10 +24,6 @@ TOOL_PARAMETERS = {
 }
 
 
-def is_recent_chat_tool_registered(plugin: Any) -> bool:
-    return any(item.get("name") == TOOL_NAME for item in plugin.list_llm_tools())
-
-
 def set_recent_chat_tool_enabled(plugin: Any, enabled: bool) -> bool:
     existing = next(
         (item for item in plugin.list_llm_tools() if item.get("name") == TOOL_NAME),

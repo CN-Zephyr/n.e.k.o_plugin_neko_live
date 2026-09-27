@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from .contracts import InteractionResult, PipelineStep, ViewerEvent
+from .contracts import InteractionResult, ViewerEvent
 from .contracts_public import public_int, public_text
 from .runtime_live_session import is_current_live_session_event
 from .runtime_timeline import ensure_trace_id, record_timeline, timeline_for_trace
@@ -144,34 +144,6 @@ def _signal_event_type(event: ViewerEvent) -> str:
     if not isinstance(raw, str):
         return ""
     return raw.strip().lower()
-
-
-def record_live_signal_only_skip(runtime: Any, event: ViewerEvent, event_type: str) -> InteractionResult:
-    normalized = "super_chat" if event_type == "sc" else event_type
-    reason = f"live_event_signal.unsupported_{normalized}"
-    result = InteractionResult(
-        accepted=False,
-        status="skipped",
-        event=event,
-        reason=reason,
-        steps=[PipelineStep(runtime._signal_route_for_event_type(normalized), "skipped", reason)],
-    )
-    record_timeline(
-        runtime,
-        event,
-        stage="live_input.signal_only",
-        status="skipped",
-        reason=reason,
-        route=runtime._signal_route_for_event_type(normalized),
-    )
-    runtime.audit.record(
-        "live_event_signal_only",
-        reason,
-        level="info",
-        detail={"event_type": normalized, "uid": event.uid},
-    )
-    runtime.record_result(result)
-    return result
 
 
 async def lookup_live_room(runtime: Any, room_id: Any) -> dict[str, Any]:

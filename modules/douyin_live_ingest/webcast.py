@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import html
 import json
 import math
@@ -96,26 +95,6 @@ def room_page_url(room_ref: Any) -> str:
         token = ""
     token = quote(token, safe="")
     return f"https://live.douyin.com/{token}"
-
-
-async def fetch_webcast_info_async(
-    room_ref: Any,
-    *,
-    cookie: str = "",
-    timeout: float = _DEFAULT_FETCH_TIMEOUT_SECONDS,
-) -> DouyinWebcastInfo:
-    try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(fetch_webcast_info, room_ref, cookie=cookie, timeout=timeout),
-            timeout=_FETCH_WAIT_SECONDS,
-        )
-    except asyncio.TimeoutError:
-        return DouyinWebcastInfo(
-            ok=False,
-            room_ref=safe_room_ref(room_ref),
-            live_status="unknown",
-            message="douyin room page fetch timed out",
-        )
 
 
 def fetch_webcast_info(room_ref: Any, *, cookie: str = "", timeout: float = _DEFAULT_FETCH_TIMEOUT_SECONDS) -> DouyinWebcastInfo:

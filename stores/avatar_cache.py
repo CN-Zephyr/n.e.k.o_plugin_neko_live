@@ -10,6 +10,7 @@ class AvatarCache:
         self.max_items = max(1, max_items)
         self.max_bytes = max(1, max_bytes)
         self._items: dict[str, tuple[bytes, str]] = {}
+        self._animated: set[str] = set()
         self._order: deque[str] = deque()
         self._bytes = 0
 
@@ -24,7 +25,10 @@ class AvatarCache:
         self._order.append(key)
         return item
 
-    def put(self, key: str, data: bytes, mime: str) -> None:
+    def is_animated(self, key: str) -> bool:
+        return key in self._animated
+
+    def put(self, key: str, data: bytes, mime: str, *, animated: bool = False) -> None:
         if not key or not data:
             return
         item_size = len(data)
@@ -39,10 +43,15 @@ class AvatarCache:
                 pass
         self._order.append(key)
         self._items[key] = (data, mime)
+        if animated:
+            self._animated.add(key)
+        else:
+            self._animated.discard(key)
         self._bytes += item_size
         while len(self._order) > self.max_items or self._bytes > self.max_bytes:
             old = self._order.popleft()
             removed = self._items.pop(old, None)
+            self._animated.discard(old)
             if removed is not None:
                 self._bytes -= len(removed[0])
 

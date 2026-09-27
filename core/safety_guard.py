@@ -128,9 +128,6 @@ class SafetyGuard:
     def record_failure(self, kind: FailureKind, message: str) -> None:
         safety_guard_failures.record_failure(self, kind, message)
 
-    def _trim(self, bucket: list[float], now: float) -> None:
-        safety_guard_failures.trim_failure_bucket(self, bucket, now)
-
     def status(self) -> SafetyStatus:
         if not self.connected:
             return "disconnected"

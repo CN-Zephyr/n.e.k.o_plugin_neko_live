@@ -280,3 +280,30 @@ def test_runtime_dashboard_api_keeps_module_level_compatibility_exports(monkeypa
 
     assert runtime.runtime_health_rows() == health_rows
     assert runtime.dashboard_actions() == actions
+
+
+def test_count_recent_live_replies_filters_and_stops_at_window():
+    from collections import deque
+
+    from plugin.plugins.neko_live.core.live_status_timing import count_recent_live_replies
+
+    def row(age, *, status="pushed", source="live_danmaku", module="danmaku_response"):
+        return {"created_at": age, "status": status, "event": {"source": source}, "response_module": module}
+
+    rows = deque([
+        row(90.0),                      # outside window: loop stops before reaching it
+        row(None),                      # undated
+        row(30.0, module="idle_hosting"),
+        row(20.0, source="sandbox"),
+        row(10.0, status="blocked"),
+        row(5.0, status="dry_run", module="avatar_roast"),
+        row(1.0),
+        "junk",
+    ])
+    def age_fn(value):
+        return value
+
+    assert count_recent_live_replies(rows, window_seconds=60.0, age_fn=age_fn, count_undated=False) == 2
+    assert count_recent_live_replies(rows, window_seconds=60.0, age_fn=age_fn, count_undated=True) == 3
+    assert count_recent_live_replies(rows, window_seconds=60.0, age_fn=None, count_undated=False) == 0
+    assert count_recent_live_replies(None, window_seconds=60.0, age_fn=age_fn, count_undated=True) == 0

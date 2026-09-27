@@ -6,6 +6,7 @@ from typing import Any
 
 from .contracts import ViewerEvent
 from .contracts_public import public_text
+from .live_text_guards import dense_text as _dense_text
 
 ACTIVE_HOOK_RESULT_SCAN_LIMIT = 8
 ACTIVE_HOOK_ANSWER_MAX_LEN = 8
@@ -111,7 +112,3 @@ def _active_event_has_reply_hook(event: dict[str, Any]) -> bool:
             "micro_poll",
         )
     )
-
-
-def _dense_text(text: str) -> str:
-    return "".join(ch for ch in str(text or "").casefold() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")

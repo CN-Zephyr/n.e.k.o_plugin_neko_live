@@ -384,10 +384,6 @@ class BiliLiveIngestModule(BaseModule):
         """Fallback path for Bilibili's lightweight gift callback."""
         self._on_live_event("SEND_GIFT", event, generation=generation)
 
-    def _on_super_chat_event(self, event: Any, *, generation: int | None = None) -> None:
-        """Fallback path for Bilibili's lightweight Super Chat callback."""
-        self._on_live_event("SUPER_CHAT_MESSAGE", event, generation=generation)
-
     def _to_live_event(self, cmd: str, event: Any) -> LiveEvent:
         """把富模型 + 命令名包成统一信封。``raw`` 保留富模型，供需要完整字段（如
         ``get_score()``）的 handler（如 ``live_events`` 中枢）解包使用。"""

@@ -6,6 +6,7 @@ from collections import Counter
 from typing import Any
 
 from .contracts_public import public_text
+from .live_text_guards import dense_text as _dense_text
 from .live_text_guards import looks_like_support_claim_text
 from .recent_context_lines import (
     active_engagement_context_line,
@@ -242,10 +243,6 @@ def _keywords(text: str) -> list[str]:
     stop = {"这个", "那个", "就是", "感觉", "真的", "可以", "不是", "什么", "今天", "大家", "快说"}
     counts = Counter(chunk for chunk in chunks if chunk not in stop)
     return [word for word, _count in counts.most_common(3)]
-
-
-def _dense_text(text: str) -> str:
-    return "".join(ch for ch in str(text or "").casefold() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
 
 
 def _is_context_result(result: Any) -> bool:
