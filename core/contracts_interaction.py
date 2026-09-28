@@ -30,6 +30,8 @@ class InteractionRequest:
     allow_avatar_image: bool = False
     reason: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Private compact live context for the short danmaku delivery; never exported.
+    delivery_context: str = ""
 
     def to_public_dict(self) -> dict[str, Any]:
         metadata = public_dict(self.metadata)

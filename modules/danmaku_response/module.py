@@ -27,6 +27,7 @@ from .._prompt_context import (
     viewer_preference_context_block,
     viewer_session_context_block,
 )
+from .._prompt_context_digest import build_live_context_digest
 
 
 class DanmakuResponseModule(BaseModule):
@@ -77,6 +78,12 @@ class DanmakuResponseModule(BaseModule):
             dry_run=bool(self.ctx.config.dry_run) if self.ctx else False,
             allow_avatar_image=False,
             metadata=metadata,
+            delivery_context=build_live_context_digest(
+                self.ctx,
+                event,
+                profile,
+                live_events_context=live_context,
+            ),
         )
 
     @staticmethod

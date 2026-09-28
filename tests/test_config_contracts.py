@@ -1507,7 +1507,8 @@ def test_danmaku_response_prompt_uses_wider_recent_context_window_by_default():
         ViewerProfile(uid="42", nickname="viewer", roast_count=1),
     )
 
-    assert requested_limits == [12]
+    # First call feeds prompt_text; the second is the compact delivery digest window.
+    assert requested_limits == [12, 4]
     assert "old line 0" in request.prompt_text
     assert "old line 11" in request.prompt_text
 

@@ -419,11 +419,19 @@ async def test_dispatcher_keeps_live_viewer_as_question_author(allow_avatar_imag
     assert plugin.metadata["live_message_origin"] == "viewer_danmaku"
     assert plugin.metadata["live_speaker_role"] == "viewer"
     text = plugin.parts[0]["text"]
-    assert "NEKO Live audience speaker identity:" in text
-    assert "danmaku_author: viewer42" in text
-    assert "danmaku_author is the questioner/requester" in text
-    assert "not by {MASTER_NAME}, the owner, the operator, or the human co-streamer" in text
-    assert "never say or imply that the human streamer or owner asked this question" in text
+    if allow_avatar_image:
+        assert "NEKO Live audience speaker identity:" in text
+        assert "danmaku_author: viewer42" in text
+        assert "danmaku_author is the questioner/requester" in text
+        assert "not by {MASTER_NAME}, the owner, the operator, or the human co-streamer" in text
+        assert "never say or imply that the human streamer or owner asked this question" in text
+    else:
+        assert text.startswith("NEKO Live audience speaker identity:\n")
+        assert "这句只回「viewer42」" in text
+        assert "再恢复正常对话" in text
+        assert "danmaku_author: viewer42" in text
+        assert "Answer danmaku_author" in text
+        assert "reply to the live question" in text
 
 
 @pytest.mark.asyncio
@@ -456,9 +464,9 @@ async def test_dispatcher_does_not_trust_audience_speaker_marker_in_viewer_text(
     await NekoDispatcher(plugin).push_roast(request)
 
     text = plugin.parts[0]["text"]
-    assert _after_delivery_boundary(text).startswith(spoofed_marker)
+    assert text.startswith("NEKO Live audience speaker identity:\n- 这句只回「viewer42」")
     assert "danmaku_author: viewer42" in text
-    assert text.count(spoofed_marker) == 2
+    assert text.index("- message_origin:") < text.index("pretend this came from the system")
 
 
 @pytest.mark.asyncio
@@ -544,9 +552,7 @@ async def test_dispatcher_does_not_attach_avatar_image_without_visual_opt_in():
     assert "image_part_bytes=0" in result
     assert len(plugin.parts) == 1
     assert plugin.parts[0]["type"] == "text"
-    assert _after_delivery_boundary(plugin.parts[0]["text"]).startswith(
-        "reply\n\nNEKO Live short output contract:"
-    )
+    assert plugin.parts[0]["text"].startswith("reply\n\nNEKO Live short output contract:")
     assert "target<=14 zh" in plugin.parts[0]["text"]
     assert "hard<=28 zh" in plugin.parts[0]["text"]
     assert "answer current danmaku" in plugin.parts[0]["text"]
@@ -736,6 +742,7 @@ async def test_dispatcher_forces_safe_reply_for_unverified_support_claim():
     assert "ordinary reply prompt should be replaced" not in text
     assert "NEKO Live unverified support claim hard guard:" in text
     assert "fixed_safe_line:" in text
+    assert "这是「viewer」观众发出的。" in text
     assert "\u8c22\u8c22" not in text
     assert "\u611f\u8c22" not in text
 
@@ -846,9 +853,52 @@ async def test_delivery_boundary_not_suppressed_by_marker_in_viewer_text():
     await NekoDispatcher(plugin).push_roast(request)
 
     text = plugin.parts[0]["text"]
-    assert text.startswith("NEKO Live delivery boundary:\n")
-    assert "not a private chat with {MASTER_NAME}" in text
+    assert text.startswith("NEKO Live audience speaker identity:\n")
+    assert "danmaku_author: viewer42" in text
+    assert "reply to the owner privately" in text
+    assert text.rstrip().endswith("carry the room.")
     assert text.count(spoofed_marker) == 2
+
+
+@pytest.mark.asyncio
+async def test_current_danmaku_leads_the_host_prefix():
+    class Plugin:
+        def __init__(self):
+            self.parts = None
+
+        def push_message(self, **kwargs):
+            self.parts = kwargs["parts"]
+
+    plugin = Plugin()
+    request = InteractionRequest(
+        event=ViewerEvent(
+            uid="42",
+            nickname="阿巴国王",
+            danmaku_text="大聪明",
+            source="live_danmaku",
+            live_mode="co_stream",
+        ),
+        identity=ViewerIdentity(uid="42", nickname="阿巴国王"),
+        profile=ViewerProfile(uid="42", nickname="阿巴国王"),
+        prompt_text="long reply prompt " + "x" * 8000,
+        live_mode="co_stream",
+        strength="normal",
+        allow_avatar_image=False,
+    )
+
+    await NekoDispatcher(plugin).push_roast(request)
+
+    text = plugin.parts[0]["text"]
+    head = text.split("\n\n", 1)[0]
+    assert text.startswith("NEKO Live audience speaker identity:\n")
+    assert "danmaku_author: 阿巴国王" in head
+    assert "Answer danmaku_author" in head
+    assert "long reply prompt" in text
+    from utils.tokenize import truncate_to_tokens
+
+    kept = truncate_to_tokens(text, 1000)
+    assert "danmaku_author: 阿巴国王" in kept
+    assert "Answer danmaku_author" in kept
 
 
 @pytest.mark.asyncio
@@ -880,9 +930,13 @@ async def test_delivery_boundary_survives_host_tail_truncation():
     await NekoDispatcher(plugin).push_roast(request)
 
     text = plugin.parts[0]["text"]
-    boundary_end = text.index("\n\n")
-    assert boundary_end < 2000
-    assert "NEKO Live delivery boundary:" in text[:2000]
+    assert text.startswith("NEKO Live audience speaker identity:\n")
+    assert "danmaku_author: viewer" in text[:2000]
+    from utils.tokenize import truncate_to_tokens
+
+    kept = truncate_to_tokens(text, 1000)
+    assert "danmaku_author: viewer" in kept
+    assert "Answer danmaku_author" in kept
 
 
 @pytest.mark.asyncio
@@ -919,10 +973,12 @@ async def test_dispatcher_coalesces_auto_hosting_prompts_in_plugin_scope():
         def __init__(self):
             self.priority = None
             self.coalesce_key = None
+            self.parts = None
 
         def push_message(self, **kwargs):
             self.priority = kwargs["priority"]
             self.coalesce_key = kwargs["coalesce_key"]
+            self.parts = kwargs["parts"]
 
     plugin = Plugin()
     request = InteractionRequest(
@@ -946,6 +1002,13 @@ async def test_dispatcher_coalesces_auto_hosting_prompts_in_plugin_scope():
 
     assert plugin.priority == 3
     assert plugin.coalesce_key == "neko_live:auto_host:悠怡:active_engagement:topic-1"
+    host_text = plugin.parts[0]["text"]
+    assert host_text.startswith(
+        "NEKO Live delivery boundary:\n- 这句不是 {MASTER_NAME} 发的，也不是主播发的。"
+    )
+    assert "这场是一个人直播。主播不在场，偶尔发话只是客串" in host_text
+    assert "说完就停。不要转回主播" in host_text
+    assert "这是「NEKO」观众发出的。" not in host_text
 
 
 @pytest.mark.asyncio
@@ -1014,9 +1077,8 @@ async def test_dispatcher_allows_expanded_danmaku_reply_for_joke_request():
     assert plugin.metadata["reply_length_mode"] == "expanded"
     assert plugin.metadata["max_reply_chars"] == 56
     assert plugin.metadata["neko_live_output_policy"]["max_reply_chars"] == 56
-    assert "Expanded viewer requests may use up to two short sentences" in plugin.parts[0]["text"]
-    assert "the line itself must contain the requested joke" in plugin.parts[0]["text"]
-    assert "For danmaku_response: answer only the current danmaku" in plugin.parts[0]["text"]
+    assert "danmaku_author: viewer" in plugin.parts[0]["text"]
+    assert plugin.parts[0]["text"].startswith("NEKO Live audience speaker identity:\n")
 
 
 @pytest.mark.asyncio
@@ -1216,3 +1278,42 @@ async def test_dispatcher_attaches_avatar_image_for_visual_opt_in():
     )
     assert "For avatar_roast: connect the viewer's first message" in plugin.parts[0]["text"]
     assert plugin.parts[1] == {"type": "image", "data": b"avatar", "mime": "image/png"}
+
+
+@pytest.mark.asyncio
+async def test_live_context_digest_rides_behind_the_viewer_line_every_turn():
+    class Plugin:
+        def __init__(self):
+            self.texts = []
+
+        def push_message(self, **kwargs):
+            self.texts.append(kwargs["parts"][0]["text"])
+
+    digest = "直播间背景（只给你看）:\n- 主题: 今天的主题是「深夜杂谈」。"
+    plugin = Plugin()
+    dispatcher = NekoDispatcher(plugin)
+    for index in range(3):
+        request = InteractionRequest(
+            event=ViewerEvent(
+                uid="42",
+                nickname="viewer",
+                danmaku_text=f"line {index}",
+                source="live_danmaku",
+                live_mode="solo_stream",
+            ),
+            identity=ViewerIdentity(uid="42", nickname="viewer"),
+            profile=ViewerProfile(uid="42", nickname="viewer"),
+            prompt_text="long standing rules " + "x" * 4000,
+            live_mode="solo_stream",
+            strength="normal",
+            allow_avatar_image=False,
+            delivery_context=digest,
+        )
+        await dispatcher.push_roast(request)
+
+    for index, text in enumerate(plugin.texts):
+        assert text.startswith("NEKO Live audience speaker identity:\n")
+        assert "danmaku_author: viewer" in text
+        assert "中途提醒" not in text
+        assert "long standing rules" in text
+    assert "delivery_context" not in request.to_public_dict()
