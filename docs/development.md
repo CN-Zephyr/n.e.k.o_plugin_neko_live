@@ -999,7 +999,7 @@ danmaku_core on_event(cmd, 富模型)
 
 `avatar_roast` 通过 `bili_identity` 解析出的 META 决定头像规则：`avatar_vision_ok=False`（没取到/识别不了）或默认头像 → 只能就“头像配置（默认/会动/带挂件）或昵称”发挥；能看到头像 → 可锐评其具体内容。
 
-`danmaku_response.build_request()` 只用于同一 UID 已经完成出场锐评后的普通 `live_danmaku` 后续接话。`roast_once_per_uid` 的语义因此收敛为“每个观众只做一次出场锐评”，而不是“每个观众只能让 NEKO 回应一次”。后续弹幕仍必须经过 viewer profile、safety guard、dispatcher、dry_run 和 pacing；成功输出不调用 `viewer_profile.mark_roasted()`，避免把普通聊天回复继续累计成首评次数。
+`danmaku_response.build_request()` 只用于同一 UID 已经完成出场锐评后的普通 `live_danmaku` 后续接话。`roast_once_per_uid` 的语义因此收敛为“每个观众只做一次出场锐评”，而不是“每个观众只能让 NEKO 回应一次”。后续弹幕仍必须经过 viewer profile、safety guard、dispatcher、dry_run 和 pacing；成功输出不调用 `viewer_profile.mark_roasted()`，避免把普通聊天回复继续累计成首评次数。`live_support_events` 同样不走 `already_roasted`：礼物、SC、舰长是致谢，观众本场已被锐评或持久 `roast_count` 大于 0 时仍进入支持事件链路；成功致谢不调用 `mark_roasted()`。
 
 即使主播关闭 `roast_once_per_uid`，同一直播运行会话内的同 UID 后续弹幕仍优先进入 `danmaku_response`，不继续重复头像 / ID 首评模板。该开关只影响是否用持久观众档案拦住跨会话首评，不允许把独播后续聊天退回成“每条弹幕都首评”。
 
