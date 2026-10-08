@@ -495,6 +495,109 @@ async def test_pipeline_routes_repeat_live_danmaku_to_danmaku_response():
     assert ctx.results == [result]
 
 @pytest.mark.asyncio
+async def test_pipeline_thanks_roasted_viewer_for_support_events():
+    class Audit:
+        def __init__(self):
+            self.records = []
+
+        def record(self, op, message="", level="info", detail=None):
+            self.records.append({"op": op, "message": message, "level": level, "detail": detail or {}})
+
+    class Safety:
+        def before_event(self, _event):
+            return SafetyDecision(True)
+
+        def before_output(self, _event):
+            return SafetyDecision(True)
+
+        def after_event(self):
+            return None
+
+        def record_failure(self, _kind, _message):
+            return None
+
+    class ViewerProfileModule:
+        async def upsert(self, identity):
+            return ViewerProfile(
+                uid=identity.uid,
+                nickname=identity.nickname,
+                avatar_url=identity.avatar_url,
+                roast_count=3,
+            )
+
+        async def has_roasted(self, _uid):
+            return True
+
+        async def mark_roasted(self, _uid, _output):
+            raise AssertionError("support thanks must not mark avatar roast")
+
+    class Dispatcher:
+        def __init__(self):
+            self.requests = []
+
+        async def push_roast(self, request):
+            self.requests.append(request)
+            return "queued_to_neko(live_support_events)"
+
+    class LiveSupportEvents:
+        def build_request(self, event, identity, profile):
+            return InteractionRequest(
+                event=event,
+                identity=identity,
+                profile=profile,
+                prompt_text="thanks for the gift",
+                live_mode=event.live_mode,
+                strength="normal",
+            )
+
+    def reject_avatar_roast(*_args):
+        raise AssertionError("a roasted viewer's gift must not use avatar_roast")
+
+    def reject_danmaku_response(*_args):
+        raise AssertionError("a gift must not use danmaku_response")
+
+    ctx = SimpleNamespace(
+        audit=Audit(),
+        config=LiveConfig(live_enabled=True, roast_once_per_uid=True),
+        permission_gate=PermissionGate(LiveConfig(live_enabled=True, roast_once_per_uid=True)),
+        safety_guard=Safety(),
+        bili_identity=SimpleNamespace(
+            resolve=lambda event: asyncio.sleep(0, result=ViewerIdentity(uid=event.uid, nickname=event.nickname))
+        ),
+        viewer_profile=ViewerProfileModule(),
+        avatar_roast=SimpleNamespace(build_request=reject_avatar_roast),
+        danmaku_response=SimpleNamespace(build_request=reject_danmaku_response),
+        live_support_events=LiveSupportEvents(),
+        dispatcher=Dispatcher(),
+        results=[],
+    )
+    ctx.record_result = ctx.results.append
+    pipeline = LivePipeline(ctx)
+    pipeline.session.claim_roasted("42")
+
+    result = await pipeline.handle_event(
+        ViewerEvent(
+            uid="42",
+            nickname="regular",
+            source="live_danmaku",
+            live_mode="solo_stream",
+            raw={"event_type": "gift", "gift_name": "人气票"},
+        )
+    )
+
+    assert result.status == "pushed"
+    assert result.reason != "uid already roasted"
+    assert result.request is not None
+    assert result.request.prompt_text == "thanks for the gift"
+    assert any(
+        step.id == "viewer_gate" and step.status == "ok" and step.message == "support_event.gift"
+        for step in result.steps
+    )
+    assert any(step.id == "live_support_events" and step.status == "ok" for step in result.steps)
+    assert not any(step.id == "viewer_profile.mark_roasted" for step in result.steps)
+    assert ctx.dispatcher.requests == [result.request]
+
+@pytest.mark.asyncio
 async def test_pipeline_paces_consecutive_solo_first_roasts_to_danmaku_response():
     class Audit:
         def __init__(self):
