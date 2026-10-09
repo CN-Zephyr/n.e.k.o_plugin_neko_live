@@ -18,7 +18,7 @@ keywords = [
     "观众",
 ]
 passive = true
-version = "0.2.2"
+version = "0.2.3"
 entry = "plugin.plugins.neko_live:NekoLivePlugin"
 
 [plugin.author]
@@ -97,6 +97,15 @@ developer_tools_enabled = false
 dry_run = false
 roast_once_per_uid = true
 viewer_memory_enabled = true
+audience_panel_enabled = true
+audience_digest_enabled = false
+entry_greet_enabled = false
+entry_roast_enabled = false
+like_greet_enabled = false
+follow_greet_enabled = false
+like_greet_min_count = 5
+like_greet_cross_viewer = false
+viewer_context_limit = 6
 roast_strength = "normal"
 co_stream_output_policy = "auto_low_interrupt"
 solo_output_policy = "auto_rate_limited"

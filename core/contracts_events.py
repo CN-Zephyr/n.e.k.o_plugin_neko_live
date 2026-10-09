@@ -58,6 +58,7 @@ class ViewerEvent:
                 ("gift_total_coin", "support_gift_total_coin"),
                 ("gift_price", "support_gift_price"),
                 ("guard_level", "support_guard_level"),
+                ("medal_level", "medal_level"),
             ):
                 value = public_int(self.raw.get(raw_key), default=0, minimum=0)
                 if value:

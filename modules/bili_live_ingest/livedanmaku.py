@@ -172,6 +172,8 @@ class LiveDanmaku:
 
     # 原始 JSON（调试用）
     extra_json: str = ""
+    # LIKE_INFO_V3_UPDATE.click_count，累计点赞仪表，不参与累加。
+    click_count: int = 0
 
     # ── 工厂方法 ─────────────────────────────────────────────
 
@@ -401,6 +403,24 @@ class LiveDanmaku:
             room_id=int(d.get("room_id", 0)),
             user_level=int(d.get("level", 0)),
             extra_json=json.dumps(data, ensure_ascii=False),
+        )
+
+    @classmethod
+    def from_like_total(cls, data: dict) -> "LiveDanmaku":
+        """从 LIKE_INFO_V3_UPDATE 读取累计点赞。click_count 是绝对值，不要累加。"""
+        d = data.get("data", {})
+        try:
+            count = max(0, int(d.get("click_count", 0) or 0))
+        except (TypeError, ValueError):
+            count = 0
+        return cls(
+            msg_type=MessageType.MSG_EXTRA,
+            uid=0,
+            nickname="",
+            text="",
+            room_id=int(data.get("room_id", 0) or d.get("room_id", 0) or 0),
+            click_count=count,
+            extra_json=json.dumps({"click_count": count}, ensure_ascii=False),
         )
 
     @classmethod

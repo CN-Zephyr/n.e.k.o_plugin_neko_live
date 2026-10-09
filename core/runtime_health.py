@@ -59,11 +59,14 @@ def runtime_health_rows(runtime: Any) -> list[dict[str, Any]]:
         {
             "id": "event_bus",
             "stage": "event_bus",
-            "status": "healthy" if event_bus_count else "idle",
+            "status": "blocked" if event_bus.get("accepting_events") is False else ("healthy" if event_bus_count else "idle"),
             "count": event_bus_count,
             "age_sec": runtime._age_sec(event_bus.get("last_publish_at")),
             "last_outcome": _public_text(event_bus.get("last_event_type")),
+            "dropped_closed_count": _public_non_negative_int(event_bus.get("dropped_closed_count")),
+            "dropped_unsubscribed_count": _public_non_negative_int(event_bus.get("dropped_unsubscribed_count")),
         },
+        _support_health_row(runtime),
         {
             "id": "selection",
             "stage": "selection",
@@ -135,6 +138,35 @@ def runtime_health_rows(runtime: Any) -> list[dict[str, Any]]:
             "last_error": _public_text(runtime._config_last_error),
         },
     ]
+
+
+def _support_health_row(runtime: Any) -> dict[str, Any]:
+    support = _module_status(getattr(runtime, "live_support_events", None))
+    bus = _module_status(getattr(runtime, "event_bus", None))
+    dropped = _public_non_negative_int(support.get("queue_dropped_count"))
+    overflow = _public_non_negative_int(support.get("queue_overflow_count"))
+    gate_reason = _public_text(support.get("last_gate_reason"))
+    status = "idle"
+    if bus.get("accepting_events") is False or support.get("subscribed") is False:
+        status = "blocked"
+    elif dropped or overflow or gate_reason:
+        status = "degraded"
+    elif support.get("last_event_at"):
+        status = "healthy"
+    return {
+        "id": "support_events",
+        "stage": "support_events",
+        "status": status,
+        "subscribed": bool(support.get("subscribed")),
+        "bus_accepting": bus.get("accepting_events") is not False,
+        "queue_dropped": dropped,
+        "queue_overflow": overflow,
+        "queue_aggregated": _public_non_negative_int(support.get("queue_aggregated_count")),
+        "dispatch_history_count": _public_non_negative_int(support.get("dispatch_history_count")),
+        "last_event_type": _public_text(support.get("last_event_type")),
+        "last_gate_reason": gate_reason,
+        "dropped_unsubscribed_count": _public_non_negative_int(bus.get("dropped_unsubscribed_count")),
+    }
 
 
 def _status_from_outcome(outcome: str) -> str:

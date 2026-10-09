@@ -41,6 +41,10 @@ class LiveAudienceSessionModule(BaseModule):
         self._danmaku_count = 0
         self._support_event_count = 0
         self._neko_handoff_count = 0
+        self._entry_count = 0
+        self._follow_count = 0
+        self._like_count = 0
+        self._like_total: int | None = None
         self._unique_viewer_keys: set[str] = set()
         self._viewers: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._session_salt = secrets.token_bytes(32)
@@ -50,7 +54,7 @@ class LiveAudienceSessionModule(BaseModule):
         bus = getattr(ctx, "event_bus", None)
         if bus is None:
             return
-        for live_event_type in ("danmaku", "gift", "super_chat", "guard"):
+        for live_event_type in ("danmaku", "gift", "super_chat", "guard", "entry", "like", "like_total"):
             self._unsubscribes.append(
                 bus.subscribe(live_event_type, self._on_live_event, owner=self.id)
             )
@@ -73,6 +77,10 @@ class LiveAudienceSessionModule(BaseModule):
         self._danmaku_count = 0
         self._support_event_count = 0
         self._neko_handoff_count = 0
+        self._entry_count = 0
+        self._follow_count = 0
+        self._like_count = 0
+        self._like_total = None
         self._unique_viewer_keys = set()
         self._viewers = OrderedDict()
 
@@ -97,6 +105,10 @@ class LiveAudienceSessionModule(BaseModule):
             "interaction_viewer_count_capped": len(self._unique_viewer_keys) >= _UNIQUE_VIEWER_LIMIT,
             "danmaku_count": self._danmaku_count,
             "support_event_count": self._support_event_count,
+            "entry_count": self._entry_count if self._panel_enabled() else 0,
+            "follow_count": self._follow_count if self._panel_enabled() else 0,
+            "like_count": self._like_count if self._panel_enabled() else 0,
+            "like_total": self._like_total if self._panel_enabled() else None,
             # Compatibility key: this counts Dispatcher -> host handoffs, not
             # audible or completed NEKO output.
             "neko_output_count": self._neko_handoff_count,
@@ -115,6 +127,25 @@ class LiveAudienceSessionModule(BaseModule):
         if not self._active or not event_is_current_session(event, self.ctx):
             return
         kind = event_type(event)
+        if kind == "like_total":
+            if self._panel_enabled():
+                count = _event_click_count(event)
+                if count > 0:
+                    self._like_total = count
+            return
+        if kind == "like":
+            if self._panel_enabled():
+                self._like_count += 1
+            return
+        if kind == "entry":
+            if not self._panel_enabled():
+                return
+            interact = _event_interact_kind(event)
+            if interact == "follow":
+                self._follow_count += 1
+            elif interact != "share":
+                self._entry_count += 1
+            return
         if kind == "danmaku":
             self._danmaku_count += 1
         elif kind in _SUPPORT_EVENT_TYPES:
@@ -174,6 +205,10 @@ class LiveAudienceSessionModule(BaseModule):
             # not evidence that the viewer heard a completed reply.
             item["neko_reply_count"] += 1
 
+    def _panel_enabled(self) -> bool:
+        config = getattr(self.ctx, "config", None)
+        return getattr(config, "audience_panel_enabled", True) is not False
+
     def _viewer_key(self, uid: str) -> str:
         return hashlib.blake2b(
             uid.encode("utf-8", errors="ignore"),
@@ -205,6 +240,23 @@ class LiveAudienceSessionModule(BaseModule):
             "last_event_type": public_text(item.get("last_event_type"), max_length=32),
             "last_interaction_at": _public_timestamp(item.get("last_interaction_ts")),
         }
+
+
+def _event_interact_kind(event: Any) -> str:
+    payload = getattr(event, "payload", None)
+    if isinstance(payload, dict):
+        kind = str(payload.get("interact_kind") or "").strip().lower()
+        if kind in {"entry", "follow", "share"}:
+            return kind
+    return "entry"
+
+
+def _event_click_count(event: Any) -> int:
+    payload = getattr(event, "payload", None)
+    value = payload.get("click_count") if isinstance(payload, dict) else None
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return max(0, value)
 
 
 def _result_uid(result: dict[str, Any]) -> str:

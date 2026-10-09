@@ -333,6 +333,24 @@ async def test_records_viewer_preferences_without_persisting_raw_danmaku(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_viewer_memory_keeps_concrete_facts_across_restart(tmp_path):
+    store = ViewerStore(_FakePlugin(tmp_path), audit=None)
+    identity = ViewerIdentity(uid="7", nickname="晚陪")
+
+    await store.record_live_danmaku(identity, "哈哈")
+    await store.record_live_danmaku(identity, "我身高一米六，今晚在写作业")
+    await store.record_live_danmaku(identity, "哈哈")
+
+    restarted = ViewerStore(_FakePlugin(tmp_path), audit=None)
+    profile = (await restarted.recent_profiles())[0]
+
+    assert profile["last_interaction_summary"] == "我身高一米六，今晚在写作业"
+    assert "一米六" in profile["impression_summary"]
+    assert "写作业" in profile["impression_summary"]
+    assert profile["impression_summary"] != "likes light chat"
+
+
+@pytest.mark.asyncio
 async def test_recent_profiles_include_derived_viewer_profile_guidance(tmp_path):
     store = ViewerStore(_FakePlugin(tmp_path), audit=None)
     identity = ViewerIdentity(uid="1001", nickname="技术姥爷")
@@ -348,8 +366,9 @@ async def test_recent_profiles_include_derived_viewer_profile_guidance(tmp_path)
     assert item["viewer_stage"] == "returning_viewer"
     assert item["profile_confidence"] == "medium"
     assert item["reply_guidance"] == "answer first, then add one light follow-up"
-    assert item["profile_summary"].startswith("likes tech/AI, often asks questions")
-    assert item["impression_summary"].startswith("likes tech/AI, often asks questions")
+    assert "这个配置为什么不生效" in item["profile_summary"]
+    assert "这个 AI 插件怎么配置" in item["impression_summary"]
+    assert "这个配置为什么不生效" in item["impression_summary"]
     assert item["avoid_guidance"] == "answer before teasing; do not dodge the question"
     tags = {tag["tag"]: tag["count"] for tag in item["top_preference_tags"]}
     assert tags["question"] == 4
@@ -364,7 +383,8 @@ async def test_recent_profiles_include_derived_viewer_profile_guidance(tmp_path)
     stored = raw["1001"]
     assert stored["favorite_topics"]["tech_ai"] == 4
     assert stored["running_jokes"]["short_helper_mode"] == 4
-    assert stored["impression_summary"].startswith("likes tech/AI, often asks questions")
+    assert "这个配置为什么不生效" in stored["impression_summary"]
+    assert stored["last_interaction_summary"] == "这个配置为什么不生效？"
     assert stored["avoid_guidance"] == "answer before teasing; do not dodge the question"
     assert "viewer_stage" not in stored
     assert "profile_confidence" not in stored

@@ -990,6 +990,12 @@ class DanmakuListener:
         return _LD.from_like(data)
 
     @staticmethod
+    def _handle_like_total(data: dict):
+        """LIKE_INFO_V3_UPDATE — 累计点赞仪表，只读 click_count。"""
+        from .livedanmaku import LiveDanmaku as _LD
+        return _LD.from_like_total(data)
+
+    @staticmethod
     def _handle_online_rank(data: dict):
         """ONLINE_RANK_V2 / ONLINE_RANK_V3（译为 V2）/ ONLINE_RANK_TOP3 — 高能榜"""
         from .livedanmaku import LiveDanmaku as _LD
@@ -1067,6 +1073,7 @@ class DanmakuListener:
         "ENTRY_EFFECT": _handle_entry_effect,
         "COMBO_SEND": _handle_combo_send,
         "LIKE_INFO_V3_CLICK": _handle_like,
+        "LIKE_INFO_V3_UPDATE": _handle_like_total,
         "ONLINE_RANK_V2": _handle_online_rank,
         "ONLINE_RANK_TOP3": _handle_online_rank,
         "NOTICE_MSG": _handle_notice,

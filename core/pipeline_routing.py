@@ -50,7 +50,7 @@ def support_event_type(event: ViewerEvent) -> str:
     event_type = str(raw.get("event_type") or "").strip().lower()
     if event_type == "sc":
         return "super_chat"
-    if event_type in {"gift", "guard", "super_chat"}:
+    if event_type in {"gift", "guard", "super_chat", "like", "follow"}:
         return event_type
     return ""
 
@@ -133,10 +133,18 @@ def route_for_event(
     avatar_roast_allowed: bool = True,
     avatar_roast_burst_active: bool = False,
     avatar_roast_batch_welcome: bool = False,
+    entry_roast_owns_danmaku: bool = False,
 ) -> PipelineRoute:
     support_type = support_event_type(event)
     if support_type:
         return PipelineRoute("live_support_events", f"support_event.{support_type}", False)
+    presence = ""
+    if isinstance(event.raw, dict):
+        presence = str(event.raw.get("presence_action") or "").strip().lower()
+    if presence == "greet":
+        return PipelineRoute("danmaku_response", "entry_greet", False)
+    if presence == "roast":
+        return PipelineRoute("avatar_roast", "entry_roast", True)
     if event.source == "warmup_hosting":
         return PipelineRoute("warmup_hosting", "warmup_hosting", False)
     if event.source == "active_engagement":
@@ -175,4 +183,6 @@ def route_for_event(
         if avatar_roast_burst_active and avatar_roast_batch_welcome:
             return PipelineRoute("danmaku_response", "batch_welcome", False)
         return PipelineRoute("danmaku_response", "avatar_roast_pressure", False)
+    if is_live_danmaku_with_text(event) and entry_roast_owns_danmaku:
+        return PipelineRoute("danmaku_response", "entry_roast_owns_danmaku", False)
     return PipelineRoute("avatar_roast", "", not is_transient_event_result)

@@ -13,6 +13,7 @@ from ...core.viewer_preferences import safe_int, safe_text
 from .._base import BaseModule
 from .._prompt_context import (
     anti_repeat_rules,
+    audience_digest_block,
     live_events_context_block,
     live_output_quality_rules,
     recent_context_block,
@@ -52,6 +53,8 @@ class LiveSupportEventsModule(BaseModule):
         self._unsubscribes: list[Any] = []
         self._tasks: set[asyncio.Task[Any]] = set()
         self._scheduler: SupportEventScheduler | None = None
+        self._gate_drop_counts: dict[str, int] = {}
+        self._last_gate_reason: str = ""
         self._last_event_at: float = 0.0
         self._last_event_type: str = ""
 
@@ -140,15 +143,26 @@ class LiveSupportEventsModule(BaseModule):
             ),
             "last_event_at": self._last_event_at,
             "last_event_type": self._last_event_type,
+            "last_gate_reason": self._last_gate_reason,
+            "gate_drop_counts": dict(self._gate_drop_counts),
         }
 
+    def _drop_gate(self, reason: str) -> None:
+        self._last_gate_reason = reason
+        self._gate_drop_counts[reason] = self._gate_drop_counts.get(reason, 0) + 1
+
     def _on_bus_event(self, event: Any) -> None:
-        if (
-            not self.enabled
-            or self.ctx is None
-            or not bool(getattr(self.ctx.config, "live_support_events_enabled", True))
-            or not event_is_current_session(event, self.ctx)
-        ):
+        if not self.enabled:
+            self._drop_gate("module_disabled")
+            return
+        if self.ctx is None:
+            self._drop_gate("no_context")
+            return
+        if not bool(getattr(self.ctx.config, "live_support_events_enabled", True)):
+            self._drop_gate("support_disabled")
+            return
+        if not event_is_current_session(event, self.ctx):
+            self._drop_gate("stale_session")
             return
         raw = getattr(event, "raw", None)
         support_event = raw if raw is not None else event
@@ -157,6 +171,7 @@ class LiveSupportEventsModule(BaseModule):
         elif is_signal_only(support_event):
             selected_event_type = event_type(support_event)
         else:
+            self._drop_gate("not_support_signal")
             return
         payload = self._payload_for_event(
             support_event,
@@ -164,6 +179,7 @@ class LiveSupportEventsModule(BaseModule):
             fallback_event=event,
         )
         if not payload.get("uid") or payload.get("support_verified") is not True:
+            self._drop_gate("unverified_or_missing_uid")
             return
         self._last_event_at = time.time()
         self._last_event_type = str(payload.get("event_type") or "")
@@ -304,7 +320,7 @@ class LiveSupportEventsModule(BaseModule):
                 recent_context_block(self.ctx),
                 viewer_session_context_block(self.ctx, identity.uid),
                 viewer_preference_context_block(self.ctx, profile),
-                live_events_context_block(self.ctx, event),
+                live_events_context_block(self.ctx, event) + audience_digest_block(self.ctx),
             ),
             live_mode=event.live_mode,
             strength=strength,
@@ -343,6 +359,10 @@ class LiveSupportEventsModule(BaseModule):
             label = label or "Super Chat"
         elif normalized == "guard":
             label = gift_name or LiveSupportEventsModule._guard_name(guard_level)
+        elif normalized == "like":
+            label = f"{gift_num or 1} likes"
+        elif normalized == "follow":
+            label = "follow"
         else:
             label = gift_name or label or "gift"
         tier = LiveSupportEventsModule._tier(normalized, total_coin=total_coin, guard_level=guard_level)
@@ -411,6 +431,15 @@ class LiveSupportEventsModule(BaseModule):
                 "Treat this as support: thank them briefly and do not over-celebrate a small gift.",
                 "Do not start a reward program, ledger bit, or repeated gift chant.",
             ],
+            "like": [
+                "Thank them once for this burst of likes. Mention the count only if it is already in the facts.",
+                "Do not thank each click separately or ask for more likes.",
+                "If like_scope is room, thank the room once and do not name one viewer.",
+            ],
+            "follow": [
+                "Thank them once for following. Keep it to one short line.",
+                "Do not ask other viewers to follow.",
+            ],
         }.get(event_type, ["Treat this support event as a brief thanks target."])
         facts = [
             f"viewer: {nickname} (UID {public_uid})",
@@ -424,6 +453,8 @@ class LiveSupportEventsModule(BaseModule):
             facts.append(f"gift_total_coin: {support['gift_total_coin']}")
         if support.get("guard_level"):
             facts.append(f"guard_level: {support['guard_level']} ({support['guard_name']})")
+        if isinstance(event.raw, dict) and event.raw.get("like_scope") == "room":
+            facts.append("like_scope: room")
         rules = [
             "Say exactly one short TTS-friendly line as NEKO.",
             "The first clause must explicitly thank the viewer for this verified support event; do not bury the thanks after another topic.",

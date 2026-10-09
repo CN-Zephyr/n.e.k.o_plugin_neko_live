@@ -23,6 +23,7 @@ from ..core.contracts_public import public_int, public_text
 from ..core.viewer_preferences import (
     infer_viewer_preferences,
     merge_preference_counts,
+    remember_viewer_lines,
     safe_preference_counts,
     viewer_profile_projection,
 )
@@ -329,6 +330,17 @@ class ViewerStore:
                 else bool(remember_preferences)
             )
             inference = infer_viewer_preferences(danmaku_text) if memory_enabled else {}
+            if memory_enabled:
+                remembered_last, remembered_impression = remember_viewer_lines(
+                    _safe_profile_text(item.get("last_interaction_summary")),
+                    _safe_profile_text(item.get("impression_summary")),
+                    danmaku_text,
+                    fallback_last=_safe_profile_text(inference.get("summary")),
+                    fallback_impression=_safe_profile_text(inference.get("impression_summary")),
+                )
+            else:
+                remembered_last = _safe_profile_text(item.get("last_interaction_summary"))
+                remembered_impression = _safe_profile_text(item.get("impression_summary"))
             profile = ViewerProfile(
                 uid=uid,
                 nickname=nickname or _safe_profile_text(item.get("nickname")) or uid,
@@ -367,10 +379,8 @@ class ViewerStore:
                 or _safe_profile_text(item.get("interaction_style")),
                 response_preference=_safe_profile_text(inference.get("response_preference"))
                 or _safe_profile_text(item.get("response_preference")),
-                last_interaction_summary=_safe_profile_text(inference.get("summary"))
-                or _safe_profile_text(item.get("last_interaction_summary")),
-                impression_summary=_safe_profile_text(inference.get("impression_summary"))
-                or _safe_profile_text(item.get("impression_summary")),
+                last_interaction_summary=remembered_last,
+                impression_summary=remembered_impression,
                 avoid_guidance=_safe_profile_text(inference.get("avoid_guidance"))
                 or _safe_profile_text(item.get("avoid_guidance")),
                 last_interaction_at=now,

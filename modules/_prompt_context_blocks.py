@@ -10,12 +10,15 @@ from ._prompt_context_compaction import compact_context_line
 
 RECENT_CONTEXT_DEFAULT_LIMIT = 12
 RECENT_CONTEXT_LINE_LIMIT = 56
+VIEWER_CONTEXT_DEFAULT_LIMIT = 6
 VIEWER_CONTEXT_LINE_LIMIT = 44
 ROOM_CONTEXT_DEFAULT_LIMIT = 6
 ROOM_CONTEXT_LINE_LIMIT = 96
 
 
-def recent_context_block(ctx: Any, *, limit: int = RECENT_CONTEXT_DEFAULT_LIMIT) -> str:
+def recent_context_block(
+    ctx: Any, *, limit: int = RECENT_CONTEXT_DEFAULT_LIMIT, follow_up: bool = False
+) -> str:
     provider = getattr(ctx, "recent_interaction_context", None)
     if not callable(provider):
         return ""
@@ -35,15 +38,67 @@ def recent_context_block(ctx: Any, *, limit: int = RECENT_CONTEXT_DEFAULT_LIMIT)
         "Recent spent live material:\n"
         + "\n".join(f"- {line}" for line in lines[:limit])
         + "\n\n"
-        + "Rule: this is a spent-material block, not dialogue to continue. Never reuse or paraphrase prior NEKO output, wording, rhythm, joke, topic family, reply path, plan, or host beat.\n"
-        + "The current input always wins. Continue a pending thread only when it explicitly connects; otherwise choose a fresh angle, and keep short input short.\n"
+        + "Rule: these lines are recent room talk. Do not copy NEKO's previous sentence, joke, or host beat.\n"
+        + (
+            "The current input always wins. If it follows this talk, answer the follow-up; otherwise keep the reply short.\n"
+            if follow_up
+            else "Do not continue an old topic from these lines. Answer only the current task.\n"
+        )
     )
 
 
-def viewer_session_context_block(ctx: Any, uid: str, *, limit: int = 2) -> str:
+def audience_digest_block(ctx: Any) -> str:
+    """Optional one-line room pulse. Default off, so ordinary replies stay unchanged."""
+
+    config = getattr(ctx, "config", None)
+    if getattr(config, "audience_digest_enabled", False) is not True:
+        return ""
+    session = getattr(ctx, "live_audience_session", None)
+    snapshot = getattr(session, "snapshot", None)
+    if not callable(snapshot):
+        return ""
+    try:
+        data = snapshot()
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    entries = int(data.get("entry_count") or 0)
+    follows = int(data.get("follow_count") or 0)
+    likes = int(data.get("like_count") or 0)
+    if entries == 0 and follows == 0 and likes == 0:
+        return ""
+    like_total = data.get("like_total")
+    total = f", like_total={int(like_total)}" if isinstance(like_total, int) else ""
+    return (
+        "Room pulse, background only:\n"
+        f"- entries={entries}, follows={follows}, likes={likes}{total}\n"
+        "Do not read these counts aloud unless the current task is idle hosting.\n\n"
+    )
+
+
+def _viewer_context_limit(ctx: Any, limit: int | None) -> int:
+    chosen = limit
+    if chosen is None:
+        configured = getattr(
+            getattr(ctx, "config", None),
+            "viewer_context_limit",
+            VIEWER_CONTEXT_DEFAULT_LIMIT,
+        )
+        try:
+            chosen = int(configured)
+        except (TypeError, ValueError):
+            chosen = VIEWER_CONTEXT_DEFAULT_LIMIT
+    return max(1, min(12, chosen))
+
+
+def viewer_session_context_block(
+    ctx: Any, uid: str, *, limit: int | None = None, follow_up: bool = False
+) -> str:
     provider = getattr(ctx, "viewer_session_context", None)
     if not callable(provider):
         return ""
+    limit = _viewer_context_limit(ctx, limit)
     try:
         raw_lines = provider(uid, limit=limit)
     except TypeError:
@@ -57,11 +112,15 @@ def viewer_session_context_block(ctx: Any, uid: str, *, limit: int = 2) -> str:
     if not lines:
         return ""
     return (
-        "Same-viewer spent material:\n"
+        "Same-viewer recent talk:\n"
         + "\n".join(f"- {line}" for line in lines[:limit])
         + "\n\n"
-        + "Rule: use only to avoid repeating this viewer's prior danmaku, NEKO reply, joke, spent family, avatar/ID, or first-appearance material.\n"
-        + "Resume only an explicitly continued thread; otherwise follow the current input without exposing memory.\n"
+        + "Rule: these lines show who said what. Do not repeat NEKO's previous sentence.\n"
+        + (
+            "If the current danmaku follows this thread, answer the follow-up. One remembered fact may be mentioned once, in ordinary words.\n"
+            if follow_up
+            else "Do not continue this viewer's previous topic.\n"
+        )
     )
 
 

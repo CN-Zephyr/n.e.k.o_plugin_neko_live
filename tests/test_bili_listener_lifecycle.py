@@ -594,7 +594,7 @@ def test_support_event_records_privacy_safe_ingest_stages() -> None:
         "ingest",
         "event_bus",
     ]
-    assert [item["status"] for item in timeline] == ["received", "published"]
+    assert [item["status"] for item in timeline] == ["received", "queued"]
     assert timeline[0]["trace_id"] == timeline[1]["trace_id"]
     assert timeline[0]["uid"].startswith("viewer_")
     assert "nickname" not in timeline[0]

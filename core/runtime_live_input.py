@@ -7,6 +7,7 @@ from typing import Any
 
 from .contracts import InteractionResult, PipelineStep, ViewerEvent
 from .contracts_public import public_int, public_text
+from .recent_results_store import save_recent_results
 from .runtime_live_session import is_current_live_session_event
 from .runtime_timeline import ensure_trace_id, record_timeline, timeline_for_trace
 
@@ -56,7 +57,62 @@ def record_result(runtime: Any, result: InteractionResult) -> None:
         if spent_families:
             payload["spent_output_family"] = ",".join(spent_families)
     runtime.recent_results.append(payload)
+    save_recent_results(runtime)
+    _note_live_memory(runtime, payload)
     runtime.event_bus.emit("result", payload)
+
+
+def _note_live_memory(runtime: Any, payload: dict[str, Any]) -> None:
+    if str(payload.get("status") or "") != "pushed":
+        return
+    event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+    text = str(event.get("danmaku_text") or "").strip()
+    uid = str(event.get("uid") or "").strip()
+    if not text or not uid:
+        return
+    bridge = getattr(runtime, "live_memory", None)
+    if bridge is None:
+        from ..adapters.live_memory_bridge import LiveMemoryBridge
+
+        bridge = LiveMemoryBridge(runtime)
+        runtime.live_memory = bridge
+    note = getattr(bridge, "note_exchange", None)
+    if not callable(note):
+        return
+    note(
+        uid=uid,
+        nickname=str(event.get("nickname") or ""),
+        user_text=text,
+        assistant_text=str(payload.get("output") or ""),
+        guard_level=_event_guard_level(event),
+        medal_level=_event_medal_level(event),
+    )
+
+
+def _event_guard_level(event: dict[str, Any]) -> int:
+    for key in ("support_guard_level", "guard_level"):
+        value = event.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+    raw = event.get("raw")
+    if isinstance(raw, dict):
+        value = raw.get("guard_level")
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+    return 0
+
+
+def _event_medal_level(event: dict[str, Any]) -> int:
+    for key in ("medal_level", "fans_medal_level"):
+        value = event.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+    raw = event.get("raw")
+    if isinstance(raw, dict):
+        value = raw.get("medal_level")
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+    return 0
 
 
 def expose_request_metadata(payload: dict[str, Any]) -> None:

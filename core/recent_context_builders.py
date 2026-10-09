@@ -137,7 +137,7 @@ def build_recent_room_danmaku_context(
 
 
 def build_viewer_session_context(
-    recent_results: Any, uid: str, *, limit: int = 2
+    recent_results: Any, uid: str, *, limit: int = 6
 ) -> list[str]:
     target_uid = str(uid or "").strip()
     if not target_uid:
@@ -150,11 +150,11 @@ def build_viewer_session_context(
         if str(event.get("uid") or "").strip() != target_uid:
             continue
         text = str(event.get("danmaku_text") or "").strip()
-        route = route_from_result(result)
         output = spent_output_text(result)
         if not text and not output:
             continue
-        line = f"{route}: {compact_context_text(text, limit=60)}" if text else route
+        speaker = str(event.get("nickname") or "").strip() or "viewer"
+        line = f"{speaker}: {compact_context_text(text, limit=60)}" if text else speaker
         line = _append_spent_output_context(line, result, output_limit=50)
         lines.append(line)
         if len(lines) >= max(1, int(limit)):

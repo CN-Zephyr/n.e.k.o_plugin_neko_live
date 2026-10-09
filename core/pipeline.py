@@ -261,7 +261,7 @@ class LivePipeline:
     def _is_support_signal_event(event: ViewerEvent) -> bool:
         raw = event.raw if isinstance(event.raw, dict) else {}
         event_type = str(raw.get("event_type") or "").strip().casefold()
-        return event_type in {"gift", "guard", "sc", "super_chat"}
+        return event_type in {"gift", "guard", "sc", "super_chat", "like", "follow"}
 
     @staticmethod
     def _is_live_danmaku_with_text(event: ViewerEvent) -> bool:
@@ -298,6 +298,9 @@ class LivePipeline:
             avatar_roast_allowed=self._avatar_roast_allowed(event),
             avatar_roast_burst_active=self._live_speaker_burst_active(),
             avatar_roast_batch_welcome=self._batch_welcome_available(),
+            entry_roast_owns_danmaku=bool(
+                getattr(self.ctx.config, "entry_roast_enabled", False)
+            ),
         )
         if route.viewer_gate_reason == "batch_welcome":
             self._mark_batch_welcome_event(event)

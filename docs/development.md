@@ -176,6 +176,7 @@ Runtime active engagement API split note: `runtime_active_engagement_api.py` now
   -> bili_live_ingest 包成 LiveEvent → event_bus.publish(type)   事件中枢路由（按 type 分发，见「直播事件中枢（EventBus）」）
   -> live_events 只订阅 "danmaku"（冷却期缓冲、get_score 择优 / 空闲态首条即时；room_topic 仅给 prompt builder 提供弹幕主题上下文）
   -> live_support_events 独立订阅 "gift" / "super_chat" / "guard"（可信证据、去重、连击与有界调度）
+  -> live_presence 独立订阅 "entry" / "like"（默认不说话；开关打开后才经 pipeline 开口）
   -> handle_live_payload -> pipeline.handle_event:
        safety_guard.before_event()      连接/暂停/队列闸门
     -> live_provider.resolve_identity()  平台身份解析；B 站 UID→昵称/头像/META（登录态过 -352），抖音只消费已清洗字段
@@ -1016,9 +1017,9 @@ danmaku_core on_event(cmd, 富模型)
 
 **2026-06-25 长直播发现的输入隔离缺口**：路由已经能把同 UID 后续弹幕送进 `danmaku_response`，但 dispatcher 曾经在 `identity.avatar_bytes` 存在时无条件附加头像 image part。结果是后续接话虽然没有走 `avatar_roast`，模型仍然看到头像，容易再次评价同一观众头像。当前修复是把头像视觉输入限制在显式 opt-in 的请求：`avatar_roast`（以及显式的开发者 demo / 未来明确声明需要视觉输入的模块）可以带头像；`danmaku_response`、`idle_hosting`、`active_engagement`、`warmup_hosting` 默认是纯文本输出请求。这个问题是输入边界污染，不是 `roast_once_per_uid` 失效。
 
-`recent_interaction_context()` 会从最近成功投递或 dry_run 的互动结果中提取轻量上下文（路由、事件来源、观众弹幕、active topic / host beat 的形态、内容族、趣味轴、接话路径，以及确实可用的真实短句 `InteractionResult.output`），供 `avatar_roast`、`danmaku_response`、`warmup_hosting`、`idle_hosting` 和 `active_engagement` prompt 使用。`queued_to_neko(...)`、`dry_run(...)`、`skipped_to_neko(...)` 等 dispatcher / 测试摘要不能当成猫猫已播出台词。它不把完整历史 prompt 塞回模型；进入 prompt 前每行会压成短摘要，并优先保留 `NEKO already said: ...` 这类已播出台词，且在 prompt 中必须被描述为 **used material / anti-repeat only**：这是禁复用清单，不是续写上下文、脚本前缀或下一句要延续的话题。目标是让下一次开口避开同一个开场、包袱形状、奖励梗、计划、观众问卷、主持节拍、接话路径或已经播出的短句。
+`recent_interaction_context()` 会从最近成功投递或 dry_run 的互动结果中提取轻量上下文，供开口模块使用。进入 prompt 前每行压成短摘要，并保留真实短句 `NEKO already said:`。这些行用来避开已经播出的句式和主持节拍；如果当前弹幕明确接着刚才的话，要回答这句追问，不要把旧台词当成下一句的脚本。
 
-`viewer_session_context(uid)` 只在当前 runtime session 内按 UID 提取最近少量该观众的已投递 / dry-run 弹幕上下文和可用的真实猫猫已输出短句，供 `danmaku_response` 判断“这是同一位观众的后续接话”。dispatcher / dry_run 摘要不进入 `NEKO already said`。它不写长期档案，不总结完整聊天历史；进入 prompt 前也会压成短摘要，并必须作为 same-viewer used material 使用。除非当前弹幕明确要求继续同一个话题，否则不能默认续写该观众上一轮内容；用途是避免同一观众后续弹幕再次被当成首次出场，减少重复头像 / ID / 首评模板，也避免把上一轮长回复或已播出台词喂回模型造成复读。
+`viewer_session_context(uid)` 只在当前 runtime session 内按 UID 保留最近 6 条该观众的发言和猫猫已输出短句。它标出谁说了什么：当前弹幕接着这段话时要回答追问，同时不得复述 `NEKO already said` 里的原句。它不写长期档案。
 
 `recent_results` / `recent_sandbox_results` 是 dashboard / monitor 会直接读取的公开投影，只允许来自 `InteractionResult.to_public_dict()` / `to_sandbox_dict()`。这些方法必须复用 `contracts_public.py` 的 JSON-safe / 脱敏规则：request metadata、event topic / host beat 摘要、identity、profile、steps、output 和 reason 都不能原样塞入 object、bytes、cookie/token/signature/authorization 形态文本或 prompt 原文；非字符串对象不得通过 `str()` 进入 recent result。
 
@@ -1038,7 +1039,7 @@ Danmaku Response Review Pack v1 把直播复盘字段收拢到 recent result / m
 
 Danmaku Selection Pack v1 把“猫猫是否要回这一条普通弹幕”收进 `live_events`。`room_topic.remember_live_event()` 必须先记录房间上下文，随后 `live_events` 才能按插件内策略跳过低价值弹幕；跳过只写 privacy-safe audit `live_event_reply_skipped` 和 status，不进入 pipeline、不调用 dispatcher、不写原始弹幕文本。公开配置仍只使用既有 `activity_level`：`standard` / `active` 派生 `reply_selection_policy=selected`，只跳过 `666`、纯反应、重复数字等低信息弹幕；`quiet` 派生 `reply_selection_policy=quiet`，额外跳过低优先级普通短句，但问题、内容请求、问候、舰长/高分事件仍放行。不要新增和 `activity_level` 重叠的 `reply_selection_mode` 配置项；`reply_selection_policy` 只是 Dashboard / Monitor 复盘字段。稳定 skip reason 是 `selection.low_value_danmaku` 和 `selection.quiet_low_priority`。
 
-所有直播开口 prompt 必须复用 `anti_repeat_rules()`：先对照 NEKO Live 的 recent-output 记忆，避免复用上一句的开头、句式、包袱、话题切法、奖励梗、计划、观众问卷或主持节拍，也不能把上一句换词改写成新回复。插件侧 `recent_interaction_context()` 只能作为“已用素材 / 已用主持节拍”的 blocklist，不能当成下一句的脚本前缀或继续话题；`viewer_session_context()` 同样只能用于同一观众的轻量连续感和防复读，不能默认续写该观众上一轮话题，除非当前弹幕明确要求继续；若当前草稿和 recent context 共享同一主题、开头或 joke shape，应换角度或只回答当前弹幕。recent context 里出现的 `topic_family`、`host_beat_family`、`fun_axis`、`shape`、`intent` 也必须按已用素材处理，不能只避开原句却继续复用同一类“主播力 / 小鱼干 / 暗号 / 小电台 / 二选一”主持手法。插件通过 `live_reply_contract=short_tts_line`、`neko_live_output_policy`、recent-output negative examples 和 `anti_repeat_rules()` 在请求侧追加同样的 anti-repeat 约束：模型不要继续、复述或改写最近 12 条 NEKO Live 输出。文本 / 语音 proactive 直播回调会把 NEKO Live metadata 透明传给宿主；当前插件只把它视为插件私有提示、复盘和调试字段，不直接改写宿主普通 AI turn、流式缓冲、mirror、memory 或最终 TTS 发送路径。
+所有直播开口 prompt 必须复用 `anti_repeat_rules()`：先对照 NEKO Live 的 recent-output 记忆，避免复用上一句的开头、句式、包袱、话题切法、奖励梗、计划、观众问卷或主持节拍，也不能把上一句换词改写成新回复。插件侧 `recent_interaction_context()` 是已用素材和已用主持节拍，弹幕回复可以接当前这句的追问，但不要复述或改写 NEKO 上一句；主持和锐评不能把这些行当成旧话题续写。`viewer_session_context()` 只看同一观众最近 `viewer_context_limit` 条（默认 6，范围 1–12），不建立多人“谁回谁”的线程。recent context 里出现的 `topic_family`、`host_beat_family`、`fun_axis`、`shape`、`intent` 也必须按已用素材处理，不能只避开原句却继续复用同一类“主播力 / 小鱼干 / 暗号 / 小电台 / 二选一”主持手法。插件通过 `live_reply_contract=short_tts_line`、`neko_live_output_policy`、recent-output negative examples 和 `anti_repeat_rules()` 在请求侧追加同样的 anti-repeat 约束：模型不要继续、复述或改写最近 12 条 NEKO Live 输出。文本 / 语音 proactive 直播回调会把 NEKO Live metadata 透明传给宿主；当前插件只把它视为插件私有提示、复盘和调试字段，不直接改写宿主普通 AI turn、流式缓冲、mirror、memory 或最终 TTS 发送路径。
 
 同一条隔离规则只能在插件侧尽力规避：带 `live_reply_contract=short_tts_line` 的直播请求会携带 `neko_live_output_policy` 和 recent-output 负例，提醒模型不要把直播短播报当作下一轮普通聊天上下文；插件不修改宿主 memory / analyzer / turn end 路径。
 
@@ -1135,7 +1136,9 @@ Hosted UI action 会补 `_ctx.lanlan_name`，插件进程复用 `ctx._current_la
 
 Dashboard 重复读取 recent profiles 时复用最多 200 条、深拷贝返回的公开投影缓存，并用当前实际存储文件签名识别插件外修改；不会缓存整份档案库，也不改变 JSON 的真相源与原子写入。现阶段每次档案变更仍需读取并原子重写整份 JSON，超大档案库的写放大要靠后续独立存储迁移解决，不能把本轮热读缓存宣称为已解决。
 
-**观众记忆 v1 产品契约**：`viewer_memory_enabled` 默认 `true`，只控制安全派生偏好是否继续学习、以及是否把持久化印象送入 prompt；关闭后不得新增 / 更新偏好标签、常聊话题、接梗提示、互动风格、回复偏好、短摘要或避坑提示，也不得使用已有印象做个性化。基础身份、弹幕 / 锐评计数、首次出场记录和本场 session 防复读仍继续工作，不能因为关闭个性化记忆而破坏“同场只做一次首次出场锐评”。档案固定保留 90 天，以 `last_interaction_at` / `last_seen_at` 为准在启动和后续读写中惰性清理；不增加后台 timer、网络请求或新依赖。当前不保存 `watch_time`、`contribution_rank` 或原始互动历史。
+**观众记忆 v1 产品契约**：`viewer_memory_enabled` 默认 `true`，只控制安全派生偏好是否继续学习、以及是否把持久化印象送入 prompt；关闭后不得新增 / 更新偏好标签、常聊话题、接梗提示、互动风格、回复偏好、短摘要或避坑提示，也不得使用已有印象做个性化。基础身份、弹幕 / 锐评计数、首次出场记录和本场 session 防复读仍继续工作，不能因为关闭个性化记忆而破坏“同场只做一次首次出场锐评”。档案固定保留 90 天，以 `last_interaction_at` / `last_seen_at` 为准在启动和后续读写中惰性清理；不增加后台 timer、网络请求或新依赖。当前不保存 `watch_time`、`contribution_rank` 或完整弹幕流水。`last_interaction_summary` / `impression_summary` 在个性化开启时保存观众原话里脱敏后的短事实（最多 4 条），不再只用关键词标签模板；含 cookie/token 的整句不入库。`recent_results` 仍只保留 `recent_limit` 条公开投影，并写入插件数据目录的 `recent_live_results.json`，重启后读回。成功推送的弹幕还会按观众攒进 N.E.K.O `scoped_history`（`participant` / `bilibili:{uid}`，必须带 `speaker_label`），满 6 条或插件停止时提交。舰长或粉丝牌映射为 `speaker_tier=trusted`，否则 `normal`，并带逐条 `speaker_activity_events`。这才是关掉插件后仍能想起的记忆，本地 JSON 只是当场提示缓存。提示词允许用一句口语自然提起一条记得的事实，不得提及档案、存储或“我查过”。同一观众最近对话默认保留 6 条，按「谁说了什么」标注，可以接当前追问，但不得复述 NEKO 上一句。
+
+进场、关注、点赞默认只进本场面板计数（`entry_count` / `follow_count` / `like_count`，`like_total` 只读 `LIKE_INFO_V3_UPDATE.click_count`）。`entry_greet_enabled`、`entry_roast_enabled`、`follow_greet_enabled`、`like_greet_enabled` 默认关闭，关闭时不触发说话。点赞开口会先攒 1 秒，达到 `like_greet_min_count`（默认 5）才致谢一次；默认按人合并，`like_greet_cross_viewer` 打开后同一房间合成一次“谢谢大家”且不点名。`audience_digest_enabled` 默认关闭；打开后才把本场计数当作背景行放进下一次回复，且不得主动念出来。
 
 Dashboard 的 `live_explain` 只读投影只允许展示链路阶段、最近结果状态、主题 key、偏好标签计数、常聊话题 / 接梗提示计数、短摘要、避坑提示、`trace_id` 和 Runtime Timeline 的 stage/status/route/reason，不得新增原始弹幕全文、raw payload、完整 prompt、cookie/token/signature 形态文本或头像 bytes。CI gate 由 `test_dashboard_state_exposes_privacy_safe_live_explanation` 锁住后端投影隐私边界，由 `test_panel_renders_live_explanation_and_viewer_preference_columns` 锁住 UI 字段和 8 locale 同步。
 

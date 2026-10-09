@@ -31,6 +31,7 @@ def assemble_runtime_modules(runtime: Any) -> None:
     runtime.avatar_roast = _create_module("avatar_roast", "AvatarRoastModule", "Avatar roast")
     runtime.danmaku_response = _create_module("danmaku_response", "DanmakuResponseModule", "Danmaku response")
     runtime.live_support_events = _create_module("live_support_events", "LiveSupportEventsModule", "Live support events")
+    runtime.live_presence = _create_module("live_presence", "LivePresenceModule", "Live presence")
     runtime.active_engagement = _create_module("active_engagement", "ActiveEngagementModule", "Active engagement")
     runtime.warmup_hosting = _create_module("warmup_hosting", "WarmupHostingModule", "Warmup hosting")
     runtime.developer_sandbox = _create_module("developer_sandbox", "DeveloperSandboxModule", "Developer sandbox")
@@ -56,6 +57,7 @@ def registered_modules(runtime: Any) -> tuple[Any, ...]:
         runtime.avatar_roast,
         runtime.danmaku_response,
         runtime.live_support_events,
+        runtime.live_presence,
         runtime.active_engagement,
         runtime.warmup_hosting,
         runtime.developer_sandbox,

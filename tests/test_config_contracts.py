@@ -437,6 +437,25 @@ def test_roast_config_viewer_memory_defaults_on_and_respects_explicit_false():
     assert disabled.to_public_dict()["viewer_memory_enabled"] is False
 
 
+def test_presence_switches_default_off_and_panel_stays_on():
+    defaults = LiveConfig.from_mapping({})
+
+    assert defaults.audience_panel_enabled is True
+    assert defaults.audience_digest_enabled is False
+    assert defaults.entry_greet_enabled is False
+    assert defaults.entry_roast_enabled is False
+    assert defaults.like_greet_enabled is False
+    assert defaults.follow_greet_enabled is False
+    assert defaults.like_greet_min_count == 5
+    assert defaults.like_greet_cross_viewer is False
+    assert defaults.viewer_context_limit == 6
+    assert defaults.to_public_dict()["entry_greet_enabled"] is False
+
+    enabled = LiveConfig.from_mapping({"entry_greet_enabled": True, "like_greet_min_count": 8})
+    assert enabled.entry_greet_enabled is True
+    assert enabled.to_public_dict()["like_greet_min_count"] == 8
+
+
 def test_roast_config_keeps_bilibili_room_id_and_room_ref_compatible():
     config = LiveConfig.from_mapping(
         {"live_platform": "bili", "live_room_ref": "https://live.bilibili.com/12345"}
@@ -1008,7 +1027,7 @@ def test_danmaku_response_prompt_greets_before_viewer_memory():
     assert request.metadata["danmaku_profile"] == "greeting"
     assert "greet the viewer back first" in request.prompt_text
     assert "Do not turn a greeting into an avatar, ID, first-appearance, or profile-memory comment." in request.prompt_text
-    assert "never let viewer impression, avatar, nickname, or old memory become the main reply topic" in request.prompt_text
+    assert "One short natural callback to a remembered fact is allowed" in request.prompt_text
     assert "do not mention avatar or visual impressions unless the current danmaku explicitly asks about them" in request.prompt_text
 
 
@@ -1304,7 +1323,7 @@ def test_danmaku_response_prompt_includes_private_viewer_preference_memory():
     assert "viewer_impression: likes tech/AI, often asks questions; answer first" in request.prompt_text
     assert "avoid_guidance: answer before teasing; do not dodge the question" in request.prompt_text
     assert "response_preference: answer first, then add one light follow-up" in request.prompt_text
-    assert "use these hints silently; do not announce stored viewer data" in request.prompt_text
+    assert "you may show familiarity in ordinary words" in request.prompt_text
 
 
 def test_danmaku_response_prompt_allows_requested_target_roast():
@@ -1409,18 +1428,17 @@ def test_danmaku_response_prompt_includes_recent_interaction_context():
     assert "Recent spent live material:" in request.prompt_text
     assert "avatar_roast / live_danmaku from viewer: 第一次来" in request.prompt_text
     assert "idle_hosting / idle_hosting: solo quiet-room host beat" in request.prompt_text
-    assert "this is a spent-material block, not dialogue to continue" in request.prompt_text
-    assert "Never reuse or paraphrase prior NEKO output" in request.prompt_text
-    assert "topic family, reply path, plan, or host beat" in request.prompt_text
+    assert "these lines are recent room talk" in request.prompt_text
+    assert "Do not copy NEKO's previous sentence, joke, or host beat." in request.prompt_text
     assert "The current input always wins." in request.prompt_text
-    assert "Continue a pending thread only when it explicitly connects" in request.prompt_text
+    assert "If it follows this talk, answer the follow-up" in request.prompt_text
     assert "Answer viewer's current danmaku first as NEKO" in request.prompt_text
     assert "A shared room theme may add one brief bridge after the answer" in request.prompt_text
     assert "never use a reply label or name list" in request.prompt_text
-    assert "Same-viewer spent material:" in request.prompt_text
+    assert "Same-viewer recent talk:" in request.prompt_text
     assert "danmaku_response: 那你继续说" in request.prompt_text
-    assert "avoid repeating this viewer's prior danmaku, NEKO reply, joke, spent family" in request.prompt_text
-    assert "Resume only an explicitly continued thread" in request.prompt_text
+    assert "Do not repeat NEKO's previous sentence." in request.prompt_text
+    assert "If the current danmaku follows this thread, answer the follow-up." in request.prompt_text
 
 
 def test_danmaku_response_prompt_includes_recent_room_danmaku_context():
@@ -1535,8 +1553,8 @@ def test_danmaku_response_prompt_blocks_previous_reply_pollution():
 
     request = module.build_request(event, identity, profile)
 
-    assert "Never reuse or paraphrase prior NEKO output, wording, rhythm, joke, topic family" in request.prompt_text
-    assert "Recent and same-viewer history is spent material" in request.prompt_text
+    assert "Do not copy NEKO's previous sentence, joke, or host beat." in request.prompt_text
+    assert "Do not copy NEKO's previous wording, rhythm, joke, or host beat." in request.prompt_text
     assert "The current input always wins." in request.prompt_text
     assert "a short assent, emoji, or one-word line gets only a tiny reaction" in request.prompt_text
     assert "new show segment, poll, plan, or engagement bait" in request.prompt_text
@@ -1572,7 +1590,7 @@ def test_danmaku_response_prompt_compacts_long_recent_context():
     assert "same viewer old joke should not be resumed " * 2 not in request.prompt_text
     assert "..." in request.prompt_text
     assert "The current input always wins." in request.prompt_text
-    assert "Same-viewer spent material:" in request.prompt_text
+    assert "Same-viewer recent talk:" in request.prompt_text
 
 
 def test_danmaku_response_prompt_stays_within_compact_context_budget():
@@ -1726,7 +1744,7 @@ def test_live_interaction_prompts_share_short_reply_contract():
         "If recent context was longer than the current danmaku, shrink the reply instead of matching it.",
         "No explanation, no setup, no second sentence, no follow-up question unless the current danmaku asks one.",
         "If the current danmaku clearly answers a recent tiny hook, acknowledge the answer first without repeating the old prompt.",
-        "Carry only a tiny emotional echo from recent host material; do not continue old wording or topic by default.",
+        "If this danmaku follows recent talk, answer the follow-up. Do not copy the previous NEKO sentence or host beat.",
     ]
     host_rules = [
         host_contract,
@@ -1759,7 +1777,7 @@ def test_live_interaction_prompts_share_short_reply_contract():
         "Current stream theme (private style anchor):",
         "theme_name: NEKO tiny radio patrol",
         "Answer viewer's current danmaku first as NEKO",
-        "Recent and same-viewer history is spent material",
+        "Do not copy NEKO's previous wording, rhythm, joke, or host beat.",
         "Hard limit: one sentence, normally at most 20 Chinese characters or 10 English words.",
         "Write one complete TTS-friendly live line",
     ]:
@@ -1931,7 +1949,7 @@ def test_avatar_roast_prompt_includes_recent_used_material_blocklist():
 
     assert "Recent spent live material:" in request.prompt_text
     assert "猫猫先夸了小鱼干" in request.prompt_text
-    assert "spent-material block, not dialogue to continue" in request.prompt_text
+    assert "these lines are recent room talk" in request.prompt_text
     assert "Do not use the same opening, sentence shape, punchline, or host beat as recent live replies." in request.prompt_text
     assert "Do not revive an old reward bit, plan, game, audience prompt, or host beat" in request.prompt_text
 
@@ -1954,11 +1972,11 @@ def test_avatar_roast_prompt_includes_same_viewer_used_material_blocklist():
 
     request = module.build_request(event, identity, profile)
 
-    assert "Same-viewer spent material:" in request.prompt_text
+    assert "Same-viewer recent talk:" in request.prompt_text
     assert "old avatar bit" in request.prompt_text
     assert "spent_output_family=audience_prompt" in request.prompt_text
-    assert "avoid repeating this viewer's prior danmaku, NEKO reply, joke, spent family" in request.prompt_text
-    assert "avatar/ID, or first-appearance material" in request.prompt_text
+    assert "Do not repeat NEKO's previous sentence." in request.prompt_text
+    assert "Do not continue this viewer's previous topic." in request.prompt_text
 
 
 def test_idle_hosting_prompt_includes_recent_interaction_context_without_metrics():
@@ -1979,8 +1997,8 @@ def test_idle_hosting_prompt_includes_recent_interaction_context_without_metrics
     assert "Recent spent live material:" in request.prompt_text
     assert "danmaku_response / live_danmaku from viewer: 猫猫在吗" in request.prompt_text
     assert "idle_hosting / idle_hosting: solo quiet-room host beat" in request.prompt_text
-    assert "Never reuse or paraphrase prior NEKO output" in request.prompt_text
-    assert "spent-material block, not dialogue to continue" in request.prompt_text
+    assert "Do not copy NEKO's previous sentence, joke, or host beat." in request.prompt_text
+    assert "these lines are recent room talk" in request.prompt_text
     assert "Do not paraphrase the previous NEKO reply with different words." in request.prompt_text
     assert "last_activity_age_sec" not in request.prompt_text
     assert "cooldown" not in request.prompt_text.lower()
@@ -2104,7 +2122,7 @@ def test_active_engagement_prompt_is_one_light_solo_topic():
     assert "澶у" not in request.prompt_text
     assert "Do not say special plan, everyone look, next let's, what should we talk about, or tell me what you want." in request.prompt_text
     assert "Do not invent or hard-code streamer relationship labels" in request.prompt_text
-    assert "spent-material block, not dialogue to continue" in request.prompt_text
+    assert "these lines are recent room talk" in request.prompt_text
 
 
 def test_active_engagement_prompt_treats_recent_reply_path_as_spent_material():
@@ -2122,7 +2140,7 @@ def test_active_engagement_prompt_treats_recent_reply_path_as_spent_material():
     request = module.build_request(event, identity, profile)
 
     assert "reply: viewer can answer in a few words" in request.prompt_text
-    assert "topic family, reply path, plan, or host beat" in request.prompt_text
+    assert "Do not copy NEKO's previous sentence, joke, or host beat." in request.prompt_text
 
 
 def test_active_engagement_prompt_turns_shape_into_concrete_task():
@@ -2315,9 +2333,9 @@ def test_warmup_hosting_prompt_includes_recent_used_material_blocklist():
     assert "Recent spent live material:" in request.prompt_text
     assert "warmup_hosting / warmup_hosting" in request.prompt_text
     assert "NEKO opened" in request.prompt_text
-    assert "Never reuse or paraphrase prior NEKO output" in request.prompt_text
+    assert "Do not copy NEKO's previous sentence, joke, or host beat." in request.prompt_text
     assert "Do not repeat the same host beat shape twice in a row" in request.prompt_text
-    assert "spent-material block, not dialogue to continue" in request.prompt_text
+    assert "these lines are recent room talk" in request.prompt_text
 
 
 def test_utc_now_iso_returns_timezone_aware_utc_timestamp():

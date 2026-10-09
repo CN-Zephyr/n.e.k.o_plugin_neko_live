@@ -45,6 +45,8 @@ class EventBus:
         self._last_publish_at: float = 0.0
         self._last_event_type: str = ""
         self._publish_count: int = 0
+        self._dropped_closed_count: int = 0
+        self._dropped_unsubscribed_count: int = 0
         self._accepting_events = True
 
     def subscribe(self, event_type: str, handler: Callable[[Any], Any], *, owner: str = "") -> Callable[[], None]:
@@ -62,16 +64,25 @@ class EventBus:
     def subscriber_count(self, event_type: str) -> int:
         return len(self._subs.get(str(event_type), []))
 
+    def reopen(self) -> None:
+        """Accept events again after close(). Used when the same runtime starts a new session."""
+
+        self._accepting_events = True
+
     def publish(self, event_type: str, event: Any) -> None:
-        """按类型逐订阅者隔离派发。无订阅者 = 静默丢弃。"""
+        """按类型逐订阅者隔离派发。无订阅者记一次丢弃计数。"""
         if not self._accepting_events:
+            self._dropped_closed_count += 1
             return
         event_type = str(event_type)
+        subscribers = list(self._subs.get(event_type, []))
         if getattr(event, "schema_version", None) is not None and getattr(event, "type", ""):
             self._last_publish_at = time.time()
             self._last_event_type = event_type
             self._publish_count += 1
-        for sub in list(self._subs.get(event_type, [])):
+            if not subscribers:
+                self._dropped_unsubscribed_count += 1
+        for sub in subscribers:
             try:
                 result = sub.handler(event)
             except Exception as exc:  # noqa: BLE001 — 单订阅者失败隔离，不波及其余
@@ -86,6 +97,8 @@ class EventBus:
             "last_event_type": self._last_event_type,
             "publish_count": self._publish_count,
             "accepting_events": self._accepting_events,
+            "dropped_closed_count": self._dropped_closed_count,
+            "dropped_unsubscribed_count": self._dropped_unsubscribed_count,
             "pending_tasks": len(self._tasks),
         }
 

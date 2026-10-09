@@ -22,6 +22,7 @@ from .contracts import LiveConfig
 from .event_bus import EventBus
 from .live_hosting_director import LiveHostingDirector
 from .permission_gate import PermissionGate
+from .recent_results_store import load_recent_results
 from .runtime_active_engagement_api import RuntimeActiveEngagementApiMixin
 from .runtime_auth_api import RuntimeAuthApiMixin
 from .runtime_config_api import RuntimeConfigApiMixin
@@ -95,8 +96,10 @@ class LiveRuntime(
 
     async def start(self) -> None:
         self._stopping = False
+        self.event_bus.reopen()
         await self.reload_config()
         await self.viewer_store.prune_expired_profiles()
+        load_recent_results(self)
         await self.reload_credential()
         await self.reload_douyin_credential()
         await self.reload_twitch_credential()
@@ -108,6 +111,13 @@ class LiveRuntime(
         if self._stopping:
             return
         self._stopping = True
+        live_memory = getattr(self, "live_memory", None)
+        flush = getattr(live_memory, "flush", None)
+        if callable(flush):
+            try:
+                await asyncio.wait_for(flush(), timeout=2.0)
+            except Exception:
+                pass
         failures: list[str] = []
         cancelled = False
         steps = (
