@@ -1027,8 +1027,8 @@ def test_danmaku_response_prompt_greets_before_viewer_memory():
     assert request.metadata["danmaku_profile"] == "greeting"
     assert "greet the viewer back first" in request.prompt_text
     assert "Do not turn a greeting into an avatar, ID, first-appearance, or profile-memory comment." in request.prompt_text
-    assert "One short natural callback to a remembered fact is allowed" in request.prompt_text
-    assert "do not mention avatar or visual impressions unless the current danmaku explicitly asks about them" in request.prompt_text
+    assert "One remembered fact may be mentioned once, in ordinary words." in request.prompt_text
+    assert "Mention avatar, ID, or first appearance only when the current danmaku makes it relevant." in request.prompt_text
 
 
 def test_danmaku_response_prompt_delivers_content_requests_now():
@@ -1314,16 +1314,11 @@ def test_danmaku_response_prompt_includes_private_viewer_preference_memory():
     request = module.build_request(event, ViewerIdentity(uid="42", nickname="viewer"), profile)
 
     assert "Viewer impression memory (private guidance)" in request.prompt_text
-    assert "viewer_stage: returning_viewer" in request.prompt_text
-    assert "profile_confidence: medium" in request.prompt_text
-    assert "preference_tags: questions, tech_ai" in request.prompt_text
-    assert "top_preferences: questions(2), tech_ai(2)" in request.prompt_text
-    assert "favorite_topics: tech_ai" in request.prompt_text
-    assert "running_jokes_or_reply_cues: short_helper_mode(2)" in request.prompt_text
-    assert "viewer_impression: likes tech/AI, often asks questions; answer first" in request.prompt_text
-    assert "avoid_guidance: answer before teasing; do not dodge the question" in request.prompt_text
-    assert "response_preference: answer first, then add one light follow-up" in request.prompt_text
-    assert "you may show familiarity in ordinary words" in request.prompt_text
+    assert "impression: likes tech/AI, often asks questions; answer first" in request.prompt_text
+    assert "avoid: answer before teasing; do not dodge the question" in request.prompt_text
+    assert "preference_tags:" not in request.prompt_text
+    assert "viewer_stage:" not in request.prompt_text
+    assert "One remembered fact may be mentioned once, in ordinary words." in request.prompt_text
 
 
 def test_danmaku_response_prompt_allows_requested_target_roast():
@@ -1558,7 +1553,7 @@ def test_danmaku_response_prompt_blocks_previous_reply_pollution():
     assert "The current input always wins." in request.prompt_text
     assert "a short assent, emoji, or one-word line gets only a tiny reaction" in request.prompt_text
     assert "new show segment, poll, plan, or engagement bait" in request.prompt_text
-    assert "Carrying the room means crisp timing, not monologue, plans, or host-script expansion." in request.prompt_text
+    assert "must carry the room alone in one compact line." in request.prompt_text
     assert "NEKO already said: old reward bit" in request.prompt_text
 
 

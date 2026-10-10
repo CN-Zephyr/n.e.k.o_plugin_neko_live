@@ -243,56 +243,36 @@ def viewer_profile_projection(profile: Any) -> dict[str, Any]:
 
 
 def viewer_preference_prompt_block(profile: Any) -> str:
-    counts = safe_preference_counts(getattr(profile, "preference_tags", None))
-    style = safe_text(getattr(profile, "interaction_style", ""), max_len=48)
-    response = safe_text(getattr(profile, "response_preference", ""), max_len=180)
-    summary = safe_text(getattr(profile, "last_interaction_summary", ""), max_len=160)
-    impression = safe_text(getattr(profile, "impression_summary", ""), max_len=180)
-    avoid_guidance = safe_text(getattr(profile, "avoid_guidance", ""), max_len=180)
-    danmaku_count = safe_int(getattr(profile, "danmaku_count", 0))
+    """One impression line and one usage line. Counts stay on the profile for the panel."""
+
     projection = viewer_profile_projection(profile)
-    top_tags = [key for key, _count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:4]]
-    top_topics = [str(item["tag"]) for item in projection["top_favorite_topics"]]
-    top_jokes = [str(item["tag"]) for item in projection["top_running_jokes"]]
-    if not any((top_tags, top_topics, top_jokes, style, response, summary, impression, avoid_guidance, danmaku_count)):
+    impression = safe_text(str(projection.get("impression_summary") or ""), max_len=180)
+    if not impression:
+        impression = safe_text(getattr(profile, "last_interaction_summary", ""), max_len=160)
+    topics = [str(item["tag"]) for item in projection["top_favorite_topics"][:2]]
+    avoid = safe_text(getattr(profile, "avoid_guidance", ""), max_len=80)
+    if not impression and not topics and not avoid:
         return ""
-    lines = ["Viewer impression memory (private guidance):"]
-    if danmaku_count:
-        lines.append(f"- observed_live_danmaku_count: {danmaku_count}")
-    lines.append(f"- viewer_stage: {projection['viewer_stage']}")
-    lines.append(f"- profile_confidence: {projection['profile_confidence']}")
-    lines.append(f"- profile_freshness: {projection['profile_freshness']}")
-    lines.append(f"- memory_use_rule: {projection['memory_use_rule']}")
-    if top_tags:
-        lines.append("- preference_tags: " + ", ".join(top_tags))
-        rendered = [
-            f"{item['tag']}({item['count']})"
-            for item in projection["top_preference_tags"]
-        ]
-        lines.append("- top_preferences: " + ", ".join(rendered))
-    if top_topics:
-        lines.append("- favorite_topics: " + ", ".join(top_topics))
-    if top_jokes:
-        rendered_jokes = [
-            f"{item['tag']}({item['count']})"
-            for item in projection["top_running_jokes"]
-        ]
-        lines.append("- running_jokes_or_reply_cues: " + ", ".join(rendered_jokes))
-    if style:
-        lines.append(f"- interaction_style: {style}")
-    if projection["reply_guidance"]:
-        lines.append(f"- response_preference: {projection['reply_guidance']}")
-    if projection["impression_summary"]:
-        lines.append(f"- viewer_impression: {projection['impression_summary']}")
-    elif summary:
-        lines.append(f"- latest_safe_summary: {summary}")
-    if avoid_guidance:
-        lines.append(f"- avoid_guidance: {avoid_guidance}")
-    lines.append("- priority_rule: answer the current danmaku first. One short natural callback to a remembered fact is allowed when it fits this turn, or when they ask whether you remember them.")
-    lines.append("- avatar_memory_rule: for normal danmaku response, do not mention avatar or visual impressions unless the current danmaku explicitly asks about them.")
-    lines.append("- evidence_rule: a concrete viewer_impression is something they actually said; one callback is enough, and the current danmaku still comes first.")
-    lines.append("- privacy_rule: you may show familiarity in ordinary words. Do not mention profiles, archives, stored data, or that you looked something up.")
-    return "\n".join(lines) + "\n\n"
+    if not impression and topics:
+        impression = "often talks about " + ", ".join(topics)
+    if avoid and avoid not in impression:
+        impression = f"{impression}; avoid: {avoid}"
+    rule = str(projection.get("memory_use_rule") or "")
+    if rule.startswith(("old:", "weak:")):
+        use = (
+            "Answer the current danmaku first. "
+            "Mention a remembered fact only if this danmaku asks whether you remember them."
+        )
+    else:
+        use = (
+            "Answer the current danmaku first. One remembered fact may be mentioned once, in ordinary words. "
+            "Do not mention profiles, archives, or that you looked something up."
+        )
+    return (
+        "Viewer impression memory (private guidance):\n"
+        f"- impression: {impression}\n"
+        f"- use: {use}\n\n"
+    )
 
 
 def viewer_fact_text(text: str) -> str:

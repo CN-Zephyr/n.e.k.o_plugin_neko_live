@@ -107,11 +107,11 @@ def test_viewer_preference_prompt_block_marks_memory_as_private_and_cautious():
 
     block = viewer_preference_prompt_block(profile)
 
-    assert "profile_confidence: medium" in block
-    assert "profile_freshness: fresh" in block
-    assert "memory_use_rule: cautious:" in block
-    assert "evidence_rule: a concrete viewer_impression is something they actually said" in block
-    assert "you may show familiarity in ordinary words" in block
+    assert "impression: likes tech/AI, often asks questions" in block
+    assert "avoid: answer before teasing; do not dodge the question" in block
+    assert "profile_confidence:" not in block
+    assert "memory_use_rule:" not in block
+    assert "Do not mention profiles, archives, or that you looked something up." in block
 
 
 def test_viewer_preference_context_respects_streamer_memory_toggle():

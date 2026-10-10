@@ -37,8 +37,8 @@ def live_host_theme_block(config: Any | None = None, *, kind: str = "reply") -> 
         lines.extend(
             [
                 f"- human_theme: {stream_theme}",
-                "- premise: this is today's configured stream anchor; keep replies and idle beats connected to it when relevant.",
-                "- variety_rule: use the theme as continuity, not a slogan; do not force every line to repeat it.",
+                "- premise: configured stream anchor; mention it only after the current danmaku is answered.",
+                "- variety_rule: do not repeat the theme in every line.",
             ]
         )
     elif room_title:
@@ -89,7 +89,7 @@ def live_host_theme_block(config: Any | None = None, *, kind: str = "reply") -> 
     else:
         lines.extend(
             [
-                "- reply_rule: answer the current viewer first; theme flavor may only be a small callback after the answer is clear.",
+                "- reply_rule: answer the current viewer first.",
                 "- no_drift_rule: do not ignore the danmaku just to continue the theme.",
             ]
         )

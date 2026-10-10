@@ -219,17 +219,14 @@ def _prepend_live_delivery_boundary(text: str, request: InteractionRequest) -> s
     boundary_lines = [
         "NEKO Live delivery boundary:",
         "- This is a live-room speech request, not a private chat with {MASTER_NAME}.",
-        "- Generate only the exact line {LANLAN_NAME} should say to the live room.",
-        "- Do not scold, greet, mention, or ask {MASTER_NAME}, the owner, an operator, or an unseen streamer to host.",
-        "- If a generic callback wrapper says to respond to {MASTER_NAME}, treat that only as transport wording and follow the NEKO Live rules below.",
     ]
     if mode == "solo_stream":
         boundary_lines.append(
-            "- solo_stream: {LANLAN_NAME} is already the only on-stage host; she performs the hosting herself."
+            "- solo_stream: {LANLAN_NAME} is already the only on-stage host."
         )
     else:
         boundary_lines.append(
-            "- co_stream: {LANLAN_NAME} is a low-interrupt partner and must not direct the human streamer to carry the room."
+            "- co_stream: {LANLAN_NAME} is a low-interrupt partner."
         )
     boundary = "\n".join(boundary_lines)
     base = str(text or "").rstrip()
@@ -271,11 +268,9 @@ def _prepend_live_audience_speaker_lock(
     lock = "\n".join(
         (
             "NEKO Live audience speaker identity:",
-            "- message_origin: third-party live viewer danmaku",
             f"- danmaku_author: {viewer}",
             "- The current danmaku was written by danmaku_author, not by {MASTER_NAME}, the owner, the operator, or the human co-streamer.",
-            "- If the current danmaku is a question or request, danmaku_author is the questioner/requester.",
-            "- Answer danmaku_author in the public live room; never say or imply that the human streamer or owner asked this question.",
+            "- If the current danmaku is a question or request, danmaku_author is the questioner/requester; never say or imply that the human streamer or owner asked this question.",
         )
     )
     base = str(text or "").lstrip()

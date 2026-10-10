@@ -40,7 +40,7 @@ def recent_context_block(
         + "\n\n"
         + "Rule: these lines are recent room talk. Do not copy NEKO's previous sentence, joke, or host beat.\n"
         + (
-            "The current input always wins. If it follows this talk, answer the follow-up; otherwise keep the reply short.\n"
+            "The current input always wins. If it follows this talk, answer the follow-up.\n"
             if follow_up
             else "Do not continue an old topic from these lines. Answer only the current task.\n"
         )
@@ -117,7 +117,7 @@ def viewer_session_context_block(
         + "\n\n"
         + "Rule: these lines show who said what. Do not repeat NEKO's previous sentence.\n"
         + (
-            "If the current danmaku follows this thread, answer the follow-up. One remembered fact may be mentioned once, in ordinary words.\n"
+            "If the current danmaku follows this thread, answer the follow-up.\n"
             if follow_up
             else "Do not continue this viewer's previous topic.\n"
         )
