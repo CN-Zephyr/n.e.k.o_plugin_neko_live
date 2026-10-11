@@ -40,6 +40,7 @@
 - [宿主内容目录](modules/host_content_catalogs.md)：静态 idle-hosting beat、数据回退与共享素材接口。
 - [直播状态助手](modules/live_status_helpers.md)：连接与活跃状态的就绪度、计时、主持状态判定、导播下一步投影与主题上下文投影，纯计算无副作用。
 - [本场观众统计](modules/live_audience_session.md)：单次监听会话的互动人数、弹幕、支持事件、NEKO 发言和最近互动观众的有界内存投影。
+- [进场与点赞](modules/live_presence.md)：进场、关注、点赞的可选开口。默认只计数，说话开关默认关闭。
 - [观众与安全存储](modules/viewer_stores.md)：观众档案、审计脱敏与加密凭据命名空间。
 
 ## Canonical Source

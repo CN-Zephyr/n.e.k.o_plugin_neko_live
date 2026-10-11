@@ -849,6 +849,10 @@ function LiveSessionSection({
         <StatCard label={t("panel.audience.interactionViewers")} value={viewerCountLabel} />
         <StatCard label={t("panel.columns.danmakuCount")} value={Number(session?.danmaku_count || 0)} />
         <StatCard label={t("panel.audience.supportEvents")} value={Number(session?.support_event_count || 0)} />
+        <StatCard label={t("panel.audience.entries")} value={Number(session?.entry_count || 0)} />
+        <StatCard label={t("panel.audience.follows")} value={Number(session?.follow_count || 0)} />
+        <StatCard label={t("panel.audience.likes")} value={Number(session?.like_count || 0)} />
+        <StatCard label={t("panel.audience.likeTotal")} value={session?.like_total == null ? "-" : Number(session.like_total)} />
         <StatCard label={t("panel.audience.nekoOutputs")} value={Number(session?.neko_output_count || 0)} />
       </Grid>
       {session?.interaction_viewer_count_capped ? <Text>{t("panel.audience.viewerCountCapped")}</Text> : null}

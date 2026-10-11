@@ -38,6 +38,39 @@ _TAG_LABELS.update(
 
 _FAVORITE_TOPIC_TAGS = {"games", "music", "tech_ai", "anime_role"}
 _STABLE_MEMORY_MIN_COUNT = 2
+_FACT_MAX_LEN = 80
+_IMPRESSION_MAX_FACTS = 4
+_LOW_VALUE_FACTS = {
+    "哈哈",
+    "哈哈哈",
+    "hhhh",
+    "hhh",
+    "233",
+    "666",
+    "草",
+    "lol",
+    "awsl",
+}
+_MEMORY_BOILERPLATE = {
+    "likes games/strategy",
+    "likes music/singing",
+    "likes tech/ai",
+    "likes anime/character topics",
+    "likes memes",
+    "may want comfort",
+    "often supportive",
+    "often asks questions",
+    "likes light chat",
+    "answer first, then add one light follow-up",
+    "catch the joke briefly without overexplaining",
+    "a named thanks or playful acknowledgement works well",
+    "extend the current topic lightly",
+    "keep it warm; avoid sharp teasing",
+    "answer before teasing; do not dodge the question",
+    "do not overexplain the joke",
+    "do not turn support into a harsh roast",
+    "avoid",
+}
 
 _RUNNING_JOKE_LABELS: dict[str, str] = {
     "meme_callback": "likes meme callbacks",
@@ -210,56 +243,100 @@ def viewer_profile_projection(profile: Any) -> dict[str, Any]:
 
 
 def viewer_preference_prompt_block(profile: Any) -> str:
-    counts = safe_preference_counts(getattr(profile, "preference_tags", None))
-    style = safe_text(getattr(profile, "interaction_style", ""), max_len=48)
-    response = safe_text(getattr(profile, "response_preference", ""), max_len=180)
-    summary = safe_text(getattr(profile, "last_interaction_summary", ""), max_len=160)
-    impression = safe_text(getattr(profile, "impression_summary", ""), max_len=180)
-    avoid_guidance = safe_text(getattr(profile, "avoid_guidance", ""), max_len=180)
-    danmaku_count = safe_int(getattr(profile, "danmaku_count", 0))
+    """One impression line and one usage line. Counts stay on the profile for the panel."""
+
     projection = viewer_profile_projection(profile)
-    top_tags = [key for key, _count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:4]]
-    top_topics = [str(item["tag"]) for item in projection["top_favorite_topics"]]
-    top_jokes = [str(item["tag"]) for item in projection["top_running_jokes"]]
-    if not any((top_tags, top_topics, top_jokes, style, response, summary, impression, avoid_guidance, danmaku_count)):
+    impression = safe_text(str(projection.get("impression_summary") or ""), max_len=180)
+    if not impression:
+        impression = safe_text(getattr(profile, "last_interaction_summary", ""), max_len=160)
+    topics = [str(item["tag"]) for item in projection["top_favorite_topics"][:2]]
+    avoid = safe_text(getattr(profile, "avoid_guidance", ""), max_len=80)
+    if not impression and not topics and not avoid:
         return ""
-    lines = ["Viewer impression memory (private guidance):"]
-    if danmaku_count:
-        lines.append(f"- observed_live_danmaku_count: {danmaku_count}")
-    lines.append(f"- viewer_stage: {projection['viewer_stage']}")
-    lines.append(f"- profile_confidence: {projection['profile_confidence']}")
-    lines.append(f"- profile_freshness: {projection['profile_freshness']}")
-    lines.append(f"- memory_use_rule: {projection['memory_use_rule']}")
-    if top_tags:
-        lines.append("- preference_tags: " + ", ".join(top_tags))
-        rendered = [
-            f"{item['tag']}({item['count']})"
-            for item in projection["top_preference_tags"]
-        ]
-        lines.append("- top_preferences: " + ", ".join(rendered))
-    if top_topics:
-        lines.append("- favorite_topics: " + ", ".join(top_topics))
-    if top_jokes:
-        rendered_jokes = [
-            f"{item['tag']}({item['count']})"
-            for item in projection["top_running_jokes"]
-        ]
-        lines.append("- running_jokes_or_reply_cues: " + ", ".join(rendered_jokes))
-    if style:
-        lines.append(f"- interaction_style: {style}")
-    if projection["reply_guidance"]:
-        lines.append(f"- response_preference: {projection['reply_guidance']}")
-    if projection["impression_summary"]:
-        lines.append(f"- viewer_impression: {projection['impression_summary']}")
-    elif summary:
-        lines.append(f"- latest_safe_summary: {summary}")
-    if avoid_guidance:
-        lines.append(f"- avoid_guidance: {avoid_guidance}")
-    lines.append("- priority_rule: the current danmaku text is mandatory; never let viewer impression, avatar, nickname, or old memory become the main reply topic.")
-    lines.append("- avatar_memory_rule: for normal danmaku response, do not mention avatar or visual impressions unless the current danmaku explicitly asks about them.")
-    lines.append("- evidence_rule: treat one-off topics or jokes as weak evidence; prefer current danmaku over old impressions.")
-    lines.append("- privacy_rule: use these hints silently; do not announce stored viewer data or say you remember the profile.")
-    return "\n".join(lines) + "\n\n"
+    if not impression and topics:
+        impression = "often talks about " + ", ".join(topics)
+    if avoid and avoid not in impression:
+        impression = f"{impression}; avoid: {avoid}"
+    rule = str(projection.get("memory_use_rule") or "")
+    if rule.startswith(("old:", "weak:")):
+        use = (
+            "Answer the current danmaku first. "
+            "Mention a remembered fact only if this danmaku asks whether you remember them."
+        )
+    else:
+        use = (
+            "Answer the current danmaku first. One remembered fact may be mentioned once, in ordinary words. "
+            "Do not mention profiles, archives, or that you looked something up."
+        )
+    return (
+        "Viewer impression memory (private guidance):\n"
+        f"- impression: {impression}\n"
+        f"- use: {use}\n\n"
+    )
+
+
+def viewer_fact_text(text: str) -> str:
+    """Return one short thing the viewer actually said, or nothing for noise and secrets."""
+
+    fact = safe_text(text, max_len=_FACT_MAX_LEN)
+    dense = "".join(
+        ch for ch in fact.casefold() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff"
+    )
+    if len(dense) < 4 or _is_low_value_fact(dense):
+        return ""
+    return fact
+
+
+def _is_low_value_fact(dense: str) -> bool:
+    remaining = dense
+    for token in sorted(_LOW_VALUE_FACTS, key=len, reverse=True):
+        remaining = remaining.replace(token, "")
+    return remaining == ""
+
+
+def is_template_memory(text: str) -> bool:
+    """True when a summary is only the keyword-label boilerplate, not a viewer fact."""
+
+    leftover = str(text or "").casefold()
+    if not leftover.strip():
+        return True
+    for phrase in sorted(_MEMORY_BOILERPLATE, key=len, reverse=True):
+        leftover = leftover.replace(phrase, " ")
+    leftover = "".join(
+        ch for ch in leftover if ch.isalnum() or "\u4e00" <= ch <= "\u9fff"
+    )
+    return leftover == ""
+
+
+def remember_viewer_lines(
+    existing_last: str,
+    existing_impression: str,
+    danmaku: str,
+    *,
+    fallback_last: str,
+    fallback_impression: str,
+) -> tuple[str, str]:
+    """Keep the latest safe fact, and a few earlier facts, ahead of label templates."""
+
+    fact = viewer_fact_text(danmaku)
+    if not fact:
+        last = existing_last if not is_template_memory(existing_last) else fallback_last
+        impression = (
+            existing_impression
+            if not is_template_memory(existing_impression)
+            else fallback_impression
+        )
+        return safe_text(last, max_len=160), safe_text(impression, max_len=180)
+
+    previous = "" if is_template_memory(existing_impression) else existing_impression
+    parts = [
+        part.strip()
+        for part in previous.split(" / ")
+        if part.strip() and part.strip() != fact
+    ]
+    parts.append(fact)
+    impression = " / ".join(parts[-_IMPRESSION_MAX_FACTS:])
+    return safe_text(fact, max_len=160), safe_text(impression, max_len=180)
 
 
 def _running_jokes_for(tags: list[str], style: str) -> list[str]:
@@ -370,7 +447,7 @@ def _memory_use_rule(*, confidence: str, freshness: str) -> str:
         return "cautious: use as background context, not as a script"
     if freshness == "old":
         return "old: only use if the current danmaku clearly invites it"
-    return "weak: do not assume familiarity; answer the current danmaku first"
+    return "weak: answer the current danmaku first; one listed concrete fact may be mentioned once"
 
 
 def _reply_guidance_for_stage(stage: str) -> str:

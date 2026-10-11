@@ -22,6 +22,7 @@ from ..live_events.provider_event import (
     event_signal_fields,
     event_support_fields,
 )
+from .browser_headers import BROWSER_USER_AGENT
 
 SUPPORT_EVENT_DEDUPE_SECONDS = 0.35
 SUPPORT_EVENT_DEDUPE_LIMIT = 4096
@@ -297,6 +298,8 @@ class BiliLiveIngestModule(BaseModule):
         "SUPER_CHAT_MESSAGE_JPN": "super_chat",
         "GUARD_BUY": "guard",
         "INTERACT_WORD": "entry",
+        "LIKE_INFO_V3_CLICK": "like",
+        "LIKE_INFO_V3_UPDATE": "like_total",
     }
 
     def _on_live_event(self, cmd: str, event: Any, *, generation: int | None = None) -> None:
@@ -348,7 +351,7 @@ class BiliLiveIngestModule(BaseModule):
                 self.ctx,
                 live_event,
                 stage="event_bus",
-                status="published",
+                status="queued",
                 reason=f"support.{live_event.type}",
                 route=self.id,
             )
@@ -404,6 +407,7 @@ class BiliLiveIngestModule(BaseModule):
             payload["raw_type"] = normalized_cmd
             if is_typed_support:
                 payload.update(self._typed_support_fields(normalized_cmd, event))
+            self._annotate_presence(payload, event, event_type)
             return LiveEvent(type=event_type, uid=uid, payload=payload, source="live", ts=time.time(), raw=payload)
         uid = str(getattr(event, "uid", "") or "").strip()
         nickname = str(getattr(event, "nickname", "") or "")
@@ -416,13 +420,77 @@ class BiliLiveIngestModule(BaseModule):
             "event_label": self._event_label(event_type, text),
             "raw_type": normalized_cmd,
             "guard_level": getattr(event, "guard_level", 0),
+            "medal_level": _medal_level(event),
             "room_id": getattr(event, "room_id", 0) or self._room_id,
             "cmd": normalized_cmd,
         }
         payload.update(event_signal_fields(event))
         if is_typed_support:
             payload.update(self._typed_support_fields(normalized_cmd, event))
+        self._annotate_presence(payload, event, event_type)
         return LiveEvent(type=event_type, uid=uid, payload=payload, source="live", ts=time.time(), raw=event)
+
+    @staticmethod
+    def _annotate_presence(payload: dict[str, Any], event: Any, event_type: str) -> None:
+        if event_type == "entry":
+            payload["interact_kind"] = BiliLiveIngestModule._interact_kind(event)
+        if event_type == "like_total":
+            payload["click_count"] = BiliLiveIngestModule._click_count(event)
+        face = ""
+        if isinstance(event, dict):
+            face = str(event.get("face_url") or event.get("avatar_url") or "")
+        else:
+            face = str(getattr(event, "face_url", "") or "")
+        if face and event_type == "entry":
+            payload["avatar_url"] = face
+            payload["face_url"] = face
+
+    @staticmethod
+    def _interact_kind(event: Any) -> str:
+        if isinstance(event, dict):
+            raw_msg = event.get("msg_type")
+            data = event.get("data")
+            if raw_msg is None and isinstance(data, dict):
+                raw_msg = data.get("msg_type")
+        else:
+            raw_msg = None
+            extra = getattr(event, "extra_json", "")
+            if isinstance(extra, str) and extra:
+                try:
+                    import json
+
+                    parsed = json.loads(extra)
+                    raw_msg = (parsed.get("data") or {}).get("msg_type")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    raw_msg = None
+            if raw_msg is None:
+                name = str(getattr(getattr(event, "msg_type", None), "name", "") or "")
+                if name == "MSG_ATTENTION":
+                    return "follow"
+                return "entry"
+        try:
+            code = int(raw_msg or 0)
+        except (TypeError, ValueError):
+            code = 0
+        if code == 2:
+            return "follow"
+        if code == 3:
+            return "share"
+        return "entry"
+
+    @staticmethod
+    def _click_count(event: Any) -> int:
+        if isinstance(event, dict):
+            value = event.get("click_count")
+            data = event.get("data")
+            if value is None and isinstance(data, dict):
+                value = data.get("click_count")
+        else:
+            value = getattr(event, "click_count", 0)
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
 
     @staticmethod
     def _typed_support_fields(normalized_cmd: str, event: Any) -> dict[str, Any]:
@@ -629,7 +697,7 @@ class BiliLiveIngestModule(BaseModule):
     # 反 -352：lookup 走的 getInfoByRoom（HTTP）补上临时 buvid3 + 浏览器 headers。
     # getInfoByRoom 不需要 WBI 签名（弹幕 WS 的 _get_real_room_id 调它也没签）。
     _BROWSER_HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": BROWSER_USER_AGENT,
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "zh-CN,zh;q=0.9",
         "Origin": "https://live.bilibili.com",
@@ -777,6 +845,19 @@ class BiliLiveIngestModule(BaseModule):
         return "unknown"
 
 
+def _medal_level(event: Any) -> int:
+    if isinstance(event, dict):
+        raw = event.get("medal_level", event.get("fans_medal_level", 0))
+    else:
+        raw = getattr(event, "fans_medal_level", 0) or 0
+        if not raw:
+            medal = getattr(event, "medal", None)
+            raw = getattr(medal, "level", 0) if medal is not None else 0
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+        return 0
+    return raw
+
+
 def _public_uid(value: Any) -> str:
     if isinstance(value, bool):
         return ""
@@ -809,6 +890,7 @@ def _public_normalized_raw(payload: dict[str, Any]) -> dict[str, Any]:
         "gift_total_coin",
         "gift_price",
         "guard_level",
+        "medal_level",
         "_live_session_generation",
     ):
         value = _safe_non_negative_int(payload.get(key))
@@ -817,6 +899,12 @@ def _public_normalized_raw(payload: dict[str, Any]) -> dict[str, Any]:
     gift_coin_type = public_text(payload.get("gift_coin_type"), max_len=16).lower()
     if gift_coin_type in {"gold", "silver"}:
         raw["gift_coin_type"] = gift_coin_type
+    presence = public_text(payload.get("presence_action"), max_len=16).lower()
+    if presence in {"greet", "roast"}:
+        raw["presence_action"] = presence
+    like_scope = public_text(payload.get("like_scope"), max_len=16).lower()
+    if like_scope == "room":
+        raw["like_scope"] = "room"
     return raw
 
 

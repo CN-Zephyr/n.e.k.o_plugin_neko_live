@@ -107,11 +107,11 @@ def test_viewer_preference_prompt_block_marks_memory_as_private_and_cautious():
 
     block = viewer_preference_prompt_block(profile)
 
-    assert "profile_confidence: medium" in block
-    assert "profile_freshness: fresh" in block
-    assert "memory_use_rule: cautious:" in block
-    assert "evidence_rule: treat one-off topics or jokes as weak evidence" in block
-    assert "do not announce stored viewer data or say you remember the profile" in block
+    assert "impression: likes tech/AI, often asks questions" in block
+    assert "avoid: answer before teasing; do not dodge the question" in block
+    assert "profile_confidence:" not in block
+    assert "memory_use_rule:" not in block
+    assert "Do not mention profiles, archives, or that you looked something up." in block
 
 
 def test_viewer_preference_context_respects_streamer_memory_toggle():
@@ -145,8 +145,10 @@ async def test_viewer_profile_quality_matrix_persists_only_safe_impressions(tmp_
 
     raw = (tmp_path / "viewer_profiles.json").read_text(encoding="utf-8")
     assert "must-not-leak" not in raw
-    for sample in samples:
-        assert sample not in raw
+    assert "AI plugin config?" not in raw
+    assert "hhh 233" not in raw
+    assert "bgm sounds good" in raw
+    assert "AI model bug?" in raw
 
     stored = json.loads(raw)["1001"]
     assert stored["favorite_topics"]["tech_ai"] >= 2

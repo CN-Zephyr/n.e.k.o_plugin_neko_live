@@ -13,9 +13,15 @@ class RuntimeRecentContextApiMixin:
             self.recent_results, limit=limit
         )
 
-    def viewer_session_context(self, uid: str, *, limit: int = 2) -> list[str]:
+    def viewer_session_context(self, uid: str, *, limit: int | None = None) -> list[str]:
+        if limit is None:
+            configured = getattr(getattr(self, "config", None), "viewer_context_limit", 6)
+            try:
+                limit = int(configured)
+            except (TypeError, ValueError):
+                limit = 6
         return recent_context.build_viewer_session_context(
-            self.recent_results, uid, limit=limit
+            self.recent_results, uid, limit=max(1, min(12, limit))
         )
 
     def recent_room_danmaku_context(

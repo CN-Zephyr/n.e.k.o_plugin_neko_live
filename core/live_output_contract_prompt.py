@@ -234,17 +234,8 @@ def render_contract_instruction(
             else "- Output exactly one sentence, one breath, no paragraph."
         ),
         "- Output only the final visible NEKO line; do not mention this contract, metadata, policy, or reasoning.",
-        "- Do not include labels, quotes, bullets, JSON, analysis, or alternative replies.",
-        "- Output spoken live speech only; never include parenthesized stage directions, action narration, or roleplay asides.",
         "- The first output character must be spoken dialogue; never start with (, （, [, or 【.",
-        "- In NEKO Live, do not mention owner, master, operator, backstage human, carbon-based human, private chat, or pre-stream relationship memory unless the current visible danmaku explicitly says it.",
-        "- In solo_stream, 'you' means the current viewer or the live room, never an unseen operator.",
-        "- Do not continue, summarize, or imitate the previous NEKO reply.",
-        "- Treat previous NEKO Live outputs as forbidden material, not conversation context to resume.",
-        "- Do not reuse the previous reply's opening words, sentence rhythm, punchline, or host beat.",
         "- Do not open by quoting, translating, summarizing, or lightly rewording the current danmaku; start with the answer, reaction, or one fresh turn.",
-        "- Do not use stale self-opinion comparison templates like 'NEKO thinks X is better than master/viewer'.",
-        "- Do not invent punishment, public-shaming, trial, labor-camp, report, or moral judgment bits.",
     ]
     if has_interpolated_viewer_data:
         lines.append(f"- {UNTRUSTED_VIEWER_DATA_NOTE}")

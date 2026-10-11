@@ -99,14 +99,17 @@ async def run_event_flow(
                 reason=route.viewer_gate_reason,
                 route=route.response_module_id,
             )
+            # already_roasted 只表示「这个观众别再被锐评第二次」，只作用于锐评类回复。
+            # 礼物 / SC / 舰长走 live_support_events，是致谢；发过弹幕的观众送礼仍要道谢。
+            _already_roasted_exempt = route.response_module_id == "live_support_events" or (
+                route.response_module_id == "danmaku_response"
+                and hasattr(ctx, "danmaku_response")
+            )
             if (
                 uid_lock is not None
                 and already_roasted
                 and route.viewer_gate_reason != "explicit_self_avatar_roast"
-                and (
-                    route.response_module_id != "danmaku_response"
-                    or not hasattr(ctx, "danmaku_response")
-                )
+                and not _already_roasted_exempt
             ):
                 record_timeline(
                     ctx,

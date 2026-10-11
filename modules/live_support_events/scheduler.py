@@ -231,12 +231,17 @@ class SupportEventScheduler:
 
     @staticmethod
     def _light_aggregation_key(payload: dict[str, Any]) -> tuple[str, ...] | None:
-        if str(payload.get("event_type") or "").strip().lower() != "gift":
+        event_type = str(payload.get("event_type") or "").strip().lower()
+        room = str(payload.get("room_ref") or payload.get("room_id") or "").strip()
+        uid = str(payload.get("uid") or "").strip()
+        if event_type == "like":
+            if not room or not uid:
+                return None
+            return (room, uid, "like")
+        if event_type != "gift":
             return None
         if str(payload.get("provider_event_id") or "").strip():
             return None
-        room = str(payload.get("room_ref") or payload.get("room_id") or "").strip()
-        uid = str(payload.get("uid") or "").strip()
         gift_name = str(payload.get("gift_name") or "").strip()
         if not room or not uid or not gift_name:
             return None

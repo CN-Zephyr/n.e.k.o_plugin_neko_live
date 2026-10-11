@@ -69,6 +69,15 @@ class LiveConfig:
     dry_run: bool = False  # Run the full pipeline without pushing output to NEKO.
     roast_once_per_uid: bool = True
     viewer_memory_enabled: bool = True
+    audience_panel_enabled: bool = True
+    audience_digest_enabled: bool = False
+    entry_greet_enabled: bool = False
+    entry_roast_enabled: bool = False
+    like_greet_enabled: bool = False
+    follow_greet_enabled: bool = False
+    like_greet_min_count: int = 5
+    like_greet_cross_viewer: bool = False
+    viewer_context_limit: int = 6
     roast_strength: RoastStrength = "normal"
     activity_level: ActivityLevel = "standard"
     co_stream_host_pause_fill_activation: ActivationMode = "off"
@@ -134,6 +143,19 @@ class LiveConfig:
             roast_once_per_uid=_safe_bool(raw.get("roast_once_per_uid"), default=True),
             viewer_memory_enabled=_safe_bool(
                 raw.get("viewer_memory_enabled"), default=True
+            ),
+            audience_panel_enabled=_safe_bool(raw.get("audience_panel_enabled"), default=True),
+            audience_digest_enabled=_safe_bool(raw.get("audience_digest_enabled"), default=False),
+            entry_greet_enabled=_safe_bool(raw.get("entry_greet_enabled"), default=False),
+            entry_roast_enabled=_safe_bool(raw.get("entry_roast_enabled"), default=False),
+            like_greet_enabled=_safe_bool(raw.get("like_greet_enabled"), default=False),
+            follow_greet_enabled=_safe_bool(raw.get("follow_greet_enabled"), default=False),
+            like_greet_min_count=_safe_int(
+                raw.get("like_greet_min_count"), default=5, minimum=1, maximum=100
+            ),
+            like_greet_cross_viewer=_safe_bool(raw.get("like_greet_cross_viewer"), default=False),
+            viewer_context_limit=_safe_int(
+                raw.get("viewer_context_limit"), default=6, minimum=1, maximum=12
             ),
             roast_strength=roast_strength,  # type: ignore[arg-type]
             activity_level=activity_level,  # type: ignore[arg-type]
@@ -234,6 +256,19 @@ class LiveConfig:
             "roast_once_per_uid": public_bool(self.roast_once_per_uid, default=True),
             "viewer_memory_enabled": public_bool(
                 self.viewer_memory_enabled, default=True
+            ),
+            "audience_panel_enabled": public_bool(self.audience_panel_enabled, default=True),
+            "audience_digest_enabled": public_bool(self.audience_digest_enabled, default=False),
+            "entry_greet_enabled": public_bool(self.entry_greet_enabled, default=False),
+            "entry_roast_enabled": public_bool(self.entry_roast_enabled, default=False),
+            "like_greet_enabled": public_bool(self.like_greet_enabled, default=False),
+            "follow_greet_enabled": public_bool(self.follow_greet_enabled, default=False),
+            "like_greet_min_count": _safe_int(
+                self.like_greet_min_count, default=5, minimum=1, maximum=100
+            ),
+            "like_greet_cross_viewer": public_bool(self.like_greet_cross_viewer, default=False),
+            "viewer_context_limit": _safe_int(
+                self.viewer_context_limit, default=6, minimum=1, maximum=12
             ),
             "roast_strength": self.roast_strength if isinstance(self.roast_strength, str) and self.roast_strength in {"gentle", "normal", "sharp"} else "normal",
             "activity_level": self.activity_level if isinstance(self.activity_level, str) and self.activity_level in {"quiet", "standard", "active"} else "standard",

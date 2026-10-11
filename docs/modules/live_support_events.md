@@ -19,7 +19,7 @@ The provider ingest publishes a normalized `LiveEvent` to EventBus. `live_suppor
 
 Before delivery, eligible verified support events enter one session-scoped scheduler. The scheduler serializes support requests, orders only pending items by fixed priority, merges `COMBO_SEND` updates, and deduplicates provider deliveries by a validated `provider_event_id`. It never interrupts a request or TTS line that has already started. Co-stream additionally updates the bounded `live_events` passive snapshot, but every verified tier still uses the same bounded active scheduler and normal dispatcher path.
 
-`core/pipeline_routing.py` detects support event types before first-appearance or repeat-danmaku routing and selects `response_module_id="live_support_events"`.
+`core/pipeline_routing.py` detects support event types before first-appearance or repeat-danmaku routing and selects `response_module_id="live_support_events"`. That route bypasses the `already_roasted` viewer gate. A prior entrance roast, including a persisted `roast_count` when `roast_once_per_uid` is on, does not block gift, Super Chat, or guard thanks, and a successful thanks does not call `mark_roasted()`.
 
 `core/pipeline_requests.py` calls `ctx.live_support_events.build_request(event, identity, profile)`. The resulting request reuses recent context, viewer preference prompts, and live-event context, but sets `allow_avatar_image=False`.
 

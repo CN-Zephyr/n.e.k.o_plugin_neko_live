@@ -64,6 +64,10 @@ def begin_live_session(runtime: Any) -> int:
 
     runtime.live_events.reset()
     runtime.live_support_events.reset()
+    presence = getattr(runtime, "live_presence", None)
+    reset_presence = getattr(presence, "reset", None)
+    if callable(reset_presence):
+        reset_presence()
     runtime.pipeline.clear_dry_run_session_state()
 
     runtime._idle_hosting_last_attempt_at = 0.0
@@ -100,4 +104,8 @@ def invalidate_live_session(runtime: Any) -> int:
     runtime.live_audience_session.finish_session()
     runtime.live_events.reset()
     runtime.live_support_events.reset()
+    presence = getattr(runtime, "live_presence", None)
+    reset_presence = getattr(presence, "reset", None)
+    if callable(reset_presence):
+        reset_presence()
     return runtime._live_session_generation

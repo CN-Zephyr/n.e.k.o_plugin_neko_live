@@ -2014,8 +2014,8 @@ def test_viewer_session_context_keeps_same_uid_recent_danmaku(runtime: LiveRunti
     context = runtime.viewer_session_context("42")
 
     assert context == [
-        "danmaku_response: 那你继续说",
-        "avatar_roast: 第一次来",
+        "viewer: 那你继续说",
+        "viewer: 第一次来",
     ]
 
 
@@ -2127,7 +2127,7 @@ def test_viewer_session_context_includes_spent_neko_output(runtime: LiveRuntime)
 
     context = runtime.viewer_session_context("42", limit=1)
 
-    assert context == ["danmaku_response: same viewer line / NEKO already said: old avatar joke"]
+    assert context == ["viewer: same viewer line / NEKO already said: old avatar joke"]
 
 
 def test_recent_interaction_context_marks_spent_output_families(runtime: LiveRuntime) -> None:
@@ -2231,7 +2231,7 @@ def test_viewer_session_context_ignores_dry_run_placeholder_output(runtime: Live
 
     context = runtime.viewer_session_context("42", limit=1)
 
-    assert context == ["danmaku_response: same viewer line"]
+    assert context == ["viewer: same viewer line"]
     assert "NEKO already said" not in context[0]
 
 

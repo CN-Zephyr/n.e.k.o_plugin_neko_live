@@ -50,7 +50,7 @@ def sustained_charm_rules(*, kind: str = "reply") -> list[str]:
     return [
         *shared,
         "If the current danmaku clearly answers a recent tiny hook, acknowledge the answer first without repeating the old prompt.",
-        "Carry only a tiny emotional echo from recent host material; do not continue old wording or topic by default.",
+        "If this danmaku follows recent talk, answer the follow-up. Do not copy the previous NEKO sentence or host beat.",
     ]
 
 
@@ -96,7 +96,7 @@ def short_reply_rules(*, kind: str = "reply") -> list[str]:
 def anti_repeat_rules(*, kind: str = "reply") -> list[str]:
     rules = [
         "Before writing, compare against NEKO's recent live-output memory.",
-        "Do not reuse the same wording, opening, rhythm, punchline, or topic framing as the previous NEKO reply.",
+        "Do not reuse the same wording, opening, rhythm, punchline, or host-beat shape as the previous NEKO reply.",
         "Do not paraphrase the previous NEKO reply with different words.",
         "Do not revive an old reward bit, plan, game, audience prompt, or host beat unless the current event explicitly asks for it.",
         "If the natural draft sounds like the previous reply, change the angle and make it shorter.",

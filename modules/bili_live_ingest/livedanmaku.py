@@ -172,6 +172,8 @@ class LiveDanmaku:
 
     # 原始 JSON（调试用）
     extra_json: str = ""
+    # LIKE_INFO_V3_UPDATE.click_count，累计点赞仪表，不参与累加。
+    click_count: int = 0
 
     # ── 工厂方法 ─────────────────────────────────────────────
 
@@ -404,13 +406,31 @@ class LiveDanmaku:
         )
 
     @classmethod
+    def from_like_total(cls, data: dict) -> "LiveDanmaku":
+        """从 LIKE_INFO_V3_UPDATE 读取累计点赞。click_count 是绝对值，不要累加。"""
+        d = data.get("data", {})
+        try:
+            count = max(0, int(d.get("click_count", 0) or 0))
+        except (TypeError, ValueError):
+            count = 0
+        return cls(
+            msg_type=MessageType.MSG_EXTRA,
+            uid=0,
+            nickname="",
+            text="",
+            room_id=int(data.get("room_id", 0) or d.get("room_id", 0) or 0),
+            click_count=count,
+            extra_json=json.dumps({"click_count": count}, ensure_ascii=False),
+        )
+
+    @classmethod
     def from_online_rank(cls, data: dict) -> "LiveDanmaku":
         """从 ONLINE_RANK_V2 / ONLINE_RANK_TOP3 解析高能榜"""
         d = data.get("data", {})
         names = []
         if "list" in d:
             for item in d["list"][:3]:
-                names.append(str(item.get("name", "")))
+                names.append(str(item.get("uname") or item.get("name") or ""))
         elif "name" in d:
             names = [str(d.get("name", ""))]
         text = "高能榜: " + ", ".join(names) if names else "高能榜更新"
