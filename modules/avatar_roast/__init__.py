@@ -44,6 +44,16 @@ class AvatarRoastModule(BaseModule):
                 ],
             },
             {
+                # LOCAL PATCH (2026-10-11): 0.2.4 shipped no panel control or
+                # label for the platform-level entry_roast_enabled switch, so
+                # expose it here next to the other first-appearance controls.
+                "name": "entry_roast_enabled",
+                "type": "boolean",
+                "label": "panel.fields.entryRoast",
+                "hint": "panel.fields.entryRoastHint",
+                "default": False,
+            },
+            {
                 "name": "roast_once_per_uid",
                 "type": "boolean",
                 "label": "panel.fields.oncePerUid",

@@ -133,6 +133,15 @@ const configDefaults = {
   stream_goal: "",
   stream_columns: "",
   stream_avoid_topics: "",
+  entry_greet_enabled: false,
+  entry_roast_enabled: false,
+  follow_greet_enabled: false,
+  like_greet_enabled: false,
+  like_greet_min_count: 5,
+  like_greet_cross_viewer: false,
+  audience_panel_enabled: true,
+  audience_digest_enabled: false,
+  viewer_context_limit: 6,
 }
 
 const sandboxDefaults = {
@@ -1398,6 +1407,15 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
       warmup_hosting_enabled: config.warmup_hosting_enabled !== false,
       idle_hosting_enabled: config.idle_hosting_enabled !== false,
       active_engagement_enabled: config.active_engagement_enabled !== false,
+      entry_greet_enabled: !!config.entry_greet_enabled,
+      entry_roast_enabled: !!config.entry_roast_enabled,
+      follow_greet_enabled: !!config.follow_greet_enabled,
+      like_greet_enabled: !!config.like_greet_enabled,
+      like_greet_min_count: Number(config.like_greet_min_count ?? 5),
+      like_greet_cross_viewer: !!config.like_greet_cross_viewer,
+      audience_panel_enabled: config.audience_panel_enabled !== false,
+      audience_digest_enabled: !!config.audience_digest_enabled,
+      viewer_context_limit: Number(config.viewer_context_limit ?? 6),
       live_room_id: String(config.live_room_id || ""),
       twitch_client_id: String(config.twitch_client_id || ""),
       douyin_cookie: configForm.values.douyin_cookie || "",
@@ -3124,7 +3142,12 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
         </div>
         <Text>{t("panel.interaction.module.avatarRoast.desc")}</Text>
         {renderInteractionDisabledHint(!!configForm.values.avatar_roast_enabled, "panel.interaction.module.avatarRoast.disabledHint")}
-        {renderInteractionDetailsButton("avatar_roast")}
+        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "10px" }}>
+          {renderInteractionToggle(t("panel.interaction.module.entryGreet.title"), !!configForm.values.entry_greet_enabled, (v) => { applySettingsPatch({ entry_greet_enabled: v }) })}
+          <Text>{t("panel.interaction.module.entryGreet.desc")}</Text>
+          {renderInteractionDisabledHint(!!configForm.values.entry_greet_enabled, "panel.interaction.module.entryGreet.disabledHint")}
+          <Button tone="default" onClick={() => { setInteractionDialog("avatar_roast") }}>{t("panel.interaction.details")}</Button>
+        </div>
       </div>
     </Card>
   )
@@ -3140,6 +3163,25 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
         <Text>{t("panel.interaction.module.danmakuResponse.desc")}</Text>
         {renderInteractionDisabledHint(!!configForm.values.danmaku_response_enabled, "panel.interaction.module.danmakuResponse.disabledHint")}
         {renderInteractionDetailsButton("danmaku_response")}
+      </div>
+    </Card>
+  )
+
+  const liveSessionCounts: any = safeState.live_session || {}
+  const likeCountNow = Number(liveSessionCounts.like_count || 0)
+  const likeTotalNow = liveSessionCounts.like_total === null || liveSessionCounts.like_total === undefined ? "-" : String(liveSessionCounts.like_total)
+
+  const renderFollowLikeCard = () => (
+    <Card>
+      <div style={interactionCardBodyStyle}>
+        {renderInteractionToggle(t("panel.interaction.module.followLike.follow"), !!configForm.values.follow_greet_enabled, (v) => { applySettingsPatch({ follow_greet_enabled: v }) })}
+        {renderInteractionToggle(t("panel.interaction.module.followLike.like"), !!configForm.values.like_greet_enabled, (v) => { applySettingsPatch({ like_greet_enabled: v }) })}
+        {renderInteractionToggle(t("panel.interaction.module.followLike.crossViewer"), !!configForm.values.like_greet_cross_viewer, (v) => { applySettingsPatch({ like_greet_cross_viewer: v }) })}
+        <Field label={t("panel.interaction.module.followLike.likeMin")}>
+          <Input value={String(configForm.values.like_greet_min_count ?? 5)} onChange={(v) => { applySettingsPatch({ like_greet_min_count: Number(v) || 1 }) }} />
+        </Field>
+        <Text>{t("panel.interaction.module.followLike.likeCount")}: {likeCountNow} / {likeTotalNow}</Text>
+        <Text>{t("panel.interaction.module.followLike.desc")}</Text>
       </div>
     </Card>
   )
@@ -3319,6 +3361,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
       <div style={interactionCardGridStyle}>
         <ModuleRenderBoundary title={t("panel.interaction.module.avatarRoast.title")} render={() => renderAvatarRoastCard(interactionModuleById.avatar_roast)} t={t} />
         <ModuleRenderBoundary title={t("panel.interaction.module.danmakuResponse.title")} render={() => renderDanmakuResponseCard(interactionModuleById.danmaku_response)} t={t} />
+        <ModuleRenderBoundary title={t("panel.interaction.module.followLike.title")} render={renderFollowLikeCard} t={t} />
         <ModuleRenderBoundary title={t("panel.interaction.module.liveSupportEvents.title")} render={() => renderLiveSupportEventsCard(interactionModuleById.live_support_events)} t={t} />
       </div>
       {renderInteractionGroupHeader(t("panel.interaction.group.hosting"), t("panel.interaction.group.hostingHint"))}
