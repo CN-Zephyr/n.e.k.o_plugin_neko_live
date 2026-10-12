@@ -507,6 +507,23 @@ class ViewerStore:
         item = profiles.get(safe_uid)
         return bool(item and public_int(item.get("roast_count"), default=0, minimum=0) > 0)
 
+    async def search_profiles(self, query: str, *, limit: int = 30) -> list[dict[str, Any]]:
+        """Find profiles by nickname or UID across the whole store."""
+
+        needle = " ".join(str(query or "").split()).casefold()
+        if not needle:
+            return []
+        requested = max(1, min(30, int(limit)))
+        async with self._lock:
+            profiles, _readable = await self._load_profiles()
+        matched = {
+            uid: item
+            for uid, item in profiles.items()
+            if needle in str(item.get("nickname") or "").casefold()
+            or needle in str(uid or "").casefold()
+        }
+        return _recent_profile_projection(matched, requested)
+
     async def recent_profiles(self, limit: int = 30) -> list[dict[str, Any]]:
         requested = max(0, int(limit))
         if requested <= _RECENT_PROFILE_CACHE_LIMIT and self._recent_cache_matches_store():

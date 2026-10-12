@@ -1053,22 +1053,44 @@ function ViewerProfilesTable({
   locale,
   onResetImpression,
   onDeleteProfile,
+  onSearch,
 }: {
   t: PanelTranslator
   profiles: any[]
   locale?: string
   onResetImpression: (uid: string) => Promise<void>
   onDeleteProfile: (uid: string) => Promise<void>
+  onSearch?: (query: string) => Promise<any[]>
 }) {
   const [query, setQuery] = useState("")
   const [selectedProfile, setSelectedProfile] = useState<any>(null)
   const [pendingAction, setPendingAction] = useState<"reset" | "delete" | "">("")
   const [actionPending, setActionPending] = useState(false)
+  const [remoteProfiles, setRemoteProfiles] = useState<any[] | null>(null)
   const normalizedQuery = query.trim().toLowerCase()
   const filteredProfiles = profiles.filter((profile: any) => {
     if (!normalizedQuery) return true
     return String(profile?.nickname || "").toLowerCase().includes(normalizedQuery)
   })
+  const visibleProfiles = remoteProfiles ?? filteredProfiles
+
+  useEffect(() => {
+    if (!normalizedQuery || !onSearch) {
+      setRemoteProfiles(null)
+      return
+    }
+    let cancelled = false
+    onSearch(query.trim())
+      .then((rows) => {
+        if (!cancelled) setRemoteProfiles(Array.isArray(rows) ? rows : null)
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteProfiles(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [normalizedQuery, onSearch])
 
   return (
     <Stack>
@@ -1077,10 +1099,10 @@ function ViewerProfilesTable({
           <Field label={t("panel.audience.searchLabel")}>
             <Input value={query} placeholder={t("panel.audience.profileSearchPlaceholder")} onChange={setQuery} />
           </Field>
-          {filteredProfiles.length ? (
+          {visibleProfiles.length ? (
             <div style={{ overflowX: "auto" }}>
               <DataTable
-                data={filteredProfiles.map((item, index) => ({ ...item, id: item.uid || String(index) }))}
+                data={visibleProfiles.map((item, index) => ({ ...item, id: item.uid || String(index) }))}
                 rowKey="id"
                 columns={[
                   {
@@ -2157,6 +2179,14 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
     } finally {
       setSimpleActionPending("")
     }
+  }
+
+  async function searchViewerProfiles(query: string): Promise<any[]> {
+    const envelope = await props.api.call("search_viewer_profiles", { query })
+    const result = unwrapActionResult(envelope)
+    const rows = result.profiles
+    if (!Array.isArray(rows)) throw new Error("search failed")
+    return rows
   }
 
   async function runViewerProfileAction(action: string, uid: string): Promise<void> {
@@ -3566,6 +3596,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
               locale={props.locale}
               onResetImpression={(uid) => runViewerProfileAction("reset_viewer_impression", uid)}
               onDeleteProfile={(uid) => runViewerProfileAction("delete_viewer_profile", uid)}
+              onSearch={searchViewerProfiles}
             />
           ),
         },

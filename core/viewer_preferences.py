@@ -279,12 +279,28 @@ def viewer_fact_text(text: str) -> str:
     """Return one short thing the viewer actually said, or nothing for noise and secrets."""
 
     fact = safe_text(text, max_len=_FACT_MAX_LEN)
+    if _is_presence_boilerplate(fact):
+        return ""
     dense = "".join(
         ch for ch in fact.casefold() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff"
     )
     if len(dense) < 4 or _is_low_value_fact(dense):
         return ""
     return fact
+
+
+def _is_presence_boilerplate(text: str) -> bool:
+    """Entry, follow, and like lines are room events, not something the viewer said."""
+
+    stripped = str(text or "").strip().rstrip("。.!！…")
+    if not stripped:
+        return False
+    if stripped in {"来了", "刚进直播间", "关注了主播"}:
+        return True
+    if stripped.endswith(("进入直播间", "进入了直播间", "关注了主播", "刚进直播间")):
+        return True
+    dense = "".join(ch for ch in stripped if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
+    return dense.startswith("点赞了") and dense.endswith("次")
 
 
 def _is_low_value_fact(dense: str) -> bool:
@@ -318,6 +334,8 @@ def remember_viewer_lines(
 ) -> tuple[str, str]:
     """Keep the latest safe fact, and a few earlier facts, ahead of label templates."""
 
+    if _is_presence_boilerplate(danmaku):
+        return safe_text(existing_last, max_len=160), safe_text(existing_impression, max_len=180)
     fact = viewer_fact_text(danmaku)
     if not fact:
         last = existing_last if not is_template_memory(existing_last) else fallback_last

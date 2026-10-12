@@ -169,7 +169,8 @@ class LivePresenceModule(BaseModule):
             return
         if bool(getattr(config, "entry_roast_enabled", False)):
             payload["presence_action"] = "roast"
-            payload["danmaku_text"] = payload.get("danmaku_text") or "刚进直播间"
+            # 进场原文是「昵称 进入直播间」。留着它，锐评会把它当成当前弹幕先回答。
+            payload["danmaku_text"] = ""
             self._schedule(payload)
             return
         if bool(getattr(config, "entry_greet_enabled", False)):

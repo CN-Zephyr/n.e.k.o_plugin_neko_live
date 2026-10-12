@@ -59,6 +59,31 @@ _FORCE_LIVE_SCENE_SYNC_KEYS = frozenset(
 )
 
 
+def host_config_section(new_config: Any) -> dict[str, Any] | None:
+    """Return the live-config mapping from a host CONFIG_UPDATE payload."""
+
+    if not isinstance(new_config, dict) or not new_config:
+        return None
+    nested = new_config.get("neko_live")
+    if isinstance(nested, dict) and nested:
+        return nested
+    fields = set(LiveConfig.__dataclass_fields__)
+    picked = {key: value for key, value in new_config.items() if key in fields}
+    return picked or None
+
+
+async def apply_host_config(runtime: Any, new_config: Any) -> bool:
+    """Apply the config the host already merged, instead of re-reading disk."""
+
+    section = host_config_section(new_config)
+    if section is None:
+        return False
+    merged = runtime.config.to_dict()
+    merged.update(section)
+    await _commit_loaded_config(runtime, LiveConfig.from_mapping(merged))
+    return True
+
+
 async def reload_config(runtime: Any) -> LiveConfig:
     data: dict[str, Any] = {}
     try:
@@ -75,7 +100,10 @@ async def reload_config(runtime: Any) -> LiveConfig:
             f"config load failed: {type(exc).__name__}",
             level="warning",
         )
-    loaded = LiveConfig.from_mapping(data)
+    return await _commit_loaded_config(runtime, LiveConfig.from_mapping(data))
+
+
+async def _commit_loaded_config(runtime: Any, loaded: LiveConfig) -> LiveConfig:
     pending: dict[str, Any] | None = None
     async with get_config_lock(runtime):
         old_config = runtime.config

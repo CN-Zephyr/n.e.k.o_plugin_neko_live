@@ -17,6 +17,15 @@ export type LiveConfig = {
   roast_strength?: string
   roast_once_per_uid?: boolean
   viewer_memory_enabled?: boolean
+  audience_panel_enabled?: boolean
+  audience_digest_enabled?: boolean
+  entry_greet_enabled?: boolean
+  entry_roast_enabled?: boolean
+  follow_greet_enabled?: boolean
+  like_greet_enabled?: boolean
+  like_greet_min_count?: number
+  like_greet_cross_viewer?: boolean
+  viewer_context_limit?: number
   rate_limit_seconds?: number
   queue_limit?: number
   safety_auto_stop_enabled?: boolean
@@ -74,6 +83,15 @@ export const configDefaults = {
   roast_strength: "normal",
   roast_once_per_uid: true,
   viewer_memory_enabled: true,
+  audience_panel_enabled: true,
+  audience_digest_enabled: false,
+  entry_greet_enabled: false,
+  entry_roast_enabled: false,
+  follow_greet_enabled: false,
+  like_greet_enabled: false,
+  like_greet_min_count: 5,
+  like_greet_cross_viewer: false,
+  viewer_context_limit: 6,
   rate_limit_seconds: "20",
   queue_limit: "5",
   safety_auto_stop_enabled: true,

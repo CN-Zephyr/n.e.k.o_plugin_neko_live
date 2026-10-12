@@ -289,3 +289,40 @@ async def test_entry_greet_schedules_one_presence_payload():
     assert called[0]["presence_action"] == "greet"
     assert called[0]["danmaku_text"] == "来了"
     assert "support_verified" not in called[0]
+
+
+@pytest.mark.asyncio
+async def test_entry_roast_drops_synthetic_entry_text():
+    bus = EventBus(AuditStore())
+    module = LivePresenceModule()
+    called: list[dict] = []
+
+    async def handle_live_payload(payload: dict) -> None:
+        called.append(payload)
+
+    await module.setup(
+        SimpleNamespace(
+            event_bus=bus,
+            config=LiveConfig(entry_roast_enabled=True),
+            audit=None,
+            handle_live_payload=handle_live_payload,
+        )
+    )
+    bus.publish(
+        "entry",
+        LiveEvent(
+            type="entry",
+            uid="9",
+            payload={
+                "uid": "9",
+                "nickname": "小鱼",
+                "text": "小鱼 进入直播间",
+                "interact_kind": "entry",
+                "room_id": 1,
+            },
+        ),
+    )
+    await asyncio.sleep(0)
+
+    assert called[0]["presence_action"] == "roast"
+    assert called[0]["danmaku_text"] == ""

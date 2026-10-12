@@ -76,6 +76,10 @@ async def clear_viewer_profiles(runtime: Any) -> dict[str, Any]:
     return result
 
 
+async def search_viewer_profiles(runtime: Any, query: str) -> list[dict[str, Any]]:
+    return await runtime.viewer_store.search_profiles(query)
+
+
 async def delete_viewer_profile(runtime: Any, uid: str) -> dict[str, Any]:
     result = await runtime.viewer_store.delete_profile(uid)
     if not result.get("applied"):

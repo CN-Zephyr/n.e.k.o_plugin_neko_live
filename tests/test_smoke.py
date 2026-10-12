@@ -444,7 +444,10 @@ def test_interaction_panel_uses_stable_cards_and_detail_modals() -> None:
 
         assert 'const [interactionDialog, setInteractionDialog]' in source
         assert 'open={!!interactionDialog}' in interaction_source
-        assert interaction_source.count('renderInteractionDetailsButton("') == 6
+        assert interaction_source.count('renderInteractionDetailsButton("') == 5
+        assert 'setInteractionDialog("avatar_roast")' in interaction_source
+        assert "entry_greet_enabled" in interaction_source
+        assert "follow_greet_enabled" in interaction_source
         assert 'minHeight: "190px"' in source
         assert 'minHeight: "22px"' in source
         assert 'fontSize: "12px"' in source

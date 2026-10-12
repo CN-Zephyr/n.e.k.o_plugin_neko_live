@@ -399,6 +399,32 @@ async def test_viewer_memory_keeps_concrete_facts_across_restart(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_entry_lines_are_not_stored_as_viewer_facts(tmp_path):
+    store = ViewerStore(_FakePlugin(tmp_path), audit=None)
+    identity = ViewerIdentity(uid="11", nickname="茶杯里的鸟")
+
+    await store.record_live_danmaku(identity, "我身高一米六，今晚在写作业")
+    await store.record_live_danmaku(identity, "茶杯里的鸟 进入直播间")
+    await store.record_live_danmaku(identity, "点赞了 6 次")
+
+    profile = (await store.recent_profiles())[0]
+    assert "一米六" in profile["impression_summary"]
+    assert "进入直播间" not in profile["impression_summary"]
+    assert "点赞了" not in profile["impression_summary"]
+
+
+@pytest.mark.asyncio
+async def test_search_profiles_finds_viewers_outside_the_recent_page(tmp_path):
+    store = ViewerStore(_FakePlugin(tmp_path), audit=None)
+    await store.record_live_danmaku(ViewerIdentity(uid="1", nickname="新观众"), "今天来听歌")
+    await store.record_live_danmaku(ViewerIdentity(uid="2", nickname="老观众阿茶"), "我喜欢洛天依")
+
+    found = await store.search_profiles("阿茶")
+
+    assert [item["uid"] for item in found] == ["2"]
+
+
+@pytest.mark.asyncio
 async def test_recent_profiles_include_derived_viewer_profile_guidance(tmp_path):
     store = ViewerStore(_FakePlugin(tmp_path), audit=None)
     identity = ViewerIdentity(uid="1001", nickname="技术姥爷")

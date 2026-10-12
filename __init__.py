@@ -88,11 +88,15 @@ class NekoLivePlugin(NekoPluginBase):
             self.runtime._start_idle_hosting_loop()
 
     @lifecycle(id="config_change")
-    async def on_config_change(self, **_):
+    async def on_config_change(self, new_config=None, **_):
         if self.runtime is None:
             return Ok({"status": "ready", "runtime": "pending"})
         runtime = self.runtime
-        await runtime.reload_config()
+        from .core.runtime_config import apply_host_config
+
+        applied = await apply_host_config(runtime, new_config)
+        if not applied:
+            await runtime.reload_config()
         self._sync_developer_entries()
         await runtime.sync_live_instructions()
         await runtime.sync_developer_mode(announce=False)
@@ -681,6 +685,27 @@ class NekoLivePlugin(NekoPluginBase):
             return Ok({"cleared": await runtime.clear_viewer_profiles()})
         except OSError as exc:
             return Err(SdkError(str(exc)))
+
+    @plugin_entry(
+        id="search_viewer_profiles",
+        name=tr("entries.search_viewer_profiles.name", default="按昵称搜索观众档案"),
+        description=tr(
+            "entries.search_viewer_profiles.description",
+            default="在全部观众档案里按昵称或 UID 查找，不限于最近一页。",
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    )
+    async def search_viewer_profiles(self, query="", **_):
+        runtime = self._runtime()
+        try:
+            profiles = await runtime.search_viewer_profiles(query)
+        except OSError as exc:
+            return Err(SdkError(str(exc)))
+        return Ok({"profiles": profiles})
 
     @plugin_entry(
         id="delete_viewer_profile",
