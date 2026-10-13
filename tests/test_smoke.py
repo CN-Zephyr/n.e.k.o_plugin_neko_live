@@ -29,6 +29,8 @@ def test_neko_live_manifest_smoke():
     assert manifest["neko_live"]["live_room_id"] == 0
     assert manifest["neko_live"]["live_mode"] == "co_stream"
     panel_entry = manifest["plugin"]["ui"]["panel"][0]["entry"]
+    assert manifest["plugin"]["ui"]["expose_legacy_static_panel"] is False
+    assert not (root / "static" / "index.html").exists()
     assert panel_entry == "ui/panel_compat.tsx"
     assert (root / panel_entry).is_file()
     assert (root / "ui" / "panel.tsx").is_file()
