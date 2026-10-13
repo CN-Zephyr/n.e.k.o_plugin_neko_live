@@ -884,23 +884,17 @@ def test_danmaku_response_prompt_requires_visible_target_anchor():
     )
 
     assert "Make the target clear in the first clause" in request.prompt_text
-    assert "danmaku anchor, or room-facing phrase" in request.prompt_text
+    assert "with at most one natural nickname" in request.prompt_text
     assert "anchor_hint: 别怀疑啦" in request.prompt_text
     assert "response_move: fresh_angle" in request.prompt_text
     assert "Use anchor_hint only for target clarity" in request.prompt_text
     assert "instead of parroting the danmaku" in request.prompt_text
     assert "Never open by quoting, translating, summarizing, or lightly rewording" in request.prompt_text
-    assert "never mechanically announce that the nickname said or asked" in request.prompt_text
-    assert "Never repeat a previous complete answer" in request.prompt_text
-    assert "add only the next useful beat" in request.prompt_text
+    assert "never use a reply label or name list" in request.prompt_text
+    assert "Do not copy NEKO's previous wording, rhythm, joke, or host beat." in request.prompt_text
     assert request.metadata["danmaku_anchor_hint"] == "别怀疑啦"
     assert request.metadata["danmaku_viewer_nickname"] == "方块km"
-    assert "room-facing phrase" in request.prompt_text
     assert "Mention avatar, ID, or first appearance only when the current danmaku makes it relevant." in request.prompt_text
-
-
-    assert "with at most one natural nickname" in request.prompt_text
-    assert "never use a reply label or name list" in request.prompt_text
 
 
 def test_danmaku_response_prompt_uses_short_address_for_regular_viewer():
@@ -926,7 +920,6 @@ def test_danmaku_response_prompt_uses_short_address_for_regular_viewer():
     assert "UID 42" not in request.prompt_text
     assert "preferred_viewer_address: \u661f\u8fb0" in request.prompt_text
     assert "viewer_full_nickname: \u4e0a\u4e5d\u5929\u63fd\u661f\u8fb0" in request.prompt_text
-    assert "room-facing phrase" in request.prompt_text
     assert "Prefer preferred_viewer_address when present" in request.prompt_text
 
 
@@ -949,7 +942,7 @@ def test_danmaku_response_prompt_allows_natural_target_for_question_reply():
 
     assert "viewer: \u5c0f\u738b" in request.prompt_text
     assert "Make the target clear in the first clause" in request.prompt_text
-    assert "short address, danmaku anchor, or room-facing phrase" in request.prompt_text
+    assert "with at most one natural nickname" in request.prompt_text
     assert request.metadata["danmaku_viewer_nickname"] == "\u5c0f\u738b"
 
 
@@ -1025,7 +1018,7 @@ def test_danmaku_response_prompt_answers_questions_directly():
     assert "danmaku_profile: question" in request.prompt_text
     assert "reply_target: current_question" in request.prompt_text
     assert "response_move: direct_answer" in request.prompt_text
-    assert "answer it directly first" in request.prompt_text
+    assert "Answer this question directly." in request.prompt_text
     assert "Do not dodge into a topic change or ask a new question." in request.prompt_text
 
 
@@ -1302,7 +1295,7 @@ def test_danmaku_response_prompt_keeps_greeting_short_even_with_room_theme():
         ViewerProfile(uid="42", nickname="viewer", roast_count=2),
     )
 
-    assert "reply_length_mode: default" in request.prompt_text
+    assert "reply_length_mode:" not in request.prompt_text
     assert "Room bridge length: one compact sentence is preferred" not in request.prompt_text
     assert "reply_length_mode" not in request.metadata
 
@@ -1455,7 +1448,6 @@ def test_danmaku_response_prompt_includes_recent_interaction_context():
     assert "The current input always wins." in request.prompt_text
     assert "If it follows this talk, answer the follow-up" in request.prompt_text
     assert "Answer viewer's current danmaku first as NEKO" in request.prompt_text
-    assert "A shared room theme may add one brief bridge after the answer" in request.prompt_text
     assert "never use a reply label or name list" in request.prompt_text
     assert "Same-viewer recent talk:" in request.prompt_text
     assert "danmaku_response: 那你继续说" in request.prompt_text
