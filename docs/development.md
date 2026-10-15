@@ -94,6 +94,7 @@
 | `core/live_output_shape.py` | 最终短句裁剪、未完成二选一修剪、质量兜底应用和 shape metadata | 不维护禁止词表，不读取 recent-output 记忆 |
 | `core/live_output_memory.py` | recent NEKO Live 输出负例整理、recent reply avoidance 渲染 | 不判断输出质量，不修改 reply metadata |
 | `core/live_output_contract_prompt.py` | 输出合约 prompt 渲染、route note、callback metadata 合并 | 不裁剪最终文本，不直接调用 dispatcher |
+| `core/prompt_delivery.py` | 单条 callback 预算装配、必要规则保留、相关上下文筛选和保守分词降级；详见[提示词投送与预算](modules/prompt_delivery.md) | 不维护跨轮规则计数，不决定是否开口或目标角色，不调用模型 / 网络 / store，不记录原始提示词 |
 | `core/meme_knowledge.py` / `data/meme_knowledge.json` | 插件内热梗知识库、离线检索、可选 prompt 提示和 `meme_hint_*` metadata 来源；第一版由维护者直接编辑 JSON 条目 | 不联网抓取，不替代当前弹幕语义，不强制猫猫用梗，不进入宿主核心 |
 | `core/recent_context.py` | recent prompt 上下文构造、同观众 session 上下文、上下文行渲染与压缩 | 不判定 route，不维护 spent-output family 词表，不决定是否开口 |
 | `core/recent_context_routes.py` | recent result route 归一化、gift / SC / Guard signal route 识别 | 不渲染 prompt 上下文，不读取 runtime 状态，不生成输出 |
@@ -1078,7 +1079,7 @@ Live Feel Pack v1.10 把这条规则沉淀为插件侧复盘口径：即使模�
 
 Live Feel Pack v1.12 把 audience-prompt 复读作为单独的高风险主持套路处理。连续输出里如果都在召唤观众“想听 / 想看 / 聊点 / 发言 / 发弹幕 / 接话 / 来一句 / 扣 1 / 吱一声 / 冒个泡 / 给点反应 / 还在吗 / 有人吗 / 在不在 / 打个分”，即使句子不相似，也应视为 `audience_prompt` family 的换皮复读，并进入插件侧复盘。`pushed` 后交给宿主的文本中出现这些表达时，也会被 `_spent_output_families()` 标成 `audience_prompt`，进入 `recent_interaction_context()`、`spent_output_family`、素材选择避让和 monitor 复盘口径；该记账仍不等于播放完成证据。普通“弹幕”一词本身不能单独作为强复读信号，避免把正常接弹幕误判成模板营业；需要命中更明确的观众召唤动作。
 
-NEKO 输出由 `adapters/neko_dispatcher.py` 中的 `NekoDispatcher.push_roast()` 统一负责，pipeline 通过 `self.ctx.dispatcher.push_roast(request)` 进入。`push_roast()` 直接使用 `request.prompt_text` 作为文本 part；只有 `request.allow_avatar_image=True` 时才会按可见性附加头像 image part（压缩后超预算则省略并在文本里说明降级），不再自行拼装字段；然后调用：
+NEKO 输出由 `adapters/neko_dispatcher.py` 中的 `NekoDispatcher.push_roast()` 统一负责，pipeline 通过 `self.ctx.dispatcher.push_roast(request)` 进入。`push_roast()` 以模块构造的 `request.prompt_text` 为正文，补齐投送边界和输出合约后，经 [`core/prompt_delivery.py`](modules/prompt_delivery.md) 收束为文本 part；只有 `request.allow_avatar_image=True` 时才会按可见性附加头像 image part（压缩后超预算则省略并在文本里说明降级），不重建模块的锐评请求；通过预算检查后调用：
 
 ```python
 plugin.push_message(

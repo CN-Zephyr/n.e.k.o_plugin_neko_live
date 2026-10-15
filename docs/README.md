@@ -34,6 +34,7 @@
 ## 模块文档
 
 - [live_events](modules/live_events.md)：直播事件窗口择优、冷却期候选选择、弹幕低质过滤、主题凝练、回复技巧提示和运行期观众偏好提示。
+- [提示词投送与预算](modules/prompt_delivery.md)：每条提示词的必要规则、可选上下文收束、分词降级、提交结果检查和预算失败边界。
 - [live_room_context](modules/live_room_context.md)：在 `live_events` 既有有界窗口上实现 RoomPulse、独播 SceneState、同播被动上下文、RitualMemory 与 RoomVerdict，并记录可靠 host-turn / playback backflow 的后续边界。
 - [live_support_events](modules/live_support_events.md)：Gift / SC / Guard 的可信证据、有界优先调度、原子派发所有权、短句致谢和“提交不等于播放完成”边界。
 - [douyin_live_ingest](modules/douyin_live_ingest.md)：抖音只读 live provider、公开投影脱敏、内置托管 douyinLive bridge、事件归一化、bridge-only 可替换后端边界，以及未纳入 v1 的自动登录/签名边界。
@@ -60,6 +61,7 @@
 | 新贡献者分支 / PR 起步、任务选择和交付检查 | `contributing.md` | 完整协作规则仍以 `development.md` / `AGENTS.md` 为准 |
 | 架构边界、模块边界、数据边界 | `development.md` | roadmap / guide 只写摘要并链接 |
 | 运行态观测语言、Skip Reason、Monitor Signal | `runtime-observability.md` | development / AGENTS 只写入口和必查项 |
+| 单条提示词预算、规则保留、分词降级和投送成本决策 | `modules/prompt_delivery.md` | development 只保留模块边界与入口；运行态 reason 仍以 runtime-observability 为准 |
 | 协作规范、PR 规则、测试门禁、文档要求 | `development.md` | `AGENTS.md` 保留可执行硬规则摘要 |
 | Agent 硬规则和 Reviewer Checklist | `../AGENTS.md` | `development.md` 解释背景和理由 |
 | UI 架构、模块 UI 贡献、Hosted UI 限制、`panel_compat.tsx` 兼容入口策略 | `ui-architecture.md` | `development.md` 只保留测试门禁和短约束 |
@@ -73,6 +75,7 @@
 - 改 Independent Mode 产品路线、当前阶段开发分工、MVP、非目标或内测节奏：更新 `independent-mode-product-plan.md`。
 - 改模块边界、pipeline、数据边界、协作规范、测试门禁：更新 `development.md`。
 - 改 Runtime Timeline、Stage、Event Outcome、Skip Reason、Monitor Signal 或 Dashboard Visibility：更新 `runtime-observability.md`。
+- 改单条提示词预算、必要规则保留或分词降级：更新 `modules/prompt_delivery.md`；新增运行态 reason 同步更新 `runtime-observability.md`。
 - 改新开发者入口或第一周路径：更新 `developer-guide.md`。
 - 改新贡献者的分支 / PR 起步、任务选择或交付检查短路径：更新 `contributing.md`；规则本身仍更新 `development.md` / `AGENTS.md`。
 - 改阶段目标、完成状态、下一阶段顺序：更新 `live-center-roadmap.md`。

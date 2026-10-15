@@ -212,6 +212,7 @@ Initial skip reasons:
 - `pipeline.request_failed`
 - `dispatcher.dry_run`
 - `dispatcher.non_deliverable`
+- `dispatcher.prompt_budget_exceeded`
 - `dispatcher.push_failed`
 - `profile.mark_roasted_failed`
 - `config.persist_timeout`
@@ -265,6 +266,17 @@ Initial dispatcher outcomes:
 - `pushed`: Dispatcher handed a real output request to the host through the approved output boundary. It does not assert that the host spoke it.
 - `skipped`: Dispatcher intentionally produced no output for a known policy reason.
 - `failed`: Dispatcher attempted the output boundary and hit an unexpected error.
+
+`dispatcher.prompt_budget_exceeded` is an intentional `skipped` result: the required
+prompt blocks cannot fit the callback budget, so Dispatcher never calls
+`plugin.push_message()`. It must not count as `pushed` or expose the rejected prompt.
+Prompt assembly, fallback accounting, and required-block ownership are defined in
+[Prompt Delivery](modules/prompt_delivery.md).
+
+Explicit `submitted=False` or `ok=False` results from synchronous or asynchronous
+`push_message()` calls use the existing `failed` / `dispatcher.push_failed` path;
+they must not be reported as successful `queued` submissions. Legacy `None` returns
+remain compatible and provide no playback confirmation.
 
 In co-stream, the request may additionally declare forward-compatible delivery metadata
 (`delivery_ttl_seconds`, `interrupt_policy=drop`). These are declarations, not outcomes.

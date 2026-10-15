@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
+import inspect
 import io
 import os
 from types import SimpleNamespace
@@ -12,6 +12,10 @@ from ..core.contracts import InteractionRequest
 from ..core.contracts_public import public_text
 from ..core.live_output_contract_prompt import render_contract_instruction
 from ..core.live_output_quality import UNVERIFIED_SUPPORT_CLAIM_FALLBACK_REPLIES, choose_fallback_reply
+from ..core.prompt_delivery import (
+    PromptBudgetExceeded,
+    prepare_live_delivery_text,
+)
 from ..core.recent_output_families import spent_output_text
 from .output_contract_bridge import (
     max_reply_chars_for_request,
@@ -25,6 +29,21 @@ _NEKO_LIVE_HOSTING_SOURCES = {"warmup_hosting", "idle_hosting", "active_engageme
 _NEKO_LIVE_LIVE_SOURCES = _NEKO_LIVE_AUDIENCE_SOURCES | _NEKO_LIVE_HOSTING_SOURCES | {
     "live_support_events",
 }
+
+
+async def _await_push_submission(result: Any) -> None:
+    """Reject explicit SDK failures; accepted submission is not playback proof."""
+
+    if inspect.isawaitable(result):
+        result = await result
+    # Older hosts return None. Newer hosts can reject synchronously or via
+    # an awaitable; never turn that explicit rejection into a queued result.
+    if isinstance(result, dict) and (
+        result.get("submitted") is False or result.get("ok") is False
+    ):
+        # SDK error details may contain raw payloads. Keep the pipeline's
+        # exception/audit boundary independent of that untrusted content.
+        raise RuntimeError("dispatcher.submission_rejected")
 
 
 def _normalize_avatar_for_neko_vision(data: bytes, mime: str) -> tuple[bytes, str]:
@@ -197,7 +216,7 @@ def _append_plugin_output_contract(
     metadata: dict[str, Any],
     plugin: Any,
 ) -> str:
-    if "NEKO Live short output contract:" in text:
+    if any(line.startswith("NEKO Live short output contract:") for line in text.splitlines()):
         return text
     contract = render_contract_instruction(
         [{"metadata": metadata}],
@@ -282,7 +301,7 @@ def _prepend_live_audience_speaker_lock(
 def _prepend_danmaku_visible_target_lock(text: str, metadata: dict[str, Any], request: InteractionRequest) -> str:
     if response_module_hint(request) != "danmaku_response":
         return text
-    if "NEKO Live visible reply target:" in text:
+    if any(line.startswith("NEKO Live visible reply target:") for line in text.splitlines()):
         return text
     profile = str(metadata.get("danmaku_profile") or "").strip()
     if profile != "target_roast_request":
@@ -405,6 +424,7 @@ class NekoDispatcher:
         context_type: str,
         expired: bool = False,
     ) -> str:
+        text = prepare_live_delivery_text(text, kind="context")
         target_lanlan = (
             self.live_target_lanlan()
             if context_type == "live_scene"
@@ -432,8 +452,7 @@ class NekoDispatcher:
             coalesce_key=f"neko_live:{context_type}:{target_key}",
             target_lanlan=target_lanlan or None,
         )
-        if asyncio.iscoroutine(result):
-            await result
+        await _await_push_submission(result)
         return f"{result_name}(target={target_lanlan or 'default'})"
 
     async def push_context_instructions(self, text: str) -> str:
@@ -488,6 +507,7 @@ class NekoDispatcher:
         the next snapshot.
         """
 
+        text = prepare_live_delivery_text(text, kind="context")
         target_lanlan = (
             self.live_target_lanlan()
             if target_lanlan is None
@@ -518,14 +538,14 @@ class NekoDispatcher:
             coalesce_key=coalesce_key,
             target_lanlan=target_lanlan or None,
         )
-        if asyncio.iscoroutine(result):
-            await result
+        await _await_push_submission(result)
         return (
             f"ambient_context_submitted(target={target_lanlan or 'default'}, "
             f"expired={str(bool(expired)).lower()}, confirmed=false)"
         )
 
     async def push_developer_announcement(self, text: str) -> str:
+        text = prepare_live_delivery_text(text, kind="speech")
         target_lanlan = resolve_plugin_target_lanlan(self.plugin)
         metadata = {"plugin": "neko_live", "developer_mode": True}
         if target_lanlan:
@@ -539,8 +559,7 @@ class NekoDispatcher:
             priority=6,
             target_lanlan=target_lanlan or None,
         )
-        if asyncio.iscoroutine(result):
-            await result
+        await _await_push_submission(result)
         return f"developer_mode_announced(target={target_lanlan or 'default'})"
 
     async def push_roast(self, request: InteractionRequest) -> str:
@@ -614,10 +633,16 @@ class NekoDispatcher:
             metadata,
             request,
         )
-        parts[0]["text"] = _prepend_live_delivery_boundary(
+        prepared = _prepend_live_delivery_boundary(
             str(parts[0].get("text") or ""),
             request,
         )
+        try:
+            parts[0]["text"] = prepare_live_delivery_text(prepared, kind="speech")
+        except PromptBudgetExceeded:
+            request.should_push = False
+            request.reason = "dispatcher.prompt_budget_exceeded"
+            return f"skipped_to_neko(reason={request.reason})"
         ai_behavior = "respond"
         coalesce_key = _coalesce_key_for_request(request, demo=is_demo_event)
         result = self.plugin.push_message(
@@ -630,8 +655,7 @@ class NekoDispatcher:
             metadata=metadata,
             target_lanlan=target_lanlan or None,
         )
-        if asyncio.iscoroutine(result):
-            await result
+        await _await_push_submission(result)
         return (
             f"queued_to_neko(target={target_lanlan}, ai_behavior=respond, "
             f"visibility=none, image_part_bytes={image_part_bytes})"
