@@ -35,7 +35,7 @@ class ActiveTopicSelector(ActiveTopicCompatibilityMixin):
         fallback = fallback_candidates[0]
         shape = self.next_shape()
         chosen = fallback
-        exhausted_cached_topics = not bool(candidates)
+        exhausted_cached_topics = False
         candidate = active_topic_candidate_picker.choose_fresh_candidate(
             self, candidates
         )

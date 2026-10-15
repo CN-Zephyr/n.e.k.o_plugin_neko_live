@@ -678,6 +678,7 @@ class NekoLivePlugin(NekoPluginBase):
             return Err(SdkError("developer mode is disabled"))
         return Ok({"cleared": runtime.clear_sandbox_data()})
 
+    @ui.action(id="clear_viewer_profiles", label=tr("entries.clear_viewer_profiles.name"), group="audience", refresh_context=True)
     @plugin_entry(id="clear_viewer_profiles", name=tr("entries.clear_viewer_profiles.name", default="清空观众档案"), description=tr("entries.clear_viewer_profiles.description", default="清空观众档案，用于下一场受控直播测试前重置首评状态。"))
     async def clear_viewer_profiles(self, **_):
         runtime = self._runtime()
@@ -686,6 +687,7 @@ class NekoLivePlugin(NekoPluginBase):
         except OSError as exc:
             return Err(SdkError(str(exc)))
 
+    @ui.action(id="search_viewer_profiles", label=tr("entries.search_viewer_profiles.name"), group="audience", refresh_context=True)
     @plugin_entry(
         id="search_viewer_profiles",
         name=tr("entries.search_viewer_profiles.name", default="按昵称搜索观众档案"),
@@ -707,6 +709,7 @@ class NekoLivePlugin(NekoPluginBase):
             return Err(SdkError(str(exc)))
         return Ok({"profiles": profiles})
 
+    @ui.action(id="delete_viewer_profile", label=tr("entries.delete_viewer_profile.name"), group="audience", refresh_context=True)
     @plugin_entry(
         id="delete_viewer_profile",
         name=tr("entries.delete_viewer_profile.name", default="Delete viewer profile"),
@@ -724,6 +727,7 @@ class NekoLivePlugin(NekoPluginBase):
         except (OSError, ValueError) as exc:
             return Err(SdkError(str(exc)))
 
+    @ui.action(id="reset_viewer_impression", label=tr("entries.reset_viewer_impression.name"), group="audience", refresh_context=True)
     @plugin_entry(
         id="reset_viewer_impression",
         name=tr("entries.reset_viewer_impression.name", default="Reset viewer impression"),

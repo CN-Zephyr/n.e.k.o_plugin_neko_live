@@ -243,7 +243,7 @@ def _bili_auth_for_credential(credential: object) -> BiliAuthService:
 
 
 @pytest.mark.asyncio
-async def test_bili_credential_normal_profile_success_does_not_add_validity_request(
+async def test_bili_credential_normal_profile_success_requires_validity_request(
     monkeypatch: pytest.MonkeyPatch,
 ):
     from bilibili_api import user as bili_user_module
@@ -264,7 +264,7 @@ async def test_bili_credential_normal_profile_success_does_not_add_validity_requ
 
     assert result["logged_in"] is True
     assert result["username"] == "alice"
-    assert credential.validity_checks == 0
+    assert credential.validity_checks == 1
 
 
 @pytest.mark.asyncio
@@ -319,9 +319,22 @@ async def test_bili_credential_profile_failure_rejects_invalid_credential(
 
     assert result == {
         "logged_in": False,
-        "message": "credential may be invalid; please login again",
+        "message": "credential could not be verified; please login again",
     }
     assert credential.validity_checks == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing_checker", [False, True])
+async def test_public_profile_success_cannot_verify_invalid_or_uncheckable_cookie(missing_checker, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    credential = SimpleNamespace(sessdata="present", dedeuserid="42") if missing_checker else _CredentialCheckStub(valid=False)
+    service = _bili_auth_for_credential(credential)
+    profile = AsyncMock(return_value={"name": "public profile"})
+    monkeypatch.setattr(service, "_fetch_user_info", profile)
+    assert (await service.check_credential())["logged_in"] is False
+    profile.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -562,7 +575,7 @@ async def test_bili_credential_hanging_profile_falls_back_to_validity(
 
 
 @pytest.mark.asyncio
-async def test_bili_credential_validity_timeout_keeps_local_sessdata(
+async def test_bili_credential_validity_timeout_rejects_unverified_sessdata(
     monkeypatch: pytest.MonkeyPatch,
 ):
     from bilibili_api import user as bili_user_module
@@ -587,13 +600,12 @@ async def test_bili_credential_validity_timeout_keeps_local_sessdata(
     result = await _bili_auth_for_credential(credential).check_credential()
     elapsed = time.monotonic() - started
 
-    assert result["logged_in"] is True
-    assert result["uid"] == "42"
+    assert result["logged_in"] is False
     assert elapsed < 1.0
 
 
 @pytest.mark.asyncio
-async def test_bili_login_timeout_keeps_existing_sessdata(
+async def test_bili_login_timeout_does_not_claim_existing_sessdata_valid(
     monkeypatch: pytest.MonkeyPatch,
 ):
     from bilibili_api import user as bili_user_module
@@ -621,9 +633,9 @@ async def test_bili_login_timeout_keeps_existing_sessdata(
     result = await service.login()
     elapsed = time.monotonic() - started
 
-    assert result["status"] == "already_logged_in"
+    assert result["status"] == "qrcode_ready"
     assert elapsed < 1.0
-    assert service._login_session is None
+    assert service._login_session is not None
     class Audit:
         def __init__(self):
             self.records = []

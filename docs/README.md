@@ -12,6 +12,8 @@
 
 ## 开发文档
 
+- [v0.2.7 发布说明](releases/v0.2.7.md)：本版本修复、升级数据边界和验证记录；不替代模块契约。
+
 - [开发者指南（从这里开始）](developer-guide.md)：新开发者入口。负责心智模型、最短阅读路径、第一周建议和常见入口导航。
 - [开发文档](development.md)：长期开发规范和架构契约的权威来源。负责模块边界、pipeline、数据边界、测试门禁、协作规范和文档更新要求。
 - [Independent Mode Product Plan](independent-mode-product-plan.md)：Independent Mode 的产品路线权威来源。负责产品命题、当前阶段开发分工、Slice 顺序、MVP、非目标和内测节奏。

@@ -122,7 +122,7 @@ LIVE + 多模块 + 多人写 ⇒ **任何单个模块失败都不能搞砸直播
 - 控制台是主播唯一必须使用的直播操作面：账号与平台、直播间二次确认、状态、节奏设置和底部“开始 / 结束直播”都在这里完成。普通设置与运行诊断不得重新塞回控制台。
 - 功能卡由模块 `config_schema()` **声明式驱动**（boolean→Toggle / select→pill / text|string→Input），改即存；没有真实消费者的数值字段与条件显示不属于当前契约。
 - 宿主 runtime 约束（写 UI 前必读）：`data:` URL 会被剥（用 CSS `background-image` 绕）、**SVG 渲不了**、
-  无 `useRef`。详见 `ui-architecture.md` §6。
+  已提供 `useRef`，异步回调可通过 ref 保持最新值而不触发 effect 循环。详见 `ui-architecture.md` §6。
 - manifest 使用 `ui/panel_compat.tsx`，它必须从模块化源码生成并保留完整面板能力；不要用最小 fallback 壳替代。兼容入口允许 `@neko/plugin-ui` import / hooks，但不得有相对 import、`window.NekoUiKit` 或 `__modules`。
 - **新增 UI 文案必须同步 8 个 locale 文件。**
 

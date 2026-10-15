@@ -1,0 +1,23 @@
+name: Hosted panel
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  panel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+      - uses: actions/checkout@v4
+        with:
+          repository: Project-N-E-K-O/N.E.K.O
+          path: host
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: host/frontend/plugin-manager/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: host/frontend/plugin-manager
+      - run: node plugin/tools/check_panel.mjs host

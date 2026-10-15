@@ -394,7 +394,7 @@
   "panel.settings.viewerMemoryLabel": "Personalized viewer memory",
   "panel.settings.viewerMemoryEnabledHint": "NEKO uses safely derived interests and interaction preferences to respond more naturally to returning viewers.",
   "panel.settings.viewerMemoryDisabledHint": "Personalized impressions are no longer collected or used. Same-session first-roast deduplication still works.",
-  "panel.settings.viewerMemoryRetentionHint": "Profiles are removed 90 days after the last interaction. Raw chat messages are not stored.",
+  "panel.settings.viewerMemoryRetentionHint": "Local profiles expire after 90 inactive days. When enabled, selected viewer speech is retained and sent to host memory. Disabling stops new learning. Clearing local profiles does not delete host memory.",
   "panel.settings.localStorageLabel": "Viewer profiles",
   "panel.settings.localStorageHint": "Stored only on this device. Raw messages, cookies, and account credentials are not uploaded.",
   "panel.settings.storageReady": "Storage ready",

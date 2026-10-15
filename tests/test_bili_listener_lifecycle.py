@@ -7,6 +7,7 @@ import urllib.request
 from collections import deque
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from plugin.plugins.neko_live.core.contracts import LiveRoomStatus
@@ -74,7 +75,7 @@ class _FakeListener:
 
 def _module() -> BiliLiveIngestModule:
     module = BiliLiveIngestModule()
-    module.ctx = SimpleNamespace(audit=_Audit(), bili_credential=object())
+    module.ctx = SimpleNamespace(audit=_Audit(), bili_credential=SimpleNamespace(check_valid=AsyncMock(return_value=True)))
     module._listener_ready_timeout = 1.0
     return module
 
@@ -92,6 +93,7 @@ def _logged_in_module() -> BiliLiveIngestModule:
     module.ctx = SimpleNamespace(
         audit=_Audit(),
         bili_credential=SimpleNamespace(
+            check_valid=AsyncMock(return_value=True),
             sessdata="sess",
             bili_jct="jct",
             dedeuserid="42",
@@ -248,7 +250,7 @@ def _fake_listener(monkeypatch: pytest.MonkeyPatch):
 async def test_start_returns_only_after_auth_ready() -> None:
     module = _module()
     starting = asyncio.create_task(module.start_listening(123))
-    await asyncio.sleep(0)
+    await _wait_until(lambda: bool(_FakeListener.instances))
 
     assert not starting.done()
     listener = _FakeListener.instances[0]
@@ -283,7 +285,7 @@ async def test_readiness_failure_cleans_up_listener_before_returning_false(
 async def test_listener_uses_rich_event_as_the_only_support_event_callback() -> None:
     module = _module()
     starting = asyncio.create_task(module.start_listening(123))
-    await asyncio.sleep(0)
+    await _wait_until(lambda: bool(_FakeListener.instances))
     listener = _FakeListener.instances[0]
 
     assert "on_event" in listener.callbacks
@@ -299,7 +301,7 @@ async def test_listener_uses_rich_event_as_the_only_support_event_callback() -> 
 async def test_stop_during_start_cannot_resurrect_or_orphan_listener() -> None:
     module = _module()
     starting = asyncio.create_task(module.start_listening(123))
-    await asyncio.sleep(0)
+    await _wait_until(lambda: bool(_FakeListener.instances))
     listener = _FakeListener.instances[0]
 
     await module.stop_listening()
@@ -315,7 +317,7 @@ async def test_stop_during_start_cannot_resurrect_or_orphan_listener() -> None:
 async def test_second_start_owns_generation_and_stops_first_listener() -> None:
     module = _module()
     first_start = asyncio.create_task(module.start_listening(123))
-    await asyncio.sleep(0)
+    await _wait_until(lambda: bool(_FakeListener.instances))
     first = _FakeListener.instances[0]
     second_start = asyncio.create_task(module.start_listening(456))
     await _wait_until(lambda: len(_FakeListener.instances) == 2)
@@ -334,7 +336,7 @@ async def test_second_start_owns_generation_and_stops_first_listener() -> None:
 async def test_terminal_listener_task_clears_module_references() -> None:
     module = _module()
     starting = asyncio.create_task(module.start_listening(123))
-    await asyncio.sleep(0)
+    await _wait_until(lambda: bool(_FakeListener.instances))
     listener = _FakeListener.instances[0]
     listener.ready.set()
     assert await starting is True
@@ -360,7 +362,7 @@ async def test_terminal_listener_task_revokes_runtime_session_ownership(
     module.ctx = runtime
     module._listener_ready_timeout = 1.0
     runtime.bili_live_ingest = module
-    runtime.bili_credential = object()
+    runtime.bili_credential = SimpleNamespace(check_valid=AsyncMock(return_value=True))
     runtime.config.live_room_id = 123
     runtime.config.live_room_ref = "123"
     restored = asyncio.Event()
@@ -372,7 +374,7 @@ async def test_terminal_listener_task_revokes_runtime_session_ownership(
 
     monkeypatch.setattr(runtime, "restore_instructions", restore_instructions)
     starting = asyncio.create_task(start_live_listener(runtime, 123))
-    await asyncio.sleep(0)
+    await _wait_until(lambda: bool(_FakeListener.instances))
     listener = _FakeListener.instances[0]
     listener.ready.set()
     assert await starting is True

@@ -55,7 +55,12 @@ async def reconcile_live_listener_after_config(
     old_room_ref: str = "",
     was_listening: bool,
     old_provider: Any = None,
+    operation_id: int | None = None,
 ) -> None:
+    if operation_id is None:
+        operation_id = int(getattr(runtime, "_live_listener_operation_id", 0) or 0)
+    if not is_current_live_listener_operation(runtime, operation_id) or getattr(runtime, "_stopping", False):
+        return
     if not was_listening:
         return
     room_ref = runtime.live_provider.configured_room_ref()
@@ -77,6 +82,8 @@ async def reconcile_live_listener_after_config(
     try:
         await _stop_captured_provider(old_provider or runtime.live_provider)
     except Exception as exc:
+        if not is_current_live_listener_operation(runtime, operation_id):
+            return
         runtime.config.live_enabled = False
         runtime.live_connection_state = "disconnected"
         runtime.live_connection_auth_mode = "unknown"
@@ -88,6 +95,8 @@ async def reconcile_live_listener_after_config(
             f"previous listener stop failed: {type(exc).__name__}",
             level="warning",
         )
+        return
+    if not is_current_live_listener_operation(runtime, operation_id):
         return
     if disabled or not room_ref:
         runtime.config.live_enabled = False
@@ -109,6 +118,8 @@ async def reconcile_live_listener_after_config(
             login_status = await runtime.bili_login_status()
         except Exception:
             login_status = {}
+        if not is_current_live_listener_operation(runtime, operation_id):
+            return
         if not isinstance(login_status, dict) or login_status.get("logged_in") is not True:
             runtime.config.live_enabled = False
             runtime.live_connection_state = "auth_required"
@@ -145,7 +156,11 @@ async def reconcile_live_listener_after_config(
             level="warning",
             detail={"room_ref": str(room_ref or "")[:120]},
         )
-    started = await start_live_listener(runtime, room_ref)
+    if not is_current_live_listener_operation(runtime, operation_id):
+        return
+    started = await start_live_listener(runtime, room_ref, operation_id=operation_id)
+    if not is_current_live_listener_operation(runtime, operation_id):
+        return
     runtime._accepting_live_events = bool(started)
     if started:
         if platform == "twitch":
@@ -173,8 +188,14 @@ async def reconcile_live_listener_after_config(
     )
 
 
-async def start_live_listener(runtime: Any, room_ref: Any) -> bool:
+async def start_live_listener(runtime: Any, room_ref: Any, *, operation_id: int | None = None) -> bool:
+    if operation_id is None:
+        operation_id = begin_live_listener_operation(runtime)
+    if not is_current_live_listener_operation(runtime, operation_id):
+        return False
     await _await_pending_live_listener_cleanup(runtime)
+    if not is_current_live_listener_operation(runtime, operation_id):
+        return False
     retry_pending_clear = getattr(
         getattr(runtime, "live_events", None),
         "retry_pending_context_clear",
@@ -190,7 +211,6 @@ async def start_live_listener(runtime: Any, room_ref: Any) -> bool:
                 level="warning",
             )
     capture_live_target(runtime)
-    operation_id = begin_live_listener_operation(runtime)
     runtime._accepting_live_events = False
     # Tool calls can hold the realtime voice turn open after the plugin has
     # already returned. Passive next-turn snapshots provide the same facts
@@ -256,6 +276,19 @@ async def start_live_listener(runtime: Any, room_ref: Any) -> bool:
                         level="warning",
                     )
     return started
+
+
+async def stop_live_session_for_platform(runtime: Any, platform: str) -> None:
+    """Retire listeners which still hold a locally logged-out account's credentials."""
+    current = getattr(runtime, "live_provider", None)
+    if getattr(current, "platform", "") == platform:
+        await runtime._stop_live_listener(mark_disabled=True)
+        return
+    provider_for = getattr(current, "provider_for", None)
+    provider = provider_for(platform) if callable(provider_for) else None
+    stop = getattr(provider, "stop_listening", None)
+    if callable(stop):
+        await stop()
 
 
 async def stop_live_listener(runtime: Any, *, mark_disabled: bool = True) -> None:

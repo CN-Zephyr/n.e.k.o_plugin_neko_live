@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 
@@ -20,13 +21,29 @@ async def setup_all_modules(
             record_failure(ctx, "module_setup_failed", module.id, message)
 
 
-async def teardown_all_modules(modules: dict[str, Any], ctx: Any = None) -> None:
+async def teardown_all_modules(
+    modules: dict[str, Any], ctx: Any = None, *, timeout: float | None = None
+) -> None:
+    cancelled = False
+    failed = False
     for module in reversed(list(modules.values())):
         try:
-            await module.teardown()
+            if timeout is None:
+                await module.teardown()
+            else:
+                await asyncio.wait_for(module.teardown(), timeout=timeout)
+        except asyncio.CancelledError:
+            cancelled = True
+            if ctx is not None:
+                record_failure(ctx, "module_teardown_failed", module.id, "CancelledError")
         except Exception as exc:  # noqa: BLE001
+            failed = True
             if ctx is not None:
                 record_failure(ctx, "module_teardown_failed", module.id, _error_message(exc))
+    if cancelled:
+        raise asyncio.CancelledError
+    if failed and timeout is not None:
+        raise RuntimeError("module teardown incomplete")
 
 
 async def toggle_module(

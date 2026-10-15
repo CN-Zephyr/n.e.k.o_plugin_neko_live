@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
 import json
 import os
 import tempfile
@@ -56,6 +57,7 @@ class ViewerStore:
         self._fallback_warned = False
         self._load_failure_warned = False
         self._active_fallback_file: Path | None = None
+        self._fallback_source: Path | None = None
         # Dashboard state is polled every few seconds while live. Cache only
         # its bounded public projection; the canonical JSON remains the sole
         # source of truth for mutations and restart recovery.
@@ -100,12 +102,43 @@ class ViewerStore:
         except Exception:  # noqa: BLE001
             return False
 
+    def _fallback_marker(self, source: Path) -> Path:
+        digest = hashlib.sha256(str(source.resolve()).encode("utf-8")).hexdigest()[:24]
+        return self._default_dir() / f"viewer_profiles-fallback-{digest}.json"
+
+    def _fallback_file(self, source: Path) -> Path:
+        marker = self._fallback_marker(source)
+        return marker.with_name(f"{marker.stem}-data.json")
+
+    def _fallback_ownership(self, source: Path) -> dict[str, Any]:
+        return {"source": str(source.resolve()), "active": True, "file": self._fallback_file(source).name}
+
     def _resolve_file(self) -> tuple[Path, bool]:
-        """返回 (档案文件路径, 是否用了自定义目录)。纯解析、无副作用（不建目录）。"""
         configured = self._configured_dir()
+        file = Path(configured) / _STORE_FILE if configured else self._default_dir() / _STORE_FILE
+        if self._fallback_source != file:
+            self._active_fallback_file = None
+            self._fallback_source = file
         if configured:
-            return Path(configured) / _STORE_FILE, True
-        return self._default_dir() / _STORE_FILE, False
+            marker = self._fallback_marker(file)
+            if marker.exists():
+                # The marker is the ownership record. An unreadable/corrupt
+                # marker fails closed rather than selecting the stale custom DB.
+                try:
+                    state = json.loads(marker.read_text(encoding="utf-8"))
+                    valid = (
+                        state.get("source") == str(file.resolve())
+                        and state.get("active") is True
+                        and state.get("file") in (None, self._fallback_file(file).name)
+                    )
+                except (OSError, ValueError, AttributeError):
+                    valid = False
+                if not valid:
+                    raise ViewerStoreUnavailableError("viewer profile fallback ownership is unreadable")
+                self._active_fallback_file = (
+                    self._fallback_file(file) if state.get("file") else self._default_dir() / _STORE_FILE
+                )
+        return file, bool(configured)
 
     @staticmethod
     def _file_signature(file: Path) -> tuple[int, int, int] | None:
@@ -214,12 +247,14 @@ class ViewerStore:
         file, custom = self._resolve_file()
         candidates: list[Path] = []
         if self._active_fallback_file is not None:
+            if self._fallback_marker(file).exists() and not self._active_fallback_file.exists():
+                self._audit_load_failure("active fallback store is missing")
+                return {}, False
             candidates.append(self._active_fallback_file)
-        candidates.append(file)
-        if custom:
-            fallback = self._default_dir() / _STORE_FILE
-            if fallback not in candidates:
-                candidates.append(fallback)
+        else:
+            # The ordinary default database is not an unclaimed custom path's
+            # fallback: it may belong to a different configuration/source.
+            candidates.append(file)
         unreadable = False
         for candidate in candidates:
             if not candidate.exists():
@@ -326,14 +361,27 @@ class ViewerStore:
         allow_fallback: bool = True,
     ) -> bool:
         file, custom = self._resolve_file()
-        if await asyncio.to_thread(self._write_json, file, profiles):
-            self._active_fallback_file = None
-            self._update_recent_cache(profiles, file=file)
+        write_target = self._active_fallback_file or file
+        if custom and self._active_fallback_file is not None and write_target != self._fallback_file(file):
+            # Migrate the earlier marker format without overwriting its shared
+            # default file. The marker switches only after the scoped copy exists.
+            write_target = self._fallback_file(file)
+            if not await asyncio.to_thread(self._write_json, write_target, profiles):
+                return False
+            if not await asyncio.to_thread(self._write_json, self._fallback_marker(file), self._fallback_ownership(file)):
+                return False
+            self._active_fallback_file = write_target
+            self._update_recent_cache(profiles, file=write_target)
+            return True
+        if await asyncio.to_thread(self._write_json, write_target, profiles):
+            self._update_recent_cache(profiles, file=write_target)
             return True
         # 自定义目录写失败 → 回退默认目录（只告警一次，避免刷屏）。
         if custom and allow_fallback:
-            fallback = self._default_dir() / _STORE_FILE
-            if await asyncio.to_thread(self._write_json, fallback, profiles):
+            fallback = self._fallback_file(file)
+            marker = self._fallback_marker(file)
+            ownership = self._fallback_ownership(file)
+            if await asyncio.to_thread(self._write_json, fallback, profiles) and await asyncio.to_thread(self._write_json, marker, ownership):
                 self._active_fallback_file = fallback
                 self._update_recent_cache(profiles, file=fallback)
                 if not self._fallback_warned:

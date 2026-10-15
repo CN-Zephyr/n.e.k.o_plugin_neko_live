@@ -176,3 +176,8 @@ The tests cover decision-point documentation, forbidden transport imports and ar
 ## Rollback
 
 Set `live_platform` back to `bilibili` and clear `live_room_ref` for Douyin. The router keeps Bilibili behavior separate, and Douyin credentials live in their own `douyin` namespace, so deleting the Douyin credential does not affect Bilibili login state.
+
+
+### Pinned asset restoration (2026-10-15)
+
+The missing Windows amd64 executable was restored from the [original v2.0.18 release](https://github.com/jwwsjlm/douyinLive/releases/tag/v2.0.18), without executing it. Archive SHA256: `d2d29de6df4d059838d16bb99f8809b122b3109d0d28438273d339e6c4fd0443`. Extracted executable SHA256 matches the pre-existing CHECKSUMS.txt: `14b21b9682dc8f1f510f5390b640cf1a07f2597ab7a77e0e705ec3852e83ccf2` (42,541,568 bytes). Tests check the actual asset and the host packaging copy, including license/checksum. This establishes payload presence and integrity, not live connection success or a code-signing guarantee.

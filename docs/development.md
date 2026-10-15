@@ -1116,7 +1116,7 @@ Hosted UI action 会补 `_ctx.lanlan_name`，插件进程复用 `ctx._current_la
 2. 以 compatibility / facade 命名或在模块边界表中标为旧导入出口的文件不是冗余，例如 `active_topic_compat.py`、`active_topic_selection.py`、`active_topic_materials.py`、`pipeline_results.py`、`live_hosting_beats.py`、`recent_context.py` 和 `modules/_prompt_context.py`。这些文件的职责是保护旧 import、runtime mixin 和测试边界；如果要删除，必须先改调用方和契约测试。
 3. 插件 action / lifecycle 方法不是普通未引用函数：`@plugin_entry`、`@ui.action`、`@lifecycle` 注册的方法由宿主反射调用，不能按本仓搜索不到直接调用来删除。
 4. 写能力必须和只读 ingest 分离。`modules/bili_live_ingest/danmaku_core.py` 已收口为只读监听器，不再保留旧 `DanmakuListener.send_danmaku()`；未来若需要发弹幕、评论、动态或私信，只能在 `bili_write_tools` 这类独立写模块中接入，并单独做权限、登录态和安全评审。
-5. 本地运行态文件不是源码：`__pycache__` 和 `plugin.toml.lock` 可以清理，`vendor/douyin_bridge/windows-amd64/douyinLive.exe` 是内置 bridge 二进制，虽然被 git ignore，但不要在普通卫生清理里删除。
+5. 本地运行态文件不是源码：`__pycache__` 和 `plugin.toml.lock` 可以清理，`vendor/douyin_bridge/windows-amd64/douyinLive.exe` 是内置 bridge 二进制，作为受校验的发行资产纳入版本控制，不要在普通卫生清理里删除。
 
 ## 数据边界
 
@@ -1272,3 +1272,21 @@ The bundled bridge metadata is Windows-only and does not include a fallback netw
 可信 support event 的调度和派发所有权只归 `live_support_events.scheduler`：复用现有单 worker，待处理队列保持有界，稳定 task ID 只用于插件内原子认领和 `current` / `retroactive` / `stray` 分类，最多保留 32 条不含观众或 payload 的历史。不得在 provider、Pipeline 或 Dispatcher 复制优先级或队列；异常、取消和 teardown 按任务身份释放，失败不自动重试。完整状态机、成本和回滚见 [`docs/modules/live_support_events.md`](modules/live_support_events.md)。
 
 独播模式是台前直播，不是后台私聊延续。所有会开口的模块（`danmaku_response` / `avatar_roast` / `warmup_hosting` / `idle_hosting` / `active_engagement`）都必须禁止 owner、master、operator、backstage human、carbon-based human、private chat、pre-stream relationship memory 等关系泄露；`solo_stream` 中的 “you” 指当前观众或直播间，不指隐藏操作者。输出必须是可直接播出的口语，不得包含括号动作、舞台动作旁白或角色扮演注释；质量守门发现这类文本时必须回退。
+
+
+## 2026-10-15 review hardening contracts
+
+- Connect claims its listener operation before authentication/room lookup; every later state transition must still belong to that operation. A disconnect, logout or runtime stop invalidates older work.
+- Bilibili requires a successful bounded `check_valid()` at the runtime gate and again for the captured credential in the provider. Cookie presence and public profile lookup do not prove login. Verification failure/timeout degrades to authentication required. Both platform logouts stop their local listeners; they do not revoke remote platform sessions.
+- Twitch refresh persistence goes through the AuthService mutation lock, credential generation and original account/client/token comparison. Subscription revocation and terminal websocket closure invalidate the live session; migration closure is excluded using the installed TwitchIO lifecycle contract.
+- Shutdown owns EventBus handlers and memory requests, applies teardown budgets per module and retries incomplete cleanup on a later stop. See [viewer stores](modules/viewer_stores.md) for the authoritative memory, capacity and fallback contract, and [UI architecture](ui-architecture.md) for generated-panel gates.
+- Support combo aliases carry final maximum count/value together. Topic selection applies the single-viewer flood gate to live-thread sources, preserves relevance/risk/evidence, and caches successful empty trends. Delivery may omit redundant topic presentation/rotation labels to fit the existing 1000-token budget; evidence and output rules remain required.
+
+Decision Points: these fixes add no direct LLM call or production dependency. Authentication adds bounded validity requests (two seconds each at connect/provider gates); failure is explicit, never a local-cookie fallback. UI CI reuses the host's locked development dependencies. The restored Douyin Windows binary is the existing pinned v2.0.18 asset with its original checksum/license; runtime verification remains mandatory. Signing, additional platforms and live integration acceptance remain separate distribution decisions.
+
+
+### v0.2.7 release review
+
+The release review additionally reproduced and fixed three edge cases: two configured profile directories sharing the ordinary fallback JSON; search results staying stale after profile delete/reset; and a room edit during an in-flight connect still starting the previous room. Fallback files are now source-specific, successful profile maintenance invalidates the active search once, and target/enabled config changes claim listener operation ownership. The caller's own connect-time room setup carries its operation id so it can complete normally. No new background task, external API or model call is introduced by these follow-up fixes.
+
+The bundled Windows amd64 Douyin executable adds 42,541,568 uncompressed bytes (about 13 MB compressed) versus the previous asset-free release. The package includes its fixed version, MIT license and checksum; other platforms remain unsupported by that backend. Release gates verify the packaged asset, generated full panel, lifecycle/privacy regressions and all locales. Live platform OAuth/streaming and Electron playback are not claimed as verified by the offline gates.

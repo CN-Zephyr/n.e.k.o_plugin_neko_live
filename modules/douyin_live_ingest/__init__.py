@@ -108,7 +108,13 @@ class DouyinLiveIngestModule(BaseModule):
 
     async def start_listening(self, room_ref: Any) -> bool:
         async with self._lifecycle_lock:
-            return await self._start_listening_locked(room_ref)
+            if not self._stop_requested:
+                await self._stop_listening_locked()
+            try:
+                return await self._start_listening_locked(room_ref)
+            except BaseException:
+                await self._stop_listening_locked()
+                raise
 
     async def _start_listening_locked(self, room_ref: Any) -> bool:
         self._generation += 1

@@ -402,6 +402,34 @@ async def test_douyin_failed_transport_start_stops_embedded_supervisor() -> None
     assert supervisor.stop_calls == 1
 
 
+@pytest.mark.asyncio
+async def test_douyin_reconnecting_start_stops_previous_transport():
+    class Transport:
+        def __init__(self):
+            self.stops = 0
+
+        async def start(self, request):
+            return DouyinTransportState(state="connected")
+
+        async def stop(self):
+            self.stops += 1
+
+    module = DouyinLiveIngestModule()
+    old = Transport()
+    module._bridge_transport = old
+    assert await module.start_listening("123456")
+    module._state = "reconnecting"
+    replacement = Transport()
+
+    async def prepare():
+        module._bridge_transport = replacement
+
+    module._prepare_external_bridge_transport = prepare
+    assert await module.start_listening("123456")
+    await module.stop_listening()
+    assert old.stops == 1 and replacement.stops == 1
+
+
 def test_routable_event_is_published_without_raw_credentials() -> None:
     bus = _Bus()
     module = DouyinLiveIngestModule()

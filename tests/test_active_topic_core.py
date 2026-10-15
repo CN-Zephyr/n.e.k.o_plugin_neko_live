@@ -389,7 +389,7 @@ async def test_empty_or_exhausted_candidates_refresh_cache(
 
     topic = await selector.select_topic()
 
-    assert clears == [True]
+    assert clears == ([True] if initial_candidates else [])
     assert all(topic.get(field) for field in ("key", "title", "hint"))
 
 

@@ -103,6 +103,8 @@ def fit_live_callback_prompt(text: str, *, budget: int = HOST_CALLBACK_TOKEN_BUD
     contract_versions = _contract_candidates(chunks.get("contract") or "", trusted_rules)
     if contract_versions:
         selected["contract"] = contract_versions[-1]
+    if _over_budget(_render(selected), budget) and selected.get("topic_material"):
+        selected["topic_material"] = _compact_topic_material(selected["topic_material"])
     selected = _fit_current_input(selected, budget)
     terms = _focus_terms(chunks.get("header") or "")
     if not terms:
@@ -121,6 +123,25 @@ def fit_live_callback_prompt(text: str, *, budget: int = HOST_CALLBACK_TOKEN_BUD
     if _over_budget(rendered, budget):
         raise PromptBudgetExceeded()
     return rendered
+
+
+def _compact_topic_material(block: str) -> str:
+    """Keep the topic, safety boundary and evidence; omit rotation bookkeeping.
+
+    These labels are presentation alternatives supplied by the topic builder,
+    not output rules. Unknown fields and all evidence lines remain intact.
+    """
+    optional_labels = (
+        "- example pattern:", "- fun axis:", "- content family:", "- hook:",
+        "- intent:", "- NEKO live column:", "- topic pack:",
+    )
+    lines = block.splitlines()
+    title = next((line.removeprefix("- title:").strip() for line in lines if line.startswith("- title:")), "")
+    return "\n".join(
+        line for line in lines
+        if not line.startswith(optional_labels)
+        and not (title and line == f"- interest: {title}")
+    )
 
 
 def _fit_current_input(selected: dict[str, str], budget: int) -> dict[str, str]:

@@ -6,6 +6,7 @@ from typing import Any
 
 from ..adapters.twitch_auth_service import TwitchAuthService
 from ..stores.credential_store import CredentialStore
+from .runtime_live_listener import stop_live_session_for_platform
 
 _TWITCH_FIELDS = (
     "access_token",
@@ -145,6 +146,7 @@ async def logout(runtime: Any) -> dict[str, Any]:
     else:
         removed = await runtime.twitch_credential_store.delete()
     runtime.twitch_credential = None
+    await stop_live_session_for_platform(runtime, "twitch")
     runtime.audit.record("twitch_logout", "twitch credential removed", detail={"files": removed})
     return {
         "platform": "twitch",

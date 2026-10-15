@@ -321,8 +321,10 @@ class SupportEventScheduler:
         if current is not item and count == previous_count and value == previous_value and not combo_end:
             return False
         current["gift_count"] = count
+        current["gift_num"] = count
         current["combo_count"] = count
         current["gift_value"] = value
+        current["gift_total_coin"] = value
         current["provider_timestamp_ms"] = max(
             self._non_negative_int(current.get("provider_timestamp_ms")),
             self._non_negative_int(item.get("provider_timestamp_ms")),

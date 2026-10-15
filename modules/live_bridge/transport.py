@@ -122,6 +122,9 @@ class LiveBridgeTransport:
         self._task = loop.create_task(self._run(request, room_ref=room_ref, url=url, ready=ready))
         try:
             return await asyncio.wait_for(asyncio.shield(ready), timeout=8.0)
+        except asyncio.CancelledError:
+            await self.stop()
+            raise
         except TimeoutError:
             await self.stop()
             return LiveBridgeState(

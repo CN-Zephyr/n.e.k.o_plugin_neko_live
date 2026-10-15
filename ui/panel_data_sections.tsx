@@ -14,6 +14,7 @@ import {
   StatusBadge,
   Text,
   useEffect,
+  useRef,
   useState,
 } from "@neko/plugin-ui"
 import {
@@ -267,6 +268,7 @@ export function ViewerProfilesTable({
   const [pendingAction, setPendingAction] = useState<"reset" | "delete" | "">("")
   const [actionPending, setActionPending] = useState(false)
   const [remoteProfiles, setRemoteProfiles] = useState<any[] | null>(null)
+  const [searchRevision, setSearchRevision] = useState(0)
   const normalizedQuery = query.trim().toLowerCase()
   const filteredProfiles = profiles.filter((profile: any) => {
     if (!normalizedQuery) return true
@@ -274,13 +276,15 @@ export function ViewerProfilesTable({
   })
   const visibleProfiles = remoteProfiles ?? filteredProfiles
 
+  const searchRef = useRef(onSearch)
+  searchRef.current = onSearch
   useEffect(() => {
-    if (!normalizedQuery || !onSearch) {
+    if (!normalizedQuery || !searchRef.current) {
       setRemoteProfiles(null)
       return
     }
     let cancelled = false
-    onSearch(query.trim())
+    searchRef.current(query.trim())
       .then((rows) => {
         if (!cancelled) setRemoteProfiles(Array.isArray(rows) ? rows : null)
       })
@@ -290,7 +294,7 @@ export function ViewerProfilesTable({
     return () => {
       cancelled = true
     }
-  }, [normalizedQuery, onSearch])
+  }, [normalizedQuery, searchRevision])
 
   return (
     <Stack>
@@ -334,8 +338,8 @@ export function ViewerProfilesTable({
         footer={
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", flexWrap: "wrap" }}>
             <Button tone="default" disabled={actionPending} onClick={() => setSelectedProfile(null)}>{t("panel.actions.cancel")}</Button>
-            <Button tone="info" disabled={actionPending} onClick={() => setPendingAction("reset")}>{t("panel.actions.resetViewerImpression")}</Button>
-            <Button tone="danger" disabled={actionPending} onClick={() => setPendingAction("delete")}>{t("panel.actions.deleteViewerProfile")}</Button>
+            <Button tone="info" disabled={actionPending} onClick={() => { setPendingAction("reset") }}>{t("panel.actions.resetViewerImpression")}</Button>
+            <Button tone="danger" disabled={actionPending} onClick={() => { setPendingAction("delete") }}>{t("panel.actions.deleteViewerProfile")}</Button>
           </div>
         }
       >
@@ -374,6 +378,7 @@ export function ViewerProfilesTable({
           try {
             if (pendingAction === "delete") await onDeleteProfile(String(selectedProfile.uid || ""))
             else await onResetImpression(String(selectedProfile.uid || ""))
+            setSearchRevision((revision) => revision + 1)
             setPendingAction("")
             setSelectedProfile(null)
           } finally {

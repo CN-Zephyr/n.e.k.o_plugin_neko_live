@@ -41,6 +41,7 @@ class NekoTwitchClient(twitchio.Client):
         on_message: Callable[[Any], Awaitable[None]],
         on_chat_notification: Callable[[Any], Awaitable[None]],
         on_token_refreshed: Callable[[Any], Awaitable[None]],
+        on_subscription_lost: Callable[[Any], Awaitable[None]] | None = None,
     ) -> None:
         _enable_eventsub_environment_proxy()
         self._neko_http_session = aiohttp.ClientSession(trust_env=True)
@@ -53,6 +54,7 @@ class NekoTwitchClient(twitchio.Client):
         self._neko_on_message = on_message
         self._neko_on_chat_notification = on_chat_notification
         self._neko_on_token_refreshed = on_token_refreshed
+        self._neko_on_subscription_lost = on_subscription_lost
 
     async def close(self, **options: Any) -> None:
         try:
@@ -69,6 +71,19 @@ class NekoTwitchClient(twitchio.Client):
 
     async def event_token_refreshed(self, payload: Any) -> None:
         await self._neko_on_token_refreshed(payload)
+
+    async def event_subscription_revoked(self, payload: Any) -> None:
+        if getattr(payload, "type", "") in {"channel.chat.message", "channel.chat.notification"}:
+            if self._neko_on_subscription_lost is not None:
+                await self._neko_on_subscription_lost(payload)
+
+    async def event_websocket_closed(self, payload: Any) -> None:
+        # TwitchIO also emits this during migration with cleanup=False. That
+        # socket remains owned and must not tear down the replacement session.
+        socket = getattr(payload, "socket", None)
+        if getattr(socket, "_closed", False) and not getattr(payload, "reassociate", False):
+            if self._neko_on_subscription_lost is not None:
+                await self._neko_on_subscription_lost(payload)
 
 
 def create_twitch_client(**kwargs: Any) -> NekoTwitchClient:

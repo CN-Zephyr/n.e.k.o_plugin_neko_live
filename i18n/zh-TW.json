@@ -390,7 +390,7 @@
   "panel.settings.viewerMemoryLabel": "個人化觀眾記憶",
   "panel.settings.viewerMemoryEnabledHint": "NEKO 會使用安全推導的興趣與互動偏好，讓熟客接話更自然。",
   "panel.settings.viewerMemoryDisabledHint": "已停止累積和使用個人化印象；本場首評去重仍然有效。",
-  "panel.settings.viewerMemoryRetentionHint": "檔案會在最後互動 90 天後自動清理，不保存原始彈幕。",
+  "panel.settings.viewerMemoryRetentionHint": "本機檔案於最後互動 90 天後清理。啟用時會保留篩選後的觀眾話語，並提交宿主長期記憶；關閉後停止新增。清空本機檔案不刪除宿主記憶。",
   "panel.settings.localStorageLabel": "觀眾檔案",
   "panel.settings.localStorageHint": "僅儲存在本機，不上傳原始訊息、Cookie 或帳號憑證。",
   "panel.settings.storageReady": "儲存正常",

@@ -96,6 +96,9 @@ class LiveRuntime(
 
     async def start(self) -> None:
         self._stopping = False
+        self._shutdown_complete = False
+        if getattr(getattr(self, "live_memory", None), "_closed", False):
+            self.live_memory = None
         self.event_bus.reopen()
         await self.reload_config()
         await self.viewer_store.prune_expired_profiles()
@@ -108,29 +111,38 @@ class LiveRuntime(
         self.audit.record("runtime_start", "neko_live runtime ready")
 
     async def stop(self) -> None:
-        if self._stopping:
-            return
+        if not hasattr(self, "_shutdown_lock"):
+            self._shutdown_lock = asyncio.Lock()
+        async with self._shutdown_lock:
+            if self._stopping and getattr(self, "_shutdown_complete", False):
+                return
+            await self._stop_once()
+
+    async def _stop_once(self) -> None:
         self._stopping = True
+        from .runtime_live_listener import begin_live_listener_operation
+
+        begin_live_listener_operation(self)
+        self._accepting_live_events = False
         live_memory = getattr(self, "live_memory", None)
-        flush = getattr(live_memory, "flush", None)
-        if callable(flush):
-            try:
-                await asyncio.wait_for(flush(), timeout=2.0)
-            except Exception:
-                pass
         failures: list[str] = []
         cancelled = False
         steps = (
             ("idle_hosting", self._stop_idle_hosting_loop),
             ("live_listener", lambda: self._stop_live_listener(mark_disabled=False)),
             ("event_bus", self.event_bus.close),
-            ("modules", lambda: self.registry.teardown_all(self)),
+            ("modules", lambda: self.registry.teardown_all(self, timeout=self._SHUTDOWN_STEP_TIMEOUT_SECONDS)),
+            ("live_memory", live_memory.close if live_memory is not None else self._empty_cleanup),
             ("developer_instructions", self.restore_developer_instructions),
             ("live_instructions", self.restore_instructions),
         )
         for step, operation in steps:
             try:
-                await asyncio.wait_for(operation(), timeout=self._SHUTDOWN_STEP_TIMEOUT_SECONDS)
+                if step in {"modules", "live_memory"}:
+                    # Each module owns its budget; one timeout cannot skip siblings.
+                    await operation()
+                else:
+                    await asyncio.wait_for(operation(), timeout=self._SHUTDOWN_STEP_TIMEOUT_SECONDS)
             except asyncio.TimeoutError:
                 failures.append(step)
                 self.audit.record(
@@ -156,6 +168,7 @@ class LiveRuntime(
         self.instructions_injected = False
         self.instructions_signature = ""
         self.live_target_lanlan = ""
+        self._shutdown_complete = not (failures or cancelled)
         self.audit.record(
             "runtime_stop",
             "neko_live runtime stopped",
@@ -164,3 +177,6 @@ class LiveRuntime(
         )
         if cancelled:
             raise asyncio.CancelledError
+
+    async def _empty_cleanup(self) -> None:
+        pass

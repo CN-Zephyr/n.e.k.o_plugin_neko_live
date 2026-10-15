@@ -1265,3 +1265,26 @@ async def test_close_permanently_rejects_future_submissions():
     await asyncio.sleep(0)
     assert dispatched == []
     assert scheduler.status()["pending_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_combo_final_totals_reach_support_request():
+    from plugin.plugins.neko_live.core.contracts import ViewerIdentity, ViewerProfile
+    from plugin.plugins.neko_live.modules.bili_live_ingest import BiliLiveIngestModule
+    from plugin.plugins.neko_live.modules.live_support_events import LiveSupportEventsModule
+    requests = []
+    async def dispatch(payload):
+        event = BiliLiveIngestModule().normalize(payload)
+        module = LiveSupportEventsModule()
+        requests.append(module.build_request(event, ViewerIdentity(uid=event.uid, nickname="viewer"), ViewerProfile(uid=event.uid, nickname="viewer")))
+    scheduler = SupportEventScheduler(dispatch=dispatch)
+    first = {**_combo_payload("one", 1), "gift_num": 1, "gift_total_coin": 1000}
+    final = {**_combo_payload("end", 12, combo_end=True), "gift_value": 12000}
+    scheduler.submit(first)
+    scheduler.submit(final)
+    await scheduler.wait_idle()
+    await scheduler.close()
+    assert len(requests) == 1
+    context = LiveSupportEventsModule._support_context(requests[0].event)
+    assert context["gift_num"] == "12" and context["gift_total_coin"] == "12000"
+    assert context["tier"] == "high"

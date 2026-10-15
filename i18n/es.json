@@ -390,7 +390,7 @@
   "panel.settings.viewerMemoryLabel": "Memoria personalizada de espectadores",
   "panel.settings.viewerMemoryEnabledHint": "NEKO usa intereses y preferencias derivados de forma segura para responder con más naturalidad a espectadores recurrentes.",
   "panel.settings.viewerMemoryDisabledHint": "Las impresiones personalizadas ya no se recopilan ni se usan. La deduplicación de la primera valoración de la sesión sigue activa.",
-  "panel.settings.viewerMemoryRetentionHint": "Los perfiles se eliminan 90 días después de la última interacción. No se guardan mensajes originales.",
+  "panel.settings.viewerMemoryRetentionHint": "Los perfiles locales caducan tras 90 días sin interacción. Al activarlo, se guardan intervenciones seleccionadas y se envían a la memoria del host. Desactivarlo detiene el aprendizaje nuevo. Borrar perfiles locales no borra la memoria del host.",
   "panel.settings.localStorageLabel": "Perfiles de espectadores",
   "panel.settings.localStorageHint": "Se guardan solo en este dispositivo. No se suben mensajes originales, cookies ni credenciales.",
   "panel.settings.storageReady": "Almacenamiento listo",

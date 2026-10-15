@@ -117,6 +117,34 @@ def test_default_douyin_bridge_backend_is_the_only_bundled_binary_spec():
     assert backend.args_factory(18088) == ["--port", "18088", "--log-level", "warn"]
 
 
+def test_default_bridge_binary_is_present_and_matches_pinned_checksum():
+    backend = default_douyin_bridge_backend()
+    expected = backend.checksum_path.read_text(encoding="utf-8").split()[0]
+    assert hashlib.sha256(backend.executable_path.read_bytes()).hexdigest() == expected
+
+
+@pytest.mark.asyncio
+async def test_cancelled_bridge_start_does_not_leave_reader_task():
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+
+    class BlockingConnect(_FailingConnect):
+        async def __aenter__(self):
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+    transport = LiveBridgeTransport(connect_factory=BlockingConnect())
+    starting = asyncio.create_task(transport.start(LiveBridgeStartRequest(room_ref="42", adapter=_Adapter())))
+    await entered.wait()
+    starting.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await starting
+    assert cancelled.is_set()
+    assert transport._task is None
+
+
 def test_douyin_embedded_bridge_supervisor_accepts_replaceable_backend(tmp_path: Path):
     backend = DouyinBridgeBackend(
         backend_id="replacement",

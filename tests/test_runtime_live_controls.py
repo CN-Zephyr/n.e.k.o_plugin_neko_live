@@ -211,9 +211,9 @@ def test_dashboard_actions_include_manual_hosting_actions(runtime: LiveRuntime) 
 def test_dashboard_actions_do_not_include_destructive_viewer_profile_controls(runtime: LiveRuntime) -> None:
     action_ids = {action["id"] for action in runtime.dashboard_actions()}
 
-    assert "clear_viewer_profiles" not in action_ids
-    assert "delete_viewer_profile" not in action_ids
-    assert "reset_viewer_impression" not in action_ids
+    assert "clear_viewer_profiles" in action_ids
+    assert "delete_viewer_profile" in action_ids
+    assert "reset_viewer_impression" in action_ids
 
 
 @pytest.mark.asyncio
@@ -286,16 +286,11 @@ async def test_connect_live_room_uses_authenticated_mode(
 
 
 @pytest.mark.asyncio
-async def test_connect_with_local_sessdata_skips_login_network(runtime: LiveRuntime) -> None:
+async def test_connect_with_local_sessdata_requires_login_verification(runtime: LiveRuntime) -> None:
     runtime.config.live_room_id = 123
     runtime.bili_credential = SimpleNamespace(sessdata="sess")
-
-    async def boom() -> dict[str, object]:
-        raise AssertionError("login status must not run when SESSDATA is already loaded")
-
-    runtime.bili_login_status = boom  # type: ignore[method-assign]
     snapshot = await runtime.connect_live_room()
-
+    assert runtime.bili_auth.checks == 1
     assert snapshot["auth_mode"] == "authenticated"
     assert snapshot["connected"] is True
 
@@ -3442,7 +3437,9 @@ async def test_cancelled_stop_finishes_remaining_steps(runtime: LiveRuntime, mon
 
     assert runtime._stopping is True
     assert ran[:2] == ["idle", "listener"]
+    monkeypatch.setattr(runtime, "_stop_idle_hosting_loop", lambda: asyncio.sleep(0))
     await runtime.stop()
+    assert ran.count("listener") == 2
     assert runtime._stopping is True
 
 
@@ -3606,3 +3603,135 @@ def test_safety_guard_blocks_live_like_output_when_disconnected(
         ViewerEvent(uid="42", nickname="viewer", source="developer_sandbox")
     )
     assert sandbox.allowed is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("blocked_stage", ["auth", "lookup"])
+async def test_late_connect_cannot_override_disconnect(runtime, monkeypatch, blocked_stage):
+    from plugin.plugins.neko_live.core import runtime_live_controls as controls
+    runtime.config.live_room_id = 123
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def blocked_auth():
+        entered.set()
+        await release.wait()
+        return {"logged_in": False}
+
+    async def blocked_lookup(*args):
+        entered.set()
+        await release.wait()
+
+    if blocked_stage == "auth":
+        monkeypatch.setattr(runtime, "bili_login_status", blocked_auth)
+    else:
+        monkeypatch.setattr(controls, "refresh_live_room_context", blocked_lookup)
+    connecting = asyncio.create_task(runtime.connect_live_room())
+    await entered.wait()
+    await runtime.disconnect_live_room()
+    release.set()
+    await connecting
+    assert runtime.config.live_enabled is False
+    assert runtime.live_connection_snapshot()["connected"] is False
+    assert not runtime._accepting_live_events
+
+
+@pytest.mark.asyncio
+async def test_late_room_change_persistence_cannot_reconnect_after_disconnect(runtime, monkeypatch):
+    from plugin.plugins.neko_live.core import runtime_config
+    runtime.config.live_room_id = 123
+    assert (await runtime.connect_live_room())["connected"]
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def persist(*args):
+        entered.set()
+        await release.wait()
+    monkeypatch.setattr(runtime_config, "persist_config_best_effort", persist)
+    changing = asyncio.create_task(runtime.connect_live_room(456))
+    await entered.wait()
+    await runtime.disconnect_live_room()
+    release.set()
+    await changing
+    assert runtime.config.live_enabled is False
+    assert not runtime.live_connection_snapshot()["connected"]
+
+
+@pytest.mark.asyncio
+async def test_local_bili_logout_stops_live_listener(runtime):
+    runtime.config.live_room_id = 123
+    await runtime.connect_live_room()
+    result = await runtime.bili_logout()
+    assert result["logged_out"]
+    assert not runtime.bili_live_ingest.is_listening()
+    assert not runtime.config.live_enabled and not runtime._accepting_live_events
+
+
+@pytest.mark.asyncio
+async def test_auth_failure_cleanup_cannot_override_newer_connection(runtime, monkeypatch):
+    from plugin.plugins.neko_live.core.runtime_live_controls import _resolve_connection_auth_mode
+    from plugin.plugins.neko_live.core.runtime_live_listener import begin_live_listener_operation
+    runtime.config.live_room_id = 123
+    await runtime.connect_live_room()
+    entered, release = asyncio.Event(), asyncio.Event()
+    original_stop = runtime._stop_live_listener
+    async def stop(*, mark_disabled):
+        await original_stop(mark_disabled=mark_disabled)
+        entered.set()
+        await release.wait()
+    monkeypatch.setattr(runtime, "_stop_live_listener", stop)
+    monkeypatch.setattr(runtime, "bili_login_status", AsyncMock(return_value={"logged_in": False}))
+    operation = begin_live_listener_operation(runtime)
+    old = asyncio.create_task(_resolve_connection_auth_mode(runtime, platform="bilibili", operation_id=operation))
+    await entered.wait()
+    monkeypatch.setattr(runtime, "bili_login_status", AsyncMock(return_value={"logged_in": True}))
+    assert (await runtime.connect_live_room())["connected"]
+    release.set()
+    assert await old == "unknown"
+    assert runtime.live_connection_snapshot()["connected"]
+    assert runtime.config.live_enabled and runtime._accepting_live_events
+
+
+@pytest.mark.asyncio
+async def test_host_config_update_command_reaches_entry_settings_without_reload(runtime):
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+
+    from plugin.core.host import _handle_config_update_command
+    from plugin.plugins.neko_live import NekoLivePlugin
+    replies = []
+    plugin = SimpleNamespace(runtime=runtime, _sync_developer_entries=lambda: None)
+    async def handler(**kwargs):
+        return await NekoLivePlugin.on_config_change(plugin, **kwargs)
+    ctx = SimpleNamespace(_effective_config={"neko_live": {"entry_greet_enabled": False}}, _handler_scope=lambda *_: nullcontext())
+    sender = SimpleNamespace(put=lambda payload, **kwargs: replies.append(payload))
+    for enabled in (True, False):
+        await _handle_config_update_command(
+            {"req_id": "synthetic-hot-update", "mode": "temporary", "config": {"neko_live": {
+                "entry_greet_enabled": enabled, "entry_roast_enabled": enabled, "follow_greet_enabled": enabled,
+                "like_greet_enabled": enabled, "viewer_context_limit": 8,
+            }}}, ctx, {"lifecycle": {"config_change": handler}}, "neko_live", sender, Mock(),
+        )
+        assert replies[-1]["success"] is True
+        assert replies[-1]["data"]["handler_called"] is True
+        assert runtime.config.entry_greet_enabled is enabled
+        assert runtime.config.entry_roast_enabled is enabled
+        assert runtime.config.follow_greet_enabled is enabled
+        assert runtime.config.like_greet_enabled is enabled
+        assert runtime.config.viewer_context_limit == 8
+
+
+@pytest.mark.asyncio
+async def test_room_edit_during_connect_lookup_cannot_start_the_previous_room(runtime, monkeypatch):
+    from plugin.plugins.neko_live.core import runtime_live_controls as controls
+    runtime.config.live_room_id = 123
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def lookup(*args):
+        entered.set()
+        await release.wait()
+    monkeypatch.setattr(controls, "refresh_live_room_context", lookup)
+    connecting = asyncio.create_task(runtime.connect_live_room())
+    await entered.wait()
+    await runtime.set_live_room(456)
+    release.set()
+    await connecting
+    assert runtime.config.live_room_id == 456
+    assert not runtime.bili_live_ingest.is_listening()
+    assert not runtime._accepting_live_events

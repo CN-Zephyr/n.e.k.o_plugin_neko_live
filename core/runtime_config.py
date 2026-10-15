@@ -18,6 +18,8 @@ from .runtime_config_persistence import (
     persist_config_update as persist_config_update,
 )
 from .runtime_live_listener import (
+    begin_live_listener_operation,
+    is_current_live_listener_operation,
     reconcile_live_listener_after_config,
 )
 from .runtime_live_listener import (
@@ -113,11 +115,17 @@ async def _commit_loaded_config(runtime: Any, loaded: LiveConfig) -> LiveConfig:
         old_room_ref = _configured_room_ref(old_config, old_platform)
         old_provider = _captured_provider(runtime, old_platform)
         was_listening = _is_listening(old_provider)
+        live_diff = _live_config_diff(old_config, loaded)
+        operation_id = (
+            begin_live_listener_operation(runtime) if live_diff
+            else int(getattr(runtime, "_live_listener_operation_id", 0) or 0)
+        )
         activate_config(runtime, loaded)
         _reconcile_live_mode(runtime, old_live_mode, runtime.config.live_mode)
         runtime._config_revision += 1
         pending = {
-            "clean": _live_config_diff(old_config, runtime.config),
+            "clean": live_diff,
+            "operation_id": operation_id,
             "old_room_id": old_room_id,
             "old_platform": old_platform,
             "old_room_ref": old_room_ref,
@@ -134,12 +142,14 @@ def get_config_lock(runtime: Any) -> asyncio.Lock:
     return runtime._config_lock
 
 
-async def update_config(runtime: Any, updates: dict[str, Any]) -> LiveConfig:
+async def update_config(runtime: Any, updates: dict[str, Any], *, operation_id: int | None = None) -> LiveConfig:
     clean = clean_config_updates(updates)
     if not clean:
         return runtime.config
     pending: dict[str, Any] | None = None
     async with get_config_lock(runtime):
+        if operation_id is not None and not is_current_live_listener_operation(runtime, operation_id):
+            return runtime.config
         _normalize_live_target_update(runtime, clean)
         old_room_id = int(runtime.config.live_room_id or 0)
         old_live_mode = str(getattr(runtime.config, "live_mode", "co_stream") or "co_stream")
@@ -156,6 +166,11 @@ async def update_config(runtime: Any, updates: dict[str, Any]) -> LiveConfig:
         data.update(clean)
         candidate = LiveConfig.from_mapping(data)
         live_diff = _live_config_diff(runtime.config, candidate)
+        if operation_id is None:
+            operation_id = (
+                begin_live_listener_operation(runtime) if live_diff
+                else int(getattr(runtime, "_live_listener_operation_id", 0) or 0)
+            )
         if was_listening and live_diff:
             runtime._accepting_live_events = False
         activate_config(runtime, candidate)
@@ -180,6 +195,7 @@ async def update_config(runtime: Any, updates: dict[str, Any]) -> LiveConfig:
             await runtime.sync_developer_mode(announce=False, force=True)
         await persist_config_best_effort(runtime, clean)
         pending = {
+            "operation_id": operation_id,
             "clean": clean,
             "old_room_id": old_room_id,
             "old_platform": old_platform,

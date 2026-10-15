@@ -80,12 +80,15 @@ class TwitchLiveIngestModule(BaseModule):
             self._stop_requested = False
             self._room_ref = parsed.room_ref
             self._state = "connecting"
+            self._listener_credential = dict(credential)
+            self._credential_generation = getattr(getattr(self.ctx, "twitch_auth", None), "credential_generation", -1)
             try:
                 client = self._create_client(
                     client_id=client_id,
                     on_message=lambda message: self._on_message(message, generation),
                     on_chat_notification=lambda notification: self._on_chat_notification(notification, generation),
                     on_token_refreshed=lambda payload: self._on_token_refreshed(payload, generation),
+                    on_subscription_lost=lambda payload: self._on_subscription_lost(payload, generation),
                 )
                 self._client = client
                 runner = asyncio.create_task(
@@ -138,6 +141,16 @@ class TwitchLiveIngestModule(BaseModule):
     async def stop_listening(self) -> None:
         async with self._lifecycle_lock:
             await self._stop_locked(clear_error=True)
+
+    async def _on_subscription_lost(self, payload: Any, generation: int) -> None:
+        async with self._lifecycle_lock:
+            if generation != self._generation or self._stop_requested:
+                return
+            revoked = bool(getattr(payload, "type", ""))
+            await self._stop_locked(clear_error=False)
+            self._state = "auth_required" if revoked else "disconnected"
+            self._last_error = "twitch subscription revoked" if revoked else "twitch websocket closed"
+            await self._sync_unexpected_disconnect(self._last_error, connection_state=self._state)
 
     async def _stop_locked(self, *, clear_error: bool) -> None:
         caller_cancelled = False
@@ -377,7 +390,7 @@ class TwitchLiveIngestModule(BaseModule):
         stop_on_failure: bool,
         generation: int | None = None,
     ) -> None:
-        current = self._credential()
+        current = dict(getattr(self, "_listener_credential", {}) or self._credential())
         user_id = _safe_numeric_id(getattr(payload, "user_id", None))
         access_token = _safe_secret(getattr(payload, "token", None))
         refresh_token = _safe_secret(getattr(payload, "refresh_token", None))
@@ -392,14 +405,12 @@ class TwitchLiveIngestModule(BaseModule):
             "scopes": " ".join(scopes),
             "expires_at": str(int(time.time() + expires_in)) if expires_in else "",
         }
-        store = getattr(self.ctx, "twitch_credential_store", None)
-        saver = getattr(store, "save", None)
-        ok = await saver(updated) if callable(saver) else False
-        if ok:
-            self.ctx.twitch_credential = updated
-            reloader = getattr(self.ctx, "reload_twitch_credential", None)
-            if callable(reloader):
-                await reloader()
+        commit = getattr(getattr(self.ctx, "twitch_auth", None), "commit_refreshed_credential", None)
+        result = await commit(updated, current, expected_generation=self._credential_generation) if callable(commit) else "failed"
+        if result == "saved":
+            self._listener_credential = updated
+            self._credential_generation = self.ctx.twitch_auth.credential_generation
+        if result in {"saved", "superseded"}:
             return
         save_error = "twitch refreshed credential could not be saved"
         if stop_on_failure:

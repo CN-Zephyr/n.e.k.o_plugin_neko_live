@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from plugin.plugins.neko_live.core.contracts import ViewerIdentity
@@ -33,7 +34,7 @@ async def test_clear_profiles_resets_current_store_file(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_clear_profiles_rejects_active_fallback_store(tmp_path, monkeypatch):
+async def test_clear_profiles_updates_persistently_owned_fallback_store(tmp_path, monkeypatch):
     custom = tmp_path / "custom_here"
     default = tmp_path / "default"
     store = ViewerStore(_FakePlugin(default), audit=None, dir_provider=lambda: str(custom))
@@ -47,19 +48,19 @@ async def test_clear_profiles_rejects_active_fallback_store(tmp_path, monkeypatc
     monkeypatch.setattr(store, "_write_json", _fail_custom)
 
     await store.upsert_identity(ViewerIdentity(uid="8", nickname="fallback viewer"))
-    fallback_file = default / "viewer_profiles.json"
+    fallback_file = Path(store.storage_status()["path"])
     assert fallback_file.exists()
 
     result = await store.clear_profiles()
 
-    assert result["cleared"] == 0
-    assert result["applied"] is False
+    assert result["cleared"] == 1
+    assert result["applied"] is True
     assert result["path"] == str(fallback_file)
     assert fallback_file.exists()
     restarted = ViewerStore(
         _FakePlugin(default), audit=None, dir_provider=lambda: str(custom)
     )
-    assert (await restarted.recent_profiles())[0]["uid"] == "8"
+    assert await restarted.recent_profiles() == []
 
 
 @pytest.mark.asyncio

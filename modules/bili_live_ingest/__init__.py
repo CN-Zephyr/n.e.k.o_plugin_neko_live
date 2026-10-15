@@ -120,7 +120,10 @@ class BiliLiveIngestModule(BaseModule):
             await self._stop_listening_locked()
             audit = self.ctx.audit if self.ctx else None
             credential = getattr(self.ctx, "bili_credential", None) if self.ctx else None
-            if credential is None:
+            from ...adapters.bili_auth_service import BiliAuthService
+
+            verified = credential is not None and await BiliAuthService._credential_is_valid(credential)
+            if not verified or getattr(self.ctx, "bili_credential", None) is not credential:
                 if audit is not None:
                     audit.record(
                         "live_listener_auth_required",

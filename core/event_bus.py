@@ -109,14 +109,15 @@ class EventBus:
         tasks = tuple(self._tasks)
         if not tasks:
             return
-        done, pending = await asyncio.wait(tasks, timeout=max(0.0, float(timeout)))
-        for task in pending:
-            task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
-        for task in done:
-            if not task.cancelled():
-                task.exception()
+        try:
+            await asyncio.wait(tasks, timeout=max(0.0, float(timeout)))
+        finally:
+            # The caller may itself time out before our drain deadline.
+            # Owned handlers must be cancelled on that path too.
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     # —— 向后兼容的观测别名（runtime 的 sandbox_result / result 仍走这俩；无订阅者即 no-op）——
     def on(self, event: str, listener: Callable[[Any], Any]) -> Callable[[], None]:

@@ -302,6 +302,32 @@ class TwitchAuthService:
             return _error("twitch credential save failed")
         return _public_status(refreshed, refreshed=True)
 
+    @property
+    def credential_generation(self) -> int:
+        return self._credential_generation
+
+    async def commit_refreshed_credential(
+        self, credential: dict[str, Any], expected: dict[str, Any], *, expected_generation: int
+    ) -> str:
+        """Commit a refresh only while its original credential owns the account."""
+        async with self._credential_mutation_lock:
+            if expected_generation != self._credential_generation:
+                return "superseded"
+            current = await self._credential_provider()
+            fields = ("access_token", "refresh_token", "client_id", "user_id")
+            if current is None or any(
+                not _secret(expected, key) or _secret(current, key) != _secret(expected, key)
+                for key in fields
+            ):
+                return "superseded"
+            if any(_secret(credential, key) != _secret(expected, key) for key in ("client_id", "user_id")):
+                return "superseded"
+            if not await self._credential_saver(credential):
+                return "failed"
+            self._credential_generation += 1
+            await self._credential_reloader()
+            return "saved"
+
     async def delete_credential(self) -> list[str]:
         """Revoke older credential work, then delete the encrypted credential."""
 

@@ -63,6 +63,11 @@ def record_result(runtime: Any, result: InteractionResult) -> None:
 
 
 def _note_live_memory(runtime: Any, payload: dict[str, Any]) -> None:
+    if getattr(getattr(runtime, "config", None), "viewer_memory_enabled", False) is not True:
+        bridge = getattr(runtime, "live_memory", None)
+        if bridge is not None:
+            bridge.discard()
+        return
     if str(payload.get("status") or "") != "pushed":
         return
     event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
@@ -83,7 +88,7 @@ def _note_live_memory(runtime: Any, payload: dict[str, Any]) -> None:
         uid=uid,
         nickname=str(event.get("nickname") or ""),
         user_text=text,
-        assistant_text=str(payload.get("output") or ""),
+        platform=runtime.live_provider.platform,
         guard_level=_event_guard_level(event),
         medal_level=_event_medal_level(event),
     )

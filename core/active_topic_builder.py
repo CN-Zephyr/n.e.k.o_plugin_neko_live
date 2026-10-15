@@ -58,6 +58,13 @@ def build_topic(
         or selector.reply_affordance_text(shape),
         "hint": hint,
     }
+    for field in ("interest", "relevance", "risk"):
+        value = chosen.get(field)
+        if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+            topic[field] = str(value)[:160]
+    evidence = chosen.get("evidence")
+    if isinstance(evidence, list):
+        topic["evidence"] = [item[:100] for item in evidence[:3] if isinstance(item, str)]
     remember_topic(selector, topic, key, title, intent, shape)
     return topic
 

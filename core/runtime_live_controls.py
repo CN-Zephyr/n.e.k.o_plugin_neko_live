@@ -6,7 +6,11 @@ import asyncio
 from typing import Any
 
 from .contracts import LiveConfig
-from .runtime_live_listener import refresh_live_room_context
+from .runtime_live_listener import (
+    begin_live_listener_operation,
+    is_current_live_listener_operation,
+    refresh_live_room_context,
+)
 from .runtime_live_target import release_live_target_if_scene_restored
 
 _CONNECT_ROOM_CONTEXT_TIMEOUT_SECONDS = 4.0
@@ -71,6 +75,9 @@ async def clear_viewer_profiles(runtime: Any) -> dict[str, Any]:
             detail=result,
         )
         raise OSError("viewer profile store could not be cleared")
+    bridge = getattr(runtime, "live_memory", None)
+    if bridge is not None:
+        bridge.discard()
     runtime.pipeline.clear_dry_run_session_state()
     runtime.audit.record("viewer_profiles_clear", "viewer profiles cleared", detail=result)
     return result
@@ -89,6 +96,9 @@ async def delete_viewer_profile(runtime: Any, uid: str) -> dict[str, Any]:
     clear_uid = getattr(getattr(runtime.pipeline, "session", None), "clear_uid", None)
     if callable(clear_uid):
         clear_uid(str(result.get("uid") or ""))
+    bridge = getattr(runtime, "live_memory", None)
+    if bridge is not None:
+        bridge.discard(str(result.get("uid") or ""))
     runtime.audit.record("viewer_profile_delete", "viewer profile deleted", detail=result)
     return result
 
@@ -99,6 +109,9 @@ async def reset_viewer_impression(runtime: Any, uid: str) -> dict[str, Any]:
         raise ValueError("viewer profile was not found")
     if not result.get("applied"):
         raise OSError("viewer profile store could not be updated")
+    bridge = getattr(runtime, "live_memory", None)
+    if bridge is not None:
+        bridge.discard(str(uid).strip())
     runtime.audit.record("viewer_profile_impression_reset", "viewer profile impression reset", detail=result)
     return result
 
@@ -187,7 +200,7 @@ def _public_optional_text(value: Any) -> str:
     return " ".join(value.split()).strip()[:200]
 
 
-async def set_live_room(runtime: Any, room_id: Any) -> LiveConfig:
+async def set_live_room(runtime: Any, room_id: Any, *, operation_id: int | None = None) -> LiveConfig:
     normalized = runtime.live_provider.normalize_room_ref(room_id)
     if not normalized.get("ok"):
         raise ValueError(str(normalized.get("message") or "room_ref must be configured"))
@@ -195,7 +208,7 @@ async def set_live_room(runtime: Any, room_id: Any) -> LiveConfig:
     if normalized.get("platform") == "bilibili":
         update["live_room_id"] = int(normalized.get("room_id") or 0)
     old_room_ref = runtime.live_provider.configured_room_ref()
-    config = await runtime.update_config(update)
+    config = await runtime.update_config(update, operation_id=operation_id)
     if old_room_ref != str(normalized.get("room_ref") or "") and not runtime.live_provider.is_listening():
         runtime.live_connection_state = "disconnected"
         runtime.live_connection_auth_mode = "unknown"
@@ -224,24 +237,35 @@ async def connect_live_room(
     if not normalized.get("ok"):
         raise ValueError(str(normalized.get("message") or "room_ref must be configured before connecting"))
     target_room_ref = str(normalized.get("room_ref") or "")
+    operation_id = begin_live_listener_operation(runtime)
     auth_mode = await _resolve_connection_auth_mode(
         runtime,
         platform=str(normalized.get("platform") or runtime.live_provider.platform),
+        operation_id=operation_id,
     )
     previous_auth_mode = getattr(runtime, "live_connection_auth_mode", "unknown")
+    if not is_current_live_listener_operation(runtime, operation_id) or getattr(runtime, "_stopping", False):
+        return runtime.live_connection_snapshot()
     runtime.live_connection_auth_mode = auth_mode
     if target_room_ref != runtime.live_provider.configured_room_ref():
         try:
-            await runtime.set_live_room(target_room_ref)
+            await runtime.set_live_room(target_room_ref, operation_id=operation_id)
         except Exception:
-            runtime.live_connection_auth_mode = previous_auth_mode
+            if is_current_live_listener_operation(runtime, operation_id):
+                runtime.live_connection_auth_mode = previous_auth_mode
             raise
+        if not is_current_live_listener_operation(runtime, operation_id):
+            return runtime.live_connection_snapshot()
         runtime.live_connection_auth_mode = auth_mode
     if runtime.live_provider.is_listening() and target_room_ref == runtime.live_provider.configured_room_ref():
         return runtime.live_connection_snapshot()
     await _refresh_connect_room_context(runtime, target_room_ref)
+    if not is_current_live_listener_operation(runtime, operation_id) or getattr(runtime, "_stopping", False):
+        return runtime.live_connection_snapshot()
     runtime.config.live_enabled = True
-    started = await runtime._start_live_listener(target_room_ref)
+    started = await runtime._start_live_listener(target_room_ref, operation_id=operation_id)
+    if not is_current_live_listener_operation(runtime, operation_id):
+        return runtime.live_connection_snapshot()
     if not started:
         runtime.live_connection_auth_mode = "unknown"
     # Preserve the preceding window in the boundary summary, then start a fresh
@@ -295,6 +319,7 @@ async def _resolve_connection_auth_mode(
     runtime: Any,
     *,
     platform: str,
+    operation_id: int | None = None,
 ) -> str:
     if platform == "twitch":
         try:
@@ -305,15 +330,13 @@ async def _resolve_connection_auth_mode(
                 "logged_in": False,
                 "message": f"twitch account status could not be verified: {type(exc).__name__}",
             }
+        if operation_id is not None and not is_current_live_listener_operation(runtime, operation_id):
+            return "unknown"
         if status.get("logged_in") is True:
             return "authenticated"
-        stop_error = ""
-        if runtime.live_provider.is_listening():
-            try:
-                await runtime._stop_live_listener(mark_disabled=True)
-            except Exception as exc:
-                stop_error = type(exc).__name__
-                runtime._accepting_live_events = False
+        owns_state, stop_error = await _stop_listener_for_auth_failure(runtime, operation_id)
+        if not owns_state:
+            return "unknown"
         runtime.config.live_enabled = False
         runtime.live_connection_state = "auth_required"
         runtime.live_connection_auth_mode = "unknown"
@@ -328,10 +351,6 @@ async def _resolve_connection_auth_mode(
     if platform != "bilibili":
         return "provider_managed"
 
-    credential = getattr(runtime, "bili_credential", None)
-    if credential is not None and str(getattr(credential, "sessdata", "") or "").strip():
-        return "authenticated"
-
     try:
         candidate = await runtime.bili_login_status()
         status = candidate if isinstance(candidate, dict) else {}
@@ -340,19 +359,17 @@ async def _resolve_connection_auth_mode(
             "logged_in": False,
             "message": f"account status could not be verified: {type(exc).__name__}",
         }
+    if operation_id is not None and not is_current_live_listener_operation(runtime, operation_id):
+        return "unknown"
     if (
         status.get("logged_in") is True
         and getattr(runtime, "bili_credential", None) is not None
     ):
         return "authenticated"
 
-    stop_error = ""
-    if runtime.live_provider.is_listening():
-        try:
-            await runtime._stop_live_listener(mark_disabled=True)
-        except Exception as exc:
-            stop_error = type(exc).__name__
-            runtime._accepting_live_events = False
+    owns_state, stop_error = await _stop_listener_for_auth_failure(runtime, operation_id)
+    if not owns_state:
+        return "unknown"
     runtime.config.live_enabled = False
     runtime.live_connection_state = "auth_required"
     runtime.live_connection_auth_mode = "unknown"
@@ -367,6 +384,21 @@ async def _resolve_connection_auth_mode(
         },
     )
     raise ValueError("Bilibili login is required; sign in and try again")
+
+
+async def _stop_listener_for_auth_failure(runtime: Any, operation_id: int | None) -> tuple[bool, str]:
+    if not runtime.live_provider.is_listening():
+        return True, ""
+    expected_stop_operation = operation_id + 1 if operation_id is not None else None
+    error = ""
+    try:
+        await runtime._stop_live_listener(mark_disabled=True)
+    except Exception as exc:
+        error = type(exc).__name__
+    owns_state = expected_stop_operation is None or is_current_live_listener_operation(runtime, expected_stop_operation)
+    if owns_state and error:
+        runtime._accepting_live_events = False
+    return owns_state, error
 
 
 async def disconnect_live_room(runtime: Any) -> dict[str, Any]:

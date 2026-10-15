@@ -15,6 +15,8 @@ async def topic_candidates(selector: Any) -> list[dict[str, Any]]:
     recent_skip_reason = str(
         selector._active_engagement_recent_topic_skip_reason or ""
     ).strip()
+    if recent_skip_reason == "single_viewer_flood":
+        live_thread = []
     trending = await bili_trending_topic_candidates(selector)
     trending_skip_reason = str(
         selector._active_engagement_recent_topic_skip_reason or ""

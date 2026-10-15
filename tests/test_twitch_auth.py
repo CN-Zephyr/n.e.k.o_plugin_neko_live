@@ -810,3 +810,38 @@ async def test_runtime_twitch_store_is_namespaced_encrypted_and_logout_clears_ca
     assert runtime.twitch_credential is None
     assert not (tmp_path / "twitch_credential.enc").exists()
     assert not (tmp_path / "twitch_credential.key").exists()
+
+
+@pytest.mark.asyncio
+async def test_late_refresh_waiting_behind_logout_cannot_restore_credentials():
+    expected = {"access_token": "old", "refresh_token": "refresh", "client_id": "clientid123", "user_id": "42"}
+    store = _Store(expected)
+    service = _service(store, _Http([]))
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def blocked_delete():
+        entered.set()
+        await release.wait()
+        return await store.delete()
+
+    service._credential_deleter = blocked_delete
+    logout = asyncio.create_task(service.delete_credential())
+    await entered.wait()
+    refresh = asyncio.create_task(service.commit_refreshed_credential(
+        {**expected, "access_token": "late"}, expected, expected_generation=0,
+    ))
+    release.set()
+    await logout
+    assert await refresh == "superseded"
+    assert store.credential is None and not store.saved
+
+
+@pytest.mark.asyncio
+async def test_refresh_cannot_cross_reauthorization_with_same_token_values():
+    expected = {"access_token": "old", "refresh_token": "refresh", "client_id": "clientid123", "user_id": "42"}
+    store = _Store(expected)
+    service = _service(store, _Http([]))
+    await service.delete_credential()
+    await store.save(expected)
+    assert await service.commit_refreshed_credential({**expected, "access_token": "late"}, expected, expected_generation=0) == "superseded"
+    assert store.credential == expected

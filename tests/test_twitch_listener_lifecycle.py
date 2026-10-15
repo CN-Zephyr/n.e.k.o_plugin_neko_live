@@ -194,7 +194,7 @@ def _context(module: TwitchLiveIngestModule, store: _Store) -> SimpleNamespace:
     )
 
     async def reload_credential() -> None:
-        return None
+        context.twitch_credential = dict(store.saved[-1]) if store.saved else credential
 
     safety_updates: list[bool] = []
     context = SimpleNamespace(
@@ -222,6 +222,19 @@ def _context(module: TwitchLiveIngestModule, store: _Store) -> SimpleNamespace:
         live_events=_Resettable(),
         live_support_events=_Resettable(),
         runtime_timeline=[],
+    )
+    from plugin.plugins.neko_live.adapters.twitch_auth_service import TwitchAuthService
+
+    async def provide_credential():
+        return context.twitch_credential
+
+    async def delete_credential():
+        context.twitch_credential = None
+        return []
+
+    context.twitch_auth = TwitchAuthService(
+        credential_provider=provide_credential, credential_saver=store.save,
+        credential_deleter=delete_credential, credential_reloader=reload_credential,
     )
     restore_calls: list[bool] = []
 
@@ -634,3 +647,35 @@ def test_twitch_listener_error_never_exposes_exception_message() -> None:
 
     assert message == "twitch listener failed: RuntimeError"
     assert "must-not-leak" not in message
+
+
+@pytest.mark.asyncio
+async def test_subscription_revocation_stops_runner_and_runtime_session():
+    clients = []
+    def factory(**callbacks):
+        client = _Client(**callbacks)
+        clients.append(client)
+        return client
+    module = TwitchLiveIngestModule(client_factory=factory)
+    module.ctx = _context(module, _Store())
+    assert await module.start_listening("target_channel")
+    runner = module._client_task
+    await clients[0].callbacks["on_subscription_lost"](SimpleNamespace(type="channel.chat.message"))
+    assert runner.done() and clients[0].closed.is_set()
+    assert not module.is_listening()
+    assert module.ctx.live_connection_state == "auth_required"
+    assert not module.ctx._accepting_live_events
+
+
+@pytest.mark.asyncio
+async def test_twitch_sdk_migration_close_is_not_terminal(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from plugin.plugins.neko_live.modules.twitch_live_ingest.twitch_client import NekoTwitchClient
+    client = object.__new__(NekoTwitchClient)
+    callback = AsyncMock()
+    client._neko_on_subscription_lost = callback
+    await client.event_websocket_closed(SimpleNamespace(socket=SimpleNamespace(_closed=False), reassociate=False))
+    callback.assert_not_awaited()
+    await client.event_websocket_closed(SimpleNamespace(socket=SimpleNamespace(_closed=True), reassociate=False))
+    callback.assert_awaited_once()

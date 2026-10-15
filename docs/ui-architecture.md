@@ -94,3 +94,8 @@ UI 只读取宿主投影的 dashboard state，并通过声明权限内的 action
 - action 成功与随后 dashboard 刷新失败必须分开呈现：操作已经成功时不得改报为失败。连续刷新失败应显示“状态可能过期”和最后成功刷新时间，手动刷新也必须走同一状态跟踪入口。
 - 面板日期和时间必须使用插件当前 locale，而不是浏览器默认语言；用户可见的新状态文案仍需同步全部 8 个 locale。
 - 内部胶囊式子页必须实现标准 tab 键盘语义：当前项进入 Tab 顺序，并支持方向键、Home、End 切换和聚焦。条件移除开发者页时，外层 Tabs 必须回到有效选中项。
+
+
+## Reproducible compatibility panel gate
+
+`tools/build_panel_compat.py` inlines the five authored modules and collects their UI-kit imports. Run it through `uv run python` from the host environment, then run it with `--check`; pytest also checks exact generated parity. Never patch `panel_compat.tsx` by hand. `node tools/check_panel.mjs <host-checkout>` uses that host's installed Sucrase, TypeScript declarations and UI-kit runtime to typecheck/compile all six sources and execute search interactions in happy-dom. The separate Hosted panel workflow installs only the host's locked developer toolchain and runs this check. A successful search and a parent rerender must not create additional requests; changing the query must issue one new request. Successful profile deletion/reset refreshes the active search exactly once, so stale rows do not survive a completed maintenance action. Profile governance/search requires both `ui.action` metadata and dashboard action projection, with the existing confirmation UI retained.

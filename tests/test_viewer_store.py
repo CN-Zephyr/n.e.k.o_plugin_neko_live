@@ -135,10 +135,10 @@ async def test_custom_write_fallback_is_used_for_followup_reads(tmp_path, monkey
     await store.mark_roasted("8", "fallback result")
 
     assert not (custom / "viewer_profiles.json").exists()
-    assert (default / "viewer_profiles.json").exists()
+    assert store._fallback_file(custom / "viewer_profiles.json").exists()
     assert await store.has_roasted("8") is True
     status = store.storage_status()
-    assert status["path"] == str(default / "viewer_profiles.json")
+    assert status["path"] == str(store._fallback_file(custom / "viewer_profiles.json"))
     assert status["dir"] == str(default)
     assert status["using_custom"] is False
     assert status["fallback_active"] is True
@@ -637,3 +637,51 @@ async def test_corrupt_file_that_cannot_be_quarantined_is_not_overwritten(
     monkeypatch.setattr(os, "replace", refuse_quarantine)
     assert await store.mark_roasted("1001", "roast") is False
     assert file.read_text(encoding="utf-8") == "[1, 2, 3]"
+
+
+@pytest.mark.asyncio
+async def test_custom_store_fallback_survives_restart(tmp_path, monkeypatch):
+    custom, default = tmp_path / "custom", tmp_path / "default"
+    store = ViewerStore(_FakePlugin(default), None, lambda: str(custom))
+    await store.upsert_identity(ViewerIdentity(uid="1", nickname="first"))
+    original = store._write_json
+    monkeypatch.setattr(store, "_write_json", lambda file, data: False if file.parent == custom else original(file, data))
+    await store.upsert_identity(ViewerIdentity(uid="2", nickname="second"))
+    restarted = ViewerStore(_FakePlugin(default), None, lambda: str(custom))
+    assert {p["uid"] for p in await restarted.recent_profiles()} == {"1", "2"}
+    await restarted.upsert_identity(ViewerIdentity(uid="3", nickname="third"))
+    again = ViewerStore(_FakePlugin(default), None, lambda: str(custom))
+    assert {p["uid"] for p in await again.recent_profiles()} == {"1", "2", "3"}
+
+
+@pytest.mark.asyncio
+async def test_custom_fallbacks_do_not_overwrite_default_or_other_sources(tmp_path, monkeypatch):
+    default = tmp_path / "default"
+    default_store = ViewerStore(_FakePlugin(default), None)
+    await default_store.upsert_identity(ViewerIdentity(uid="default", nickname="default"))
+    stores = []
+    for name in ("A", "B"):
+        custom = tmp_path / name
+        store = ViewerStore(_FakePlugin(default), None, lambda custom=custom: str(custom))
+        await store.upsert_identity(ViewerIdentity(uid=name, nickname=name))
+        original = store._write_json
+        monkeypatch.setattr(store, "_write_json", lambda file, data, custom=custom, original=original: False if file.parent == custom else original(file, data))
+        await store.upsert_identity(ViewerIdentity(uid=name+"2", nickname=name+"2"))
+        stores.append((custom, name))
+    assert {p["uid"] for p in await ViewerStore(_FakePlugin(default), None).recent_profiles()} == {"default"}
+    for custom, name in stores:
+        restarted = ViewerStore(_FakePlugin(default), None, lambda custom=custom: str(custom))
+        assert {p["uid"] for p in await restarted.recent_profiles()} == {name, name+"2"}
+
+
+@pytest.mark.asyncio
+async def test_legacy_fallback_marker_migrates_without_overwriting_shared_file(tmp_path):
+    custom, default = tmp_path / "custom", tmp_path / "default"
+    store = ViewerStore(_FakePlugin(default), None, lambda: str(custom))
+    legacy = default / "viewer_profiles.json"
+    store._write_json(legacy, {"old": {"uid": "old", "nickname": "old"}})
+    store._write_json(store._fallback_marker(custom / "viewer_profiles.json"), {"source": str((custom / "viewer_profiles.json").resolve()), "active": True})
+    await store.upsert_identity(ViewerIdentity(uid="new", nickname="new"))
+    assert set(json.loads(legacy.read_text(encoding="utf-8"))) == {"old"}
+    restarted = ViewerStore(_FakePlugin(default), None, lambda: str(custom))
+    assert {p["uid"] for p in await restarted.recent_profiles()} == {"old", "new"}

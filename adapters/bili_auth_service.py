@@ -61,37 +61,15 @@ class BiliAuthService:
                     self.logger.debug("清理二维码会话失败", exc_info=True)
 
     async def _check_existing_login(self) -> Optional[Dict[str, Any]]:
-        credential = await self._credential_provider()
-        if not credential:
+        status = await self.check_credential()
+        if status.get("logged_in") is not True:
             return None
-        uid_text = str(getattr(credential, "dedeuserid", "") or "")
-        try:
-            uid = int(uid_text or 0)
-            if uid <= 0:
-                if not await self._credential_is_valid(credential):
-                    return None
-                return {
-                    "status": "already_logged_in",
-                    "message": "B站凭据有效；账号资料暂不可用。",
-                    "uid": uid_text,
-                    "username": "",
-                }
-            info = await self._fetch_user_info(uid, credential)
-            return {
-                "status": "already_logged_in",
-                "message": "已登录B站，无需重复登录",
-                "uid": uid_text,
-                "username": info.get("name", ""),
-            }
-        except Exception:
-            if await self._credential_is_valid(credential):
-                return {
-                    "status": "already_logged_in",
-                    "message": "B站凭据有效；账号资料暂不可用。",
-                    "uid": uid_text,
-                    "username": "",
-                }
-            return None
+        return {
+            "status": "already_logged_in",
+            "message": "已登录B站，无需重复登录" if status.get("username") else "B站凭据有效；账号资料暂不可用。",
+            "uid": status.get("uid", ""),
+            "username": status.get("username", ""),
+        }
 
     async def login(self) -> Dict[str, Any]:
         try:
@@ -100,14 +78,6 @@ class BiliAuthService:
                 timeout=_EXISTING_LOGIN_CHECK_TIMEOUT_SECONDS,
             )
         except TimeoutError:
-            credential = await self._credential_provider()
-            if _has_local_sessdata(credential):
-                return {
-                    "status": "already_logged_in",
-                    "message": "B站凭据有效；账号资料暂不可用。",
-                    "uid": str(getattr(credential, "dedeuserid", "") or ""),
-                    "username": "",
-                }
             existing = None
         if existing:
             return existing
@@ -220,6 +190,8 @@ class BiliAuthService:
         if not credential:
             return {"logged_in": False, "message": "未登录，请调用 bili_login 进行扫码登录"}
         uid = str(getattr(credential, "dedeuserid", "") or "")
+        if not await self._credential_is_valid(credential):
+            return {"logged_in": False, "message": "credential could not be verified; please login again"}
         try:
             info = await self._fetch_user_info(int(uid or 0), credential)
             return {
@@ -229,14 +201,12 @@ class BiliAuthService:
                 "message": "凭证有效",
             }
         except Exception:
-            if await self._credential_is_valid(credential):
-                return {
-                    "logged_in": True,
-                    "uid": uid,
-                    "username": "",
-                    "message": "credential valid; account profile temporarily unavailable",
-                }
-            return {"logged_in": False, "message": "credential may be invalid; please login again"}
+            return {
+                "logged_in": True,
+                "uid": uid,
+                "username": "",
+                "message": "credential valid; account profile temporarily unavailable",
+            }
 
     @staticmethod
     async def _fetch_user_info(uid: int, credential: object) -> Dict[str, Any]:
@@ -252,19 +222,13 @@ class BiliAuthService:
     async def _credential_is_valid(credential: object) -> bool:
         checker = getattr(credential, "check_valid", None)
         if not callable(checker):
-            return _has_local_sessdata(credential)
+            return False
         try:
             return await asyncio.wait_for(
                 checker(),
                 timeout=_CREDENTIAL_VALIDITY_TIMEOUT_SECONDS,
             ) is True
         except TimeoutError:
-            return _has_local_sessdata(credential)
+            return False
         except Exception:
             return False
-
-
-def _has_local_sessdata(credential: object | None) -> bool:
-    if credential is None:
-        return False
-    return bool(str(getattr(credential, "sessdata", "") or "").strip())

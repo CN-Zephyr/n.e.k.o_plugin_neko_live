@@ -6,7 +6,7 @@ This store slice keeps viewer profiles, audit events, and encrypted platform cre
 
 ## Ownership And Contracts
 
-- `stores/viewer_store.py` is the only writer for `viewer_profiles.json`. It sanitizes loaded records, serializes writes with an async lock, uses atomic replacement, and does not call the memory server or keep a raw danmaku archive. Longer recall of a viewer's own words goes through `adapters/live_memory_bridge.py` into N.E.K.O `scoped_history`.
+- `stores/viewer_store.py` is the only writer for `viewer_profiles.json`. It sanitizes loaded records, serializes writes with an async lock, uses atomic replacement, and does not call the memory server. It retains bounded, filtered viewer utterances in impression fields; this is not a full chat archive. Longer recall of a viewer's own words goes through `adapters/live_memory_bridge.py` into N.E.K.O `scoped_history`.
 - `stores/audit_store.py` is the only audit-event sink. It bounds text, nesting, and list sizes and redacts sensitive text and structured sensitive keys.
 - `stores/credential_store.py` owns Fernet-encrypted credential files. The default `bili` namespace preserves legacy filenames while other providers use strictly validated, isolated filenames and field allowlists. Audit identity uses `DedeUserID` for Bili fields and `uid` for provider field sets that expose it; missing identities are recorded explicitly as `unidentified`, never as an empty account id.
 - `core/viewer_preferences.py` owns preference inference and the public profile projection returned by `recent_profiles()`.
@@ -19,13 +19,13 @@ Viewer data is derived from compact identity and interaction metadata after norm
 
 Viewer profiles contain local nicknames, avatar URLs, counters, compact preference summaries, and recent output summaries. Audit records must never retain cookies, tokens, authorization values, or provider credentials. Credential plaintext exists only in memory during encrypted save/load and must never enter audit, logs, config, or UI.
 
-Personalized viewer memory defaults to enabled. The switch controls only safe-derived preference learning and prompt use; basic identity, interaction counters, first-roast state, and same-session anti-repeat remain active. Profiles expire after 90 days of inactivity and are pruned lazily at startup and during normal store traffic. The store never keeps raw danmaku text or adds a background cleanup loop.
+Personalized viewer memory defaults to enabled. The switch controls local preference/utterance learning, personalized prompt use, and scoped-history collection/submission; basic identity, interaction counters, first-roast state, and same-session anti-repeat remain active. Profiles expire after 90 days of inactivity and are pruned lazily at startup and during normal store traffic. Local impression fields can retain selected original words. Host-memory retention is governed by the host, independently of the local 90-day policy. No background cleanup loop is added.
 
 ## Decision Point: Viewer Memory V1
 
 - **Approved product behavior:** default on; fixed 90-day retention; ordinary-user toggle, clear-all, reset-impression, and delete-profile controls.
-- **Cost budget:** bounded local JSON I/O and existing prompt tokens only when enabled. No background timer, network request, dependency, raw-message archive, `watch_time`, or `contribution_rank`.
-- **Action semantics:** reset removes only derived impressions and preserves identity, counts, and first-roast state; delete removes the complete persistent UID record and its session claim; clear-all affects profiles only, not summaries, sandbox results, or safety queues.
+- **Cost budget:** bounded local JSON I/O and existing prompt tokens when enabled. The existing scoped-history bridge also sends local HTTP requests to the host memory service; extraction cost is determined by the host. No new model API, dependency, timer, `watch_time`, or `contribution_rank` is introduced by the review fixes.
+- **Action semantics:** reset removes local impressions and preserves identity, counts, and first-roast state; delete removes the complete persistent UID record and its session claim; clear-all affects local profiles and unsent memory batches, not summaries, sandbox results, or safety queues. Delete/reset cancel unsent batches for the UID. None of these actions purges memory already accepted by the host.
 - **Rejected alternatives:** disabling the basic profile store with personalization would break first-roast dedup; background retention jobs add idle cost; retaining raw history increases privacy and migration risk.
 - **Degrade / rollback:** setting `viewer_memory_enabled=false` immediately stops learning and prompt use while preserving the basic live contract. Existing JSON remains schema-compatible if the UI controls are rolled back.
 - **Evidence:** config projection, disabled-learning, prompt gating, 90-day pruning, reset/delete/clear, panel parity, locale, and full plugin gates cover this decision.
@@ -46,6 +46,17 @@ Tests cover JSON persistence and fallback, disabled-memory behavior, 90-day rete
 
 - Viewer profiles are local plugin data and do not provide cross-device synchronization.
 - Profile mutations still read and atomically rewrite the canonical JSON file. The bounded dashboard projection removes repeated read/parse work but does not turn JSON into an indexed database; very large 90-day profile sets may still add latency to an individual selected interaction. A storage-engine migration remains a separate decision.
-- Ordinary profile updates degrade to the plugin data directory when a configured viewer directory cannot be written. Destructive maintenance actions report `applied: false` instead of claiming fallback-only persistence while a stale configured source remains authoritative.
+- Ordinary profile updates degrade to the plugin data directory when a configured viewer directory cannot be written. A durable ownership marker binds fallback selection to the configured source so restarts use the latest database. Each custom source has its own hashed fallback data file; an unclaimed custom path never imports or overwrites the ordinary default database. Earlier explicit markers migrate to the separate file on the next write, retaining the shared original for recovery. Old pre-marker fallback files remain untouched and require explicit recovery when their source is unknown. Maintenance writes to that authoritative fallback; marker/write failures fail closed. Restoring the old code requires migrating the fallback back to the configured path first to avoid reading stale data.
 - Missing or undecryptable credential files degrade to a logged-out state.
 - Rolling back the maintenance APIs leaves existing profile JSON compatible. Rolling back provider namespaces must retain the default `bili_credential.*` files; other namespace files can remain unused without exposing plaintext.
+
+
+## Scoped Memory Lifecycle
+
+`LiveMemoryBridge` collects only sanitized viewer text from successful live submissions. A `queued_to_neko(...)` receipt is never an assistant turn. The bridge binds target role, provider platform, session generation and UID at collection time. It uses participant subjects such as `twitch:123`, without a second Bilibili prefix. This provides write isolation, not automatic cross-platform identity binding or guaranteed host recall.
+
+Collection and HTTP submission both check `viewer_memory_enabled`. Disabling discards queued batches and cancels owned requests; it cannot retract requests already accepted by the host. Batches contain six viewer turns. Capacity is bounded to 256 pending scopes, 12 turns per scope, eight owned requests and 1024 successful idempotency keys. Excess pending scopes evict the oldest unsubmitted scope; failed requests retain a bounded tail for a later flush. No periodic retry loop is added. Shutdown stops ingestion first, drains for at most two seconds, then cancels and awaits owned requests.
+
+### Decision Points for further memory changes
+
+The current review fixes restore the switch and ownership contract without adding model calls. Keep local deletion and host deletion explicitly separate until a host-supported scoped deletion API and identity authorization are agreed. Automatic fact extraction, cross-platform identity linking and independent retention changes require a separate cost/privacy decision. Rollback can disable personalized memory; preserve the fallback ownership marker and authoritative JSON when reverting store code.

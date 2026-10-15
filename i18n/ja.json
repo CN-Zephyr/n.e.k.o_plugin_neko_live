@@ -390,7 +390,7 @@
   "panel.settings.viewerMemoryLabel": "視聴者のパーソナライズ記憶",
   "panel.settings.viewerMemoryEnabledHint": "NEKO は安全に推定した興味や対話の好みを使い、常連視聴者へより自然に応答します。",
   "panel.settings.viewerMemoryDisabledHint": "パーソナライズ印象の蓄積と利用を停止しました。同じ配信内の初回評価の重複防止は有効です。",
-  "panel.settings.viewerMemoryRetentionHint": "プロフィールは最後の対話から 90 日後に自動削除され、元コメントは保存されません。",
+  "panel.settings.viewerMemoryRetentionHint": "ローカルプロフィールは最後の交流から90日後に削除されます。有効時は選別した視聴者の発言を保存し、ホストの長期記憶へ送信します。無効化すると新規学習が止まります。ローカル削除ではホストの記憶は消えません。",
   "panel.settings.localStorageLabel": "視聴者プロフィール",
   "panel.settings.localStorageHint": "この端末だけに保存され、元コメント、Cookie、アカウント認証情報はアップロードされません。",
   "panel.settings.storageReady": "保存は正常",

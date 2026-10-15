@@ -18,7 +18,7 @@ keywords = [
     "观众",
 ]
 passive = true
-version = "0.2.5"
+version = "0.2.7"
 entry = "plugin.plugins.neko_live:NekoLivePlugin"
 
 [plugin.author]
@@ -34,6 +34,9 @@ locales_dir = "i18n"
 
 [plugin.ui]
 enabled = true
+# The live panel is hosted TSX. A static/index.html makes the host show
+# "打开界面", which only opened a blank page.
+expose_legacy_static_panel = false
 
 [[plugin.ui.panel]]
 id = "main"

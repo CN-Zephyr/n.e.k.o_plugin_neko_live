@@ -198,3 +198,51 @@ def test_shape_guard_keeps_ambient_danmaku_factual_hint(
     assert "recent room remark" in topic["hint"]
     assert "playful tease" in topic["hint"]
     assert used == [7]
+
+
+@pytest.mark.asyncio
+async def test_empty_trending_results_remain_cached_across_selections():
+    runtime = FakeRuntime()
+    calls = []
+    async def fetch(limit=6):
+        calls.append(limit)
+        return {"success": True, "videos": []}
+    runtime._active_engagement_topic_fetcher = fetch
+    selector = ActiveTopicSelector(runtime)
+    await selector.select_topic()
+    await selector.select_topic()
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_thread_flood_gate_and_evidence_survive_selection_and_delivery_budget():
+    from plugin.plugins.neko_live.adapters.neko_dispatcher import (
+        _append_plugin_output_contract,
+        _prepend_live_delivery_boundary,
+    )
+    from plugin.plugins.neko_live.core.contracts import ViewerEvent, ViewerIdentity, ViewerProfile
+    from plugin.plugins.neko_live.core.prompt_delivery import fit_live_callback_prompt
+    from plugin.plugins.neko_live.modules.active_engagement.module import ActiveEngagementModule
+    from utils.tokenize import count_tokens
+    runtime = FakeRuntime()
+    runtime.recent_results.extend([
+        {"status": "pushed", "response_module": "danmaku_response", "event": {"source": "live_danmaku", "uid": "1", "danmaku_text": text}}
+        for text in ("今天的奶茶好喝", "奶茶要加珍珠", "这杯奶茶不错")
+    ])
+    selector = ActiveTopicSelector(runtime)
+    flooded = await selector.select_topic()
+    assert flooded["source"] not in {"live_thread", "recent_danmaku"}
+    assert flooded["recent_topic_skip_reason"] == "single_viewer_flood"
+    runtime.recent_results[-1]["event"]["uid"] = "2"
+    runtime._active_engagement_recent_topic_keys.clear()
+    topic = await selector.select_topic()
+    assert topic["source"] == "live_thread"
+    assert all(key in topic for key in ("interest", "relevance", "risk", "evidence"))
+    module = ActiveEngagementModule()
+    event = ViewerEvent(uid="active", nickname="room", source="active_engagement", live_mode="solo_stream", raw={"topic_material": topic})
+    request = module.build_request(event, ViewerIdentity(uid="active", nickname="room"), ViewerProfile(uid="active", nickname="room"))
+    from plugin.plugins.neko_live.adapters.output_contract_bridge import metadata_for_request
+    text = _append_plugin_output_contract(_prepend_live_delivery_boundary(request.prompt_text, request), metadata=metadata_for_request(request), plugin=SimpleNamespace())
+    delivered = fit_live_callback_prompt(text)
+    assert count_tokens(delivered) <= 1000
+    assert topic["evidence"][0] in delivered

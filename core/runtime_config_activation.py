@@ -38,6 +38,10 @@ def _has_configured_live_target(config: LiveConfig) -> bool:
 
 def activate_config(runtime: Any, config: LiveConfig) -> LiveConfig:
     runtime.config = config
+    if not config.viewer_memory_enabled:
+        bridge = getattr(runtime, "live_memory", None)
+        if bridge is not None:
+            bridge.discard()
     runtime.audit.set_limit(max(50, runtime.config.recent_limit * 4))
     runtime.recent_results = deque(
         runtime.recent_results,

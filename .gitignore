@@ -11,3 +11,7 @@ build/
 store.db
 .env
 .DS_Store
+
+plugin.toml.lock
+.codex-live-screen.png
+ui/node_modules/

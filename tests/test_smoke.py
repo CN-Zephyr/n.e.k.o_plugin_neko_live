@@ -29,6 +29,8 @@ def test_neko_live_manifest_smoke():
     assert manifest["neko_live"]["live_room_id"] == 0
     assert manifest["neko_live"]["live_mode"] == "co_stream"
     panel_entry = manifest["plugin"]["ui"]["panel"][0]["entry"]
+    assert manifest["plugin"]["ui"]["expose_legacy_static_panel"] is False
+    assert not (root / "static" / "index.html").exists()
     assert panel_entry == "ui/panel_compat.tsx"
     assert (root / panel_entry).is_file()
     assert (root / "ui" / "panel.tsx").is_file()
@@ -999,14 +1001,11 @@ def test_trigger_active_engagement_is_exposed_as_hosted_ui_action():
     assert meta["refresh_context"] is True
 
 
-def test_viewer_profile_destructive_entries_are_not_exposed_as_hosted_ui_actions():
-    meta = getattr(NekoLivePlugin.clear_viewer_profiles, UI_ACTION_META_ATTR, None)
-    delete_meta = getattr(NekoLivePlugin.delete_viewer_profile, UI_ACTION_META_ATTR, None)
-    reset_meta = getattr(NekoLivePlugin.reset_viewer_impression, UI_ACTION_META_ATTR, None)
-
-    assert meta is None
-    assert delete_meta is None
-    assert reset_meta is None
+def test_viewer_profile_entries_are_authorized_hosted_ui_actions():
+    for name in ("clear_viewer_profiles", "search_viewer_profiles", "delete_viewer_profile", "reset_viewer_impression"):
+        meta = getattr(getattr(NekoLivePlugin, name), UI_ACTION_META_ATTR, None)
+        assert meta is not None and meta["id"] == name
+        assert meta["refresh_context"] is True
 
 
 def test_douyin_cookie_actions_are_exposed_as_hosted_ui_actions():
