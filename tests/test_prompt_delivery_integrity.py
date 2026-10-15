@@ -5,7 +5,6 @@ from __future__ import annotations
 import builtins
 
 import pytest
-
 from plugin.plugins.neko_live.core.prompt_delivery import (
     HOST_CALLBACK_TOKEN_BUDGET,
     PromptBudgetExceeded,
@@ -18,7 +17,6 @@ from plugin.plugins.neko_live.modules._prompt_rules import (
     short_reply_rules,
 )
 from utils.tokenize import count_tokens
-
 
 _HEADER = "[NEKO Live danmaku response]\ndanmaku: hi"
 _CONTRACT = "NEKO Live short output contract:\n- one line"

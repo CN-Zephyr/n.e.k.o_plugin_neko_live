@@ -3,7 +3,6 @@
 from types import SimpleNamespace
 
 import pytest
-
 from plugin.plugins.neko_live.adapters.neko_dispatcher import NekoDispatcher
 from plugin.plugins.neko_live.core.active_topic_selector import ActiveTopicSelector
 from plugin.plugins.neko_live.core.contracts import ViewerEvent, ViewerIdentity, ViewerProfile

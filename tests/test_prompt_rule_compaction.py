@@ -1,10 +1,8 @@
 """Only reviewed, complete prompt-rule groups may use a delivery summary."""
 
 import pytest
-
 from plugin.plugins.neko_live.modules import _prompt_rules as prompt_rules
 from utils.tokenize import count_tokens
-
 
 _GROUPS = (
     "live_output_quality_rules", "sustained_charm_rules",

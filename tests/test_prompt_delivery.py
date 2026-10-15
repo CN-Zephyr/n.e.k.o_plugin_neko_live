@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
-
 from plugin.plugins.neko_live.adapters.neko_dispatcher import (
     _append_plugin_output_contract,
     _prepend_live_audience_speaker_lock,

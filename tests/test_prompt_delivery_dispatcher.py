@@ -6,7 +6,6 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-
 from plugin.plugins.neko_live.adapters import neko_dispatcher as dispatcher_module
 from plugin.plugins.neko_live.adapters.neko_dispatcher import NekoDispatcher
 from plugin.plugins.neko_live.core.contracts import (
@@ -25,7 +24,6 @@ from plugin.plugins.neko_live.modules.danmaku_response import DanmakuResponseMod
 from plugin.plugins.neko_live.modules.live_support_events import LiveSupportEventsModule
 from plugin.plugins.neko_live.modules.warmup_hosting import WarmupHostingModule
 from utils.tokenize import count_tokens
-
 
 _RULES = (
     "Output only NEKO's line.",
