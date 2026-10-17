@@ -17,7 +17,7 @@ _REASON_CODES = {
     "ingest.duplicate_support_event", "ingest.ignored_twitch_notification",
     "ingest.invalid_twitch_projection", "ingest.duplicate_x_message",
     "ingest.invalid_x_projection", "live_room_offline", "manual_paused",
-    "missing_uid", "normalized", "ok",
+    "missing_uid", "normalized", "ok", "input.ignored_prefix",
     "output_channel_unavailable", "ready", "room_not_configured", "safety_degraded",
     "safety_tripped",
 }

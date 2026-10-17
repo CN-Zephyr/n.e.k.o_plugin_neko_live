@@ -106,7 +106,74 @@ try {
   } } })
   assert.deepEqual(await kit.api.call('new_action_after_startup', {}), { accepted: true })
   assert.equal(sent[0].payload.actionId, 'new_action_after_startup')
-  console.log('UI typecheck, six-source compilation, search/reset/delete interaction and new-action forwarding passed')
+  window.localStorage.setItem('neko-live:onboarding:v2', 'done')
+  const panelContainer = window.document.createElement('main')
+  window.document.body.append(panelContainer)
+  const settingsCalls = []
+  let rejectSettings = false
+  const panelState = { store_enabled: true, config: { danmaku_filter_enabled: true, danmaku_filter_prefixes: '!\n！' } }
+  kit.render(kit.h(window.__Panel, {
+    state: panelState, t: key => key,
+    api: { refresh: async () => {}, call: async (action, payload) => {
+      assert.equal(action, 'update_config')
+      if (rejectSettings) throw new Error('test save failure')
+      settingsCalls.push(JSON.parse(JSON.stringify(payload)))
+      return { accepted: true }
+    } },
+  }), panelContainer)
+  await new Promise(resolve => setTimeout(resolve, 30))
+  clickButton('panel.tabs.interaction')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  const filterCard = [...panelContainer.querySelectorAll('section.neko-card')].find(card =>
+    card.textContent.includes('panel.interaction.module.danmakuFilter.title'))
+  assert.ok(filterCard, 'filter settings card must be reachable')
+  filterCard.querySelector('[role="switch"]').click()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.deepEqual(settingsCalls.pop(), { danmaku_filter_enabled: false })
+  const openFilter = () => [...panelContainer.querySelectorAll('section.neko-card')].find(card =>
+    card.textContent.includes('panel.interaction.module.danmakuFilter.title')).querySelectorAll('button')[1].click()
+  openFilter()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  const editPrefixes = value => {
+    const textarea = window.document.querySelector('textarea')
+    assert.ok(textarea)
+    textarea.value = value
+    textarea.dispatchEvent(new window.Event('input', { bubbles: true }))
+  }
+  assert.equal(window.document.querySelector('textarea').value, '!\n！')
+  editPrefixes('#\n私聊:')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(settingsCalls.length, 0, 'typing prefixes must not save each keystroke')
+  rejectSettings = true
+  clickButton('panel.actions.save')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(window.document.querySelector('textarea').value, '#\n私聊:', 'failed save preserves the draft')
+  rejectSettings = false
+  clickButton('panel.actions.save')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.deepEqual(settingsCalls.pop(), { danmaku_filter_prefixes: '#\n私聊:' })
+  assert.equal(window.document.querySelector('textarea'), null, 'successful save closes the editor')
+  openFilter()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(window.document.querySelector('textarea').value, '#\n私聊:', 'reopening shows saved prefixes')
+  clickButton('panel.interaction.module.danmakuFilter.reset')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(window.document.querySelector('textarea').value, '!\n！')
+  assert.equal(settingsCalls.length, 0, 'restoring defaults only changes the draft until saved')
+  clickButton('panel.actions.save')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.deepEqual(settingsCalls.pop(), { danmaku_filter_prefixes: '!\n！' })
+  openFilter()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  editPrefixes('private  chat:\nprivate\tchat:\nprivate\u3000chat:\nprivate\u2028chat:')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  clickButton('panel.actions.save')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.deepEqual(settingsCalls.pop(), { danmaku_filter_prefixes: 'private chat:' })
+  openFilter()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(window.document.querySelector('textarea').value, 'private chat:', 'reopening shows normalized whitespace')
+  console.log('UI typecheck, compilation, profile actions, custom filter settings and action forwarding passed')
 } finally {
   await window.happyDOM.close()
 }

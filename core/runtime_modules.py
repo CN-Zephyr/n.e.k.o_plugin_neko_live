@@ -15,6 +15,7 @@ from .pipeline import LivePipeline
 def assemble_runtime_modules(runtime: Any) -> None:
     """Create owned modules, register them, and attach the pipeline."""
     runtime.registry = ModuleRegistry()
+    runtime.danmaku_filter = _create_module("danmaku_filter", "DanmakuFilterModule", "Danmaku filter")
     runtime.bili_live_ingest = _create_module("bili_live_ingest", "BiliLiveIngestModule", "Bilibili live ingest")
     runtime.bili_identity = _create_module("bili_identity", "BiliIdentityModule", "Bilibili identity")
     runtime.douyin_live_ingest = _create_module("douyin_live_ingest", "DouyinLiveIngestModule", "Douyin live ingest")
@@ -46,6 +47,7 @@ def assemble_runtime_modules(runtime: Any) -> None:
 def registered_modules(runtime: Any) -> tuple[Any, ...]:
     """Return the runtime module registration order."""
     return (
+        runtime.danmaku_filter,
         runtime.bili_live_ingest,
         runtime.douyin_live_ingest,
         runtime.twitch_live_ingest,

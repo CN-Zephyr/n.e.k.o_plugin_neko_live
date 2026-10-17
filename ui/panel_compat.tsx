@@ -20,6 +20,8 @@ type LiveConfig = {
   avatar_roast_enabled?: boolean
   avatar_analysis_enabled?: boolean
   danmaku_response_enabled?: boolean
+  danmaku_filter_enabled?: boolean
+  danmaku_filter_prefixes?: string
   live_support_events_enabled?: boolean
   warmup_hosting_enabled?: boolean
   idle_hosting_enabled?: boolean
@@ -86,6 +88,8 @@ const configDefaults = {
   avatar_roast_enabled: true,
   avatar_analysis_enabled: true,
   danmaku_response_enabled: true,
+  danmaku_filter_enabled: true,
+  danmaku_filter_prefixes: "!\n！",
   live_support_events_enabled: true,
   warmup_hosting_enabled: true,
   idle_hosting_enabled: true,
@@ -509,6 +513,7 @@ const moduleTitleKeys: Record<string, string> = {
   viewer_profile: "panel.modules.viewerProfile",
   avatar_roast: "panel.interaction.module.avatarRoast.title",
   danmaku_response: "panel.interaction.module.danmakuResponse.title",
+  danmaku_filter: "panel.interaction.module.danmakuFilter.title",
   live_support_events: "panel.interaction.module.liveSupportEvents.title",
   active_engagement: "panel.interaction.module.activeEngagement.title",
   warmup_hosting: "panel.interaction.module.warmupHosting.title",
@@ -1329,7 +1334,8 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   const [twitchAuthState, setTwitchAuthState] = useState<any>(null)
   const [twitchRemainingSeconds, setTwitchRemainingSeconds] = useState(0)
   const [consoleDialog, setConsoleDialog] = useState<"account" | "room" | "theme" | "pacing" | "diagnostics" | "">("")
-  const [interactionDialog, setInteractionDialog] = useState<"avatar_roast" | "danmaku_response" | "live_support_events" | "warmup_hosting" | "idle_hosting" | "active_engagement" | "">("")
+  const [interactionDialog, setInteractionDialog] = useState<"avatar_roast" | "danmaku_response" | "danmaku_filter" | "live_support_events" | "warmup_hosting" | "idle_hosting" | "active_engagement" | "">("")
+  const [filterPrefixesDraft, setFilterPrefixesDraft] = useState("!\n！")
   const [connectPending, setConnectPending] = useState(false)
   const [sessionStartAccepted, setSessionStartAccepted] = useState(false)
   const [startConfirmOpen, setStartConfirmOpen] = useState(false)
@@ -1405,6 +1411,8 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
       avatar_roast_enabled: config.avatar_roast_enabled !== false,
       avatar_analysis_enabled: config.avatar_analysis_enabled !== false,
       danmaku_response_enabled: config.danmaku_response_enabled !== false,
+      danmaku_filter_enabled: config.danmaku_filter_enabled !== false,
+      danmaku_filter_prefixes: String(config.danmaku_filter_prefixes ?? "!\n！"),
       live_support_events_enabled: config.live_support_events_enabled !== false,
       warmup_hosting_enabled: config.warmup_hosting_enabled !== false,
       idle_hosting_enabled: config.idle_hosting_enabled !== false,
@@ -1447,6 +1455,8 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
     config.avatar_roast_enabled,
     config.avatar_analysis_enabled,
     config.danmaku_response_enabled,
+    config.danmaku_filter_enabled,
+    config.danmaku_filter_prefixes,
     config.live_support_events_enabled,
     config.warmup_hosting_enabled,
     config.idle_hosting_enabled,
@@ -1670,7 +1680,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   }
 
   async function applySettingsPatch(patch: Record<string, any>) {
-    if (settingsSaving) return
+    if (settingsSaving) return false
     const previous = Object.fromEntries(
       Object.keys(patch).map((key) => [key, (configForm.values as Record<string, any>)[key]]),
     )
@@ -1681,6 +1691,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
       if (!saved) {
         Object.entries(previous).forEach(([key, value]) => configForm.setField(key as any, value))
       }
+      return saved
     } finally {
       setSettingsSaving(false)
     }
@@ -3063,9 +3074,12 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
       <span style={{ color: "var(--muted)", fontSize: "12px", lineHeight: "18px" }}>{t(key)}</span>
     </div>
   )
-  const renderInteractionDetailsButton = (dialog: "avatar_roast" | "danmaku_response" | "live_support_events" | "warmup_hosting" | "idle_hosting" | "active_engagement") => (
+  const renderInteractionDetailsButton = (dialog: "avatar_roast" | "danmaku_response" | "danmaku_filter" | "live_support_events" | "warmup_hosting" | "idle_hosting" | "active_engagement") => (
     <div style={{ marginTop: "auto" }}>
-      <Button tone="default" onClick={() => { setInteractionDialog(dialog) }}>{t("panel.interaction.details")}</Button>
+      <Button tone="default" onClick={() => {
+        if (dialog === "danmaku_filter") setFilterPrefixesDraft(String(configForm.values.danmaku_filter_prefixes ?? "!\n！"))
+        setInteractionDialog(dialog)
+      }}>{t("panel.interaction.details")}</Button>
     </div>
   )
   const renderInteractionGroupHeader = (title: string, subtitle: string) => (
@@ -3266,6 +3280,8 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
 
   const interactionDialogTitle = interactionDialog === "avatar_roast"
     ? t("panel.interaction.module.avatarRoast.title")
+    : interactionDialog === "danmaku_filter"
+      ? t("panel.interaction.module.danmakuFilter.title")
     : interactionDialog === "danmaku_response"
       ? t("panel.interaction.module.danmakuResponse.title")
       : interactionDialog === "live_support_events"
@@ -3278,7 +3294,27 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
               ? t("panel.interaction.module.activeEngagement.title")
               : ""
 
-  const interactionDialogContent = interactionDialog === "avatar_roast" ? (
+  const interactionDialogContent = interactionDialog === "danmaku_filter" ? (
+    <Stack gap={12}>
+      <Field label={t("panel.interaction.module.danmakuFilter.prefixes")}>
+        <Textarea disabled={settingsSaving} value={filterPrefixesDraft} onChange={setFilterPrefixesDraft} />
+      </Field>
+      <Text>{t("panel.interaction.module.danmakuFilter.hint")}</Text>
+      <Toolbar>
+        <Button disabled={settingsSaving} tone="success" onClick={async () => {
+          const entries = filterPrefixesDraft.split(/\r\n|\r|\n/).map(value => value.trim()).filter(Boolean)
+          // Python str.split whitespace, shared with the live text projections.
+          const prefixes = [...new Set(entries.map(value => value.replace(/[\t-\r\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/g, " ").trim()).filter(Boolean))]
+          if (filterPrefixesDraft.length > 8192 || prefixes.length > 32 || entries.some(value => [...value].length > 64)) {
+            toast.error(t("panel.interaction.module.danmakuFilter.invalid"))
+            return
+          }
+          if (await applySettingsPatch({ danmaku_filter_prefixes: prefixes.join("\n") })) setInteractionDialog("")
+        }}>{t("panel.actions.save")}</Button>
+        <Button disabled={settingsSaving} tone="default" onClick={() => { setFilterPrefixesDraft("!\n！") }}>{t("panel.interaction.module.danmakuFilter.reset")}</Button>
+      </Toolbar>
+    </Stack>
+  ) : interactionDialog === "avatar_roast" ? (
     <Stack>
       <Text>{t("panel.interaction.module.avatarRoast.desc")}</Text>
       <Text>{t("panel.interaction.module.avatarRoast.repeatRequestHint")}</Text>
@@ -3376,6 +3412,13 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
       {currentDecisionCard}
       {coStreamEffectsCard}
       {renderInteractionGroupHeader(t("panel.interaction.group.audience"), t("panel.interaction.group.audienceHint"))}
+      <Card>
+        <Stack gap={12}>
+          {renderInteractionToggle(t("panel.interaction.module.danmakuFilter.title"), configForm.values.danmaku_filter_enabled !== false, (value) => { applySettingsPatch({ danmaku_filter_enabled: value }) })}
+          <Text>{t("panel.interaction.module.danmakuFilter.desc")}</Text>
+          {renderInteractionDetailsButton("danmaku_filter")}
+        </Stack>
+      </Card>
       <div style={interactionCardGridStyle}>
         <ModuleRenderBoundary title={t("panel.interaction.module.avatarRoast.title")} render={() => renderAvatarRoastCard(interactionModuleById.avatar_roast)} t={t} />
         <ModuleRenderBoundary title={t("panel.interaction.module.danmakuResponse.title")} render={() => renderDanmakuResponseCard(interactionModuleById.danmaku_response)} t={t} />
@@ -3396,7 +3439,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
         footer={<Button tone="default" onClick={() => { setInteractionDialog("") }}>{t("panel.actions.cancel")}</Button>}
       >
         <Stack gap={12}>
-          <Alert tone="info">{t("panel.interaction.autoSaveHint")}</Alert>
+          {interactionDialog !== "danmaku_filter" ? <Alert tone="info">{t("panel.interaction.autoSaveHint")}</Alert> : null}
           {interactionDialogContent}
         </Stack>
       </Modal>
@@ -3447,7 +3490,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
                           key={preset.value}
                           tone={selectedQueueLimit === preset.value ? "primary" : "default"}
                           disabled={settingsSaving}
-                          onClick={() => applySettingsPatch({ queue_limit: preset.value })}
+                          onClick={() => { void applySettingsPatch({ queue_limit: preset.value }) }}
                         >
                           {t(preset.labelKey)}
                         </Button>
@@ -3457,7 +3500,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
                     <Button
                       tone="default"
                       disabled={settingsSaving}
-                      onClick={() => applySettingsPatch({ safety_auto_stop_enabled: true, queue_limit: 5 })}
+                      onClick={() => { void applySettingsPatch({ safety_auto_stop_enabled: true, queue_limit: 5 }) }}
                     >
                       {t("panel.settings.restoreRecommended")}
                     </Button>

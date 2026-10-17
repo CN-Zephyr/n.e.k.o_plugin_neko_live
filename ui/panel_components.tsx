@@ -20,6 +20,7 @@ const moduleTitleKeys: Record<string, string> = {
   viewer_profile: "panel.modules.viewerProfile",
   avatar_roast: "panel.interaction.module.avatarRoast.title",
   danmaku_response: "panel.interaction.module.danmakuResponse.title",
+  danmaku_filter: "panel.interaction.module.danmakuFilter.title",
   live_support_events: "panel.interaction.module.liveSupportEvents.title",
   active_engagement: "panel.interaction.module.activeEngagement.title",
   warmup_hosting: "panel.interaction.module.warmupHosting.title",

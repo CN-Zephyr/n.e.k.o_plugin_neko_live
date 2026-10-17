@@ -72,7 +72,7 @@ def test_entry_greet_routes_without_marking_roasted():
     event = ViewerEvent(
         uid="7",
         nickname="小鱼",
-        danmaku_text="来了",
+        danmaku_text="",
         source="live_danmaku",
         raw={"event_type": "entry", "presence_action": "greet"},
     )
@@ -287,7 +287,7 @@ async def test_entry_greet_schedules_one_presence_payload():
     await asyncio.sleep(0)
 
     assert called[0]["presence_action"] == "greet"
-    assert called[0]["danmaku_text"] == "来了"
+    assert called[0]["danmaku_text"] == ""
     assert "support_verified" not in called[0]
 
 

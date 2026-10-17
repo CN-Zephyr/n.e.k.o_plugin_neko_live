@@ -843,5 +843,11 @@
   "entries.twitch_credential_validate.name": "Twitch 인증 검증",
   "entries.twitch_credential_validate.description": "Twitch token을 검증하고 필요 시 암호화 자격 증명을 갱신합니다.",
   "entries.twitch_logout.name": "Twitch 인증 삭제",
-  "entries.twitch_logout.description": "로컬 암호화 Twitch token과 키를 삭제합니다."
+  "entries.twitch_logout.description": "로컬 암호화 Twitch token과 키를 삭제합니다.",
+  "panel.interaction.module.danmakuFilter.title": "채팅 필터",
+  "panel.interaction.module.danmakuFilter.desc": "사용자 지정 접두사로 시작하는 일반 채팅을 답변, 주제, 시청자 기억에 사용하기 전에 건너뜁니다.",
+  "panel.interaction.module.danmakuFilter.prefixes": "제외할 접두사 (한 줄에 하나)",
+  "panel.interaction.module.danmakuFilter.hint": "앞쪽 공백을 제거한 시작 부분만 대소문자를 구분해 비교합니다. 접두사와 채팅 안의 연속 공백은 공백 하나로 통일합니다. 최대 32개, 항목당 64자입니다. 비워 두면 필터링하지 않습니다. 편집 후 저장하세요.",
+  "panel.interaction.module.danmakuFilter.reset": "기본 접두사 복원",
+  "panel.interaction.module.danmakuFilter.invalid": "접두사 목록이 너무 깁니다. 최대 32개, 항목당 64자 이내로 입력하세요."
 }

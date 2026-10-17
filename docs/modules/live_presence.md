@@ -4,7 +4,7 @@
 
 Speech switches default off:
 
-- `entry_greet_enabled`: greet by name, routed as `danmaku_response`, does not mark the viewer roasted.
+- `entry_greet_enabled`: greet by name, routed as `danmaku_response` with the dedicated `entry_greeting` profile, does not mark the viewer roasted. See [entry greeting output contract](output_contract.md#entry-greeting).
 - `entry_roast_enabled`: first-appearance roast. This does mark the viewer roasted.
 - `follow_greet_enabled`: one thanks, routed as a support event.
 - `like_greet_enabled`: batch likes for one idle second, then thank once after `like_greet_min_count` (default 5).

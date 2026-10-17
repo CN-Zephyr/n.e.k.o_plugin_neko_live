@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from ..modules.danmaku_filter import viewer_event_skip_reason
 from .contracts import InteractionResult, ViewerEvent
 from .contracts_public import public_int, public_text
 from .recent_results_store import save_recent_results
@@ -158,7 +159,7 @@ async def handle_live_payload(runtime: Any, payload: dict[str, Any]) -> Interact
     # A delayed scheduler/provider payload can arrive after session rotation.
     # Do not mutate the current session's recent-chat or activity state before
     # the pipeline reaches its own stale-event gate.
-    if is_current_live_session_event(runtime, event):
+    if is_current_live_session_event(runtime, event) and not viewer_event_skip_reason(runtime, event):
         remember_live_danmaku_seen(runtime, event)
         if not recent_chat_observed:
             observe_live_danmaku(runtime, event)

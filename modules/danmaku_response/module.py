@@ -110,6 +110,13 @@ class DanmakuResponseModule(BaseModule):
             raw=event.raw if isinstance(event.raw, dict) else None,
             context_text="\n".join((recent_context, viewer_context, room_context)),
         )
+        entry_greeting = danmaku_profile["kind"] == "entry_greeting"
+        if entry_greeting:
+            # Do not present legacy synthetic entry text or old support/chat as
+            # a new viewer utterance that the model should answer or thank.
+            danmaku = ""
+            recent_context = viewer_context = viewer_preference_context = ""
+            room_context = danmaku_context = meme_context = digest_context = ""
         response_move = DanmakuResponseModule._response_move(
             danmaku_profile["kind"]
         )
@@ -138,7 +145,8 @@ class DanmakuResponseModule(BaseModule):
                 " Hard limit: one sentence, normally at most 20 Chinese characters or 10 English words."
             )
         rules = [
-            f"Answer {nickname}'s current danmaku first as NEKO.",
+            f"Welcome the arriving viewer {nickname} by nickname in one short line."
+            if entry_greeting else f"Answer {nickname}'s current danmaku first as NEKO.",
             "Output only NEKO's line." + length_rule,
             "Write one complete TTS-friendly live line; no stage directions; never start with (, （, [, or 【.",
             "Never open by quoting, translating, summarizing, or lightly rewording the current danmaku.",
@@ -181,11 +189,6 @@ class DanmakuResponseModule(BaseModule):
         rules.extend(DanmakuResponseModule._profile_rules(danmaku_profile["kind"]))
         rules.extend(DanmakuResponseModule._length_rules(danmaku_profile["kind"]))
         rules.extend(DanmakuResponseModule._room_bridge_rules(room_bridge))
-        if isinstance(event.raw, dict) and event.raw.get("presence_action") == "greet":
-            rules.insert(
-                1,
-                "The viewer just entered the room. Greet them by nickname in one short line. Do not roast the avatar or nickname.",
-            )
         target_roast_line = f"target_roast_viewer: {target_roast_viewer}\n" if target_roast_viewer else ""
         viewer_address_line = ""
         if nickname and raw_nickname and nickname != raw_nickname:
@@ -249,6 +252,7 @@ class DanmakuResponseModule(BaseModule):
             return "direct_answer"
         if kind in {
             "batch_welcome",
+            "entry_greeting",
             "greeting",
             "emoji_or_reaction",
             "short_line",
@@ -266,6 +270,12 @@ class DanmakuResponseModule(BaseModule):
         raw: dict[str, object] | None = None,
         context_text: str = "",
     ) -> dict[str, str]:
+        if raw and raw.get("event_type") == "entry" and raw.get("presence_action") == "greet":
+            return {
+                "kind": "entry_greeting",
+                "reply_target": "arriving_viewer",
+                "reply_shape": "one_named_welcome_no_thanks",
+            }
         text = str(danmaku or "").strip()
         dense = DanmakuResponseModule._dense_text(text)
         signal_len = len(dense)
@@ -371,12 +381,14 @@ class DanmakuResponseModule(BaseModule):
             raw=event.raw if isinstance(event.raw, dict) else None,
             context_text="\n".join((recent_context, viewer_context, room_context)),
         )
+        entry_greeting = danmaku_profile["kind"] == "entry_greeting"
+        danmaku = "" if entry_greeting else event.danmaku_text or ""
         nickname = (identity.nickname or event.nickname or "").strip()
         metadata: dict[str, str | int] = {
             "danmaku_profile": danmaku_profile["kind"],
             "danmaku_reply_target": danmaku_profile["reply_target"],
             "danmaku_reply_shape": danmaku_profile["reply_shape"],
-            "danmaku_anchor_hint": DanmakuResponseModule._anchor_hint(event.danmaku_text or ""),
+            "danmaku_anchor_hint": DanmakuResponseModule._anchor_hint(danmaku),
         }
         if nickname:
             address = viewer_address_name(nickname, profile)
@@ -387,9 +399,9 @@ class DanmakuResponseModule(BaseModule):
         if isinstance(target_viewer, str) and target_viewer.strip():
             metadata["danmaku_target_viewer_nickname"] = " ".join(target_viewer.strip().split())[:24]
         room_theme = DanmakuResponseModule._room_theme_from_context(room_context)
-        if room_theme:
+        if room_theme and not entry_greeting:
             metadata["room_theme"] = room_theme
-        if looks_like_support_claim_text(event.danmaku_text or ""):
+        if looks_like_support_claim_text(danmaku):
             metadata["viewer_claimed_support"] = "unverified_danmaku_claim"
         if DanmakuResponseModule._allows_room_bridge_length(danmaku_profile["kind"], room_context):
             metadata["reply_length_mode"] = ROOM_BRIDGE_REPLY_MODE
@@ -402,7 +414,8 @@ class DanmakuResponseModule(BaseModule):
         metadata["expires_in_s"] = expires_in_s
         metadata["delivery_ttl_seconds"] = expires_in_s
         metadata["interrupt_policy"] = "drop"
-        metadata.update(meme_knowledge_metadata(retrieve_meme_knowledge(event.danmaku_text or "", room_context)))
+        if not entry_greeting:
+            metadata.update(meme_knowledge_metadata(retrieve_meme_knowledge(danmaku, room_context)))
         return metadata
 
     @staticmethod
@@ -447,6 +460,11 @@ class DanmakuResponseModule(BaseModule):
             "greeting": [
                 "For greetings, greet the viewer back first in one short live-friendly line.",
                 "Do not turn a greeting into an avatar, ID, first-appearance, or profile-memory comment.",
+            ],
+            "entry_greeting": [
+                "This is room entry only, not a gift, follow, like, or paid support event.",
+                "Do not thank the viewer for entering; never say 谢谢进入直播间 or 感谢进入直播间. Welcome them instead.",
+                "Do not roast the avatar or nickname, invent viewer speech, or continue earlier chat or support thanks.",
             ],
             "content_request": [
                 "This danmaku asks NEKO to produce concrete content; deliver the content in this reply.",
@@ -519,6 +537,7 @@ class DanmakuResponseModule(BaseModule):
         if kind in {
             "empty",
             "emoji_or_reaction",
+            "entry_greeting",
             "greeting",
             "viewer_to_viewer_mention",
             "content_request",

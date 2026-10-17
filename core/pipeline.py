@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..modules.danmaku_filter import viewer_event_skip_reason
 from . import pipeline_flow
 from .active_hook_answers import is_active_hook_answer_event
 from .contracts import (
@@ -291,6 +292,15 @@ class LivePipeline:
             status="ok",
             route=event.source,
         )
+        input_skip_reason = viewer_event_skip_reason(self.ctx, event)
+        if input_skip_reason:
+            steps.append(PipelineStep("input_filter", "skipped", input_skip_reason))
+            record_timeline(
+                self.ctx, event, stage="input_filter", status="skipped", reason=input_skip_reason,
+            )
+            self.ctx.audit.record("pipeline_skipped", input_skip_reason)
+            return InteractionResult(False, "skipped", event, reason=input_skip_reason, steps=steps)
+
         if not event.uid:
             record_timeline(
                 self.ctx,

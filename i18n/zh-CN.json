@@ -843,5 +843,11 @@
   "entries.twitch_credential_validate.name": "校验 Twitch 授权",
   "entries.twitch_credential_validate.description": "向 Twitch 校验 token，并在需要时原子刷新加密凭据。",
   "entries.twitch_logout.name": "删除 Twitch 授权",
-  "entries.twitch_logout.description": "删除本地加密保存的 Twitch token 和密钥。"
+  "entries.twitch_logout.description": "删除本地加密保存的 Twitch token 和密钥。",
+  "panel.interaction.module.danmakuFilter.title": "弹幕屏蔽",
+  "panel.interaction.module.danmakuFilter.desc": "按自定义前缀跳过普通弹幕，避免回复或带入话题和记忆。",
+  "panel.interaction.module.danmakuFilter.prefixes": "屏蔽前缀（每行一个）",
+  "panel.interaction.module.danmakuFilter.hint": "只匹配去掉前导空白后的开头，区分大小写。前缀和弹幕内的连续空白统一为一个空格。最多32项，每项64个字符；留空不屏蔽。编辑后点击保存。",
+  "panel.interaction.module.danmakuFilter.reset": "恢复默认前缀",
+  "panel.interaction.module.danmakuFilter.invalid": "前缀列表过长，请缩短后重试（最多32项，每项64个字符）。"
 }

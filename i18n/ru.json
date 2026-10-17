@@ -843,5 +843,11 @@
   "entries.twitch_credential_validate.name": "Проверить авторизацию Twitch",
   "entries.twitch_credential_validate.description": "Проверяет токен и атомарно обновляет зашифрованные данные при необходимости.",
   "entries.twitch_logout.name": "Удалить авторизацию Twitch",
-  "entries.twitch_logout.description": "Удаляет локальные зашифрованные токены Twitch и ключ."
+  "entries.twitch_logout.description": "Удаляет локальные зашифрованные токены Twitch и ключ.",
+  "panel.interaction.module.danmakuFilter.title": "Фильтр чата",
+  "panel.interaction.module.danmakuFilter.desc": "Пропускает обычные сообщения с заданными префиксами до ответов, выбора тем и памяти зрителей.",
+  "panel.interaction.module.danmakuFilter.prefixes": "Игнорируемые префиксы (по одному в строке)",
+  "panel.interaction.module.danmakuFilter.hint": "Проверяется только начало после начальных пробелов, с учётом регистра. Повторяющиеся пробельные символы в префиксах и чате заменяются одним пробелом. До 32 префиксов, по 64 символа. Пустой список ничего не фильтрует. После правки сохраните.",
+  "panel.interaction.module.danmakuFilter.reset": "Вернуть стандартные префиксы",
+  "panel.interaction.module.danmakuFilter.invalid": "Список слишком длинный. Допустимо до 32 префиксов по 64 символа."
 }

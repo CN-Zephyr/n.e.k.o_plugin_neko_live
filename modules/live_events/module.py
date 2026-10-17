@@ -32,8 +32,9 @@ from ...core.active_hook_answers import is_active_hook_answer_event
 from ...core.contracts import ViewerEvent
 from ...core.live_status_timing import count_recent_live_replies
 from ...core.runtime_live_input import mark_recent_chat_observed
-from ...core.runtime_timeline import record_payload_timeline
+from ...core.runtime_timeline import record_payload_timeline, record_timeline
 from .._base import BaseModule
+from ..danmaku_filter import skip_reason as danmaku_skip_reason
 from .ambient_context import AmbientRoomContext
 from .ambient_hook import AMBIENT_HOOK_SCAN_LIMIT, select_ambient_hook
 from .provider_event import (
@@ -921,6 +922,13 @@ class LiveEventsModule(BaseModule):
             return 0
         text = event_text(event)
         if not text or not event_is_current_session(event, self.ctx):
+            return 0
+        input_skip_reason = danmaku_skip_reason(self.ctx, text, event_type=event_type(event))
+        if input_skip_reason:
+            self._record_reply_skip(event, reason=input_skip_reason, score=0.0)
+            record_timeline(
+                self.ctx, event, stage="input_filter", status="skipped", reason=input_skip_reason, route="danmaku",
+            )
             return 0
         uid = event_uid(event)
         nickname = event_nickname(event)

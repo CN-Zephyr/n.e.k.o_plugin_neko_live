@@ -843,5 +843,11 @@
   "entries.twitch_credential_validate.name": "Validar autorización de Twitch",
   "entries.twitch_credential_validate.description": "Valida el token y actualiza atómicamente las credenciales cifradas cuando sea necesario.",
   "entries.twitch_logout.name": "Eliminar autorización de Twitch",
-  "entries.twitch_logout.description": "Elimina los tokens cifrados locales de Twitch y su clave."
+  "entries.twitch_logout.description": "Elimina los tokens cifrados locales de Twitch y su clave.",
+  "panel.interaction.module.danmakuFilter.title": "Filtro de chat",
+  "panel.interaction.module.danmakuFilter.desc": "Omite mensajes normales con prefijos personalizados antes de responder, elegir temas o guardar recuerdos de espectadores.",
+  "panel.interaction.module.danmakuFilter.prefixes": "Prefijos ignorados (uno por línea)",
+  "panel.interaction.module.danmakuFilter.hint": "Compara solo el inicio tras los espacios iniciales y distingue mayúsculas de minúsculas. Los espacios en blanco consecutivos en prefijos y chat se reducen a un espacio. Hasta 32 prefijos de 64 caracteres. Una lista vacía no filtra nada. Guarda los cambios.",
+  "panel.interaction.module.danmakuFilter.reset": "Restaurar prefijos predeterminados",
+  "panel.interaction.module.danmakuFilter.invalid": "La lista es demasiado larga. Usa como máximo 32 prefijos de hasta 64 caracteres cada uno."
 }

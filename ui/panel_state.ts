@@ -7,6 +7,8 @@ export type LiveConfig = {
   avatar_roast_enabled?: boolean
   avatar_analysis_enabled?: boolean
   danmaku_response_enabled?: boolean
+  danmaku_filter_enabled?: boolean
+  danmaku_filter_prefixes?: string
   live_support_events_enabled?: boolean
   warmup_hosting_enabled?: boolean
   idle_hosting_enabled?: boolean
@@ -73,6 +75,8 @@ export const configDefaults = {
   avatar_roast_enabled: true,
   avatar_analysis_enabled: true,
   danmaku_response_enabled: true,
+  danmaku_filter_enabled: true,
+  danmaku_filter_prefixes: "!\n！",
   live_support_events_enabled: true,
   warmup_hosting_enabled: true,
   idle_hosting_enabled: true,

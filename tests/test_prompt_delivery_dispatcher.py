@@ -91,6 +91,70 @@ def _assert_self_contained(message):
     assert count_tokens(text) <= 1000
 
 
+@pytest.mark.parametrize("live_mode", ["co_stream", "solo_stream"])
+@pytest.mark.parametrize("legacy_text", ["", "来了"])
+@pytest.mark.parametrize("oversized_context", [False, True])
+@pytest.mark.asyncio
+async def test_entry_greeting_remains_a_welcome_through_delivery(live_mode, legacy_text, oversized_context):
+    event = ViewerEvent(
+        uid="42", nickname="小明", danmaku_text=legacy_text, source="live_danmaku",
+        live_mode=live_mode, raw={"event_type": "entry", "presence_action": "greet"},
+    )
+    request = DanmakuResponseModule().build_request(
+        event, ViewerIdentity(uid="42", nickname="小明"), ViewerProfile(uid="42", nickname="小明"),
+    )
+    assert request.metadata["danmaku_profile"] == "entry_greeting"
+    assert request.metadata["danmaku_reply_target"] == "arriving_viewer"
+    assert "danmaku: 来了" not in request.prompt_text
+    if oversized_context:
+        request.prompt_text = request.prompt_text.replace(
+            "\nRules:\n", "\nRecent spent live material:\n" + ("- old room talk " * 300) + "\n\nRules:\n",
+        )
+        assert count_tokens(request.prompt_text) > 1000
+    plugin = _Plugin()
+    dispatcher = NekoDispatcher(plugin)
+    for _ in range(3):
+        assert (await dispatcher.push_roast(request)).startswith("queued_to_neko(")
+    for message in plugin.messages:
+        text = message["parts"][0]["text"]
+        assert message["metadata"]["danmaku_profile"] == "entry_greeting"
+        assert "Welcome the arriving viewer" in text
+        assert "Do not thank" in text
+        assert "谢谢进入直播间" in text
+        assert "not a gift, follow, like, or paid support event" in text
+        assert "answer only the current danmaku" not in text
+        assert "begin with an explicit thank-you" not in text
+        assert count_tokens(text) <= 1000
+
+
+def test_entry_greeting_drops_old_support_context_and_never_bridges_room_topics():
+    event = ViewerEvent(
+        uid="42", nickname="小明", danmaku_text="来了", source="live_danmaku",
+        raw={"event_type": "entry", "presence_action": "greet"},
+    )
+    identity = ViewerIdentity(uid="42", nickname="小明")
+    profile = ViewerProfile(uid="42", nickname="小明")
+    prompt = DanmakuResponseModule._build_prompt(
+        event, identity, profile, "normal",
+        recent_context="Recent spent live material:\n- earlier-gift-thanks\n",
+        viewer_context="Same-viewer recent talk:\n- older-viewer-question\n",
+        room_context="Recent room theme context:\n- room_theme=old-support-topic\n",
+        viewer_preference_context="Viewer impression memory (private guidance):\n- soft-thanks-callback\n",
+    )
+    assert all(fragment not in prompt for fragment in (
+        "earlier-gift-thanks", "older-viewer-question", "old-support-topic", "soft-thanks-callback",
+    ))
+    assert not DanmakuResponseModule._allows_room_bridge_length("entry_greeting", "room_theme=old-topic")
+
+
+@pytest.mark.parametrize("event_type", ["danmaku", "follow", "like", "gift", "super_chat", "guard"])
+def test_greet_marker_alone_cannot_reclassify_chat_or_support_as_entry(event_type):
+    profile = DanmakuResponseModule._danmaku_profile(
+        "来了", raw={"event_type": event_type, "presence_action": "greet"},
+    )
+    assert profile["kind"] != "entry_greeting"
+
+
 @pytest.mark.asyncio
 async def test_each_consecutive_speech_contains_complete_room_rules():
     plugin = _Plugin()

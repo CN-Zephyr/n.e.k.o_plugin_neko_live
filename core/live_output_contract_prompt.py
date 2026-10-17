@@ -189,6 +189,14 @@ def render_contract_instruction(
         absolute_limit = 64 if host_only else REPLY_TARGET_CHARS
     target_limit = min(36 if host_only or expanded_danmaku or room_bridge_danmaku else REPLY_TARGET_CHARS, absolute_limit)
     module_notes = [ROUTE_NOTES[module] for module in modules if module in ROUTE_NOTES]
+    entry_greeting = modules == ["danmaku_response"] and all(
+        cb["metadata"].get("danmaku_profile") == "entry_greeting"
+        for cb in callbacks if is_live_reply_metadata(cb.get("metadata"))
+    )
+    if entry_greeting:
+        module_notes = [
+            "For entry_greeting: welcome the arriving viewer by nickname; do not answer a danmaku or thank for support.",
+        ]
     if _uses_compact_contract(
         callbacks,
         modules,
@@ -235,6 +243,8 @@ def render_contract_instruction(
         ),
         "- Output only the final visible NEKO line; do not mention this contract, metadata, policy, or reasoning.",
         "- The first output character must be spoken dialogue; never start with (, （, [, or 【.",
+        "- Welcome the arriving viewer; Do not thank them for entering the room."
+        if entry_greeting else
         "- Do not open by quoting, translating, summarizing, or lightly rewording the current danmaku; start with the answer, reaction, or one fresh turn.",
     ]
     if has_interpolated_viewer_data:

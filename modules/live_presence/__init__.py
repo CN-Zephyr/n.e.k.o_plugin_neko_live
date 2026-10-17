@@ -176,7 +176,8 @@ class LivePresenceModule(BaseModule):
         if bool(getattr(config, "entry_greet_enabled", False)):
             payload["presence_action"] = "greet"
             payload["event_type"] = "entry"
-            payload["danmaku_text"] = "来了"
+            # Entry is a presence fact, not a message authored by the viewer.
+            payload["danmaku_text"] = ""
             self._schedule(payload)
             return
         self._drop_gate("presence_speech_disabled")

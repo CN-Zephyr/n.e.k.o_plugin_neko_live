@@ -298,7 +298,9 @@ def test_console_keeps_live_control_inline_with_priority_readiness_hint() -> Non
         )[0]
         live_control_source = runtime_source.split('className="neko-live-inline-control"', 1)[1]
         settings_source = source.split("const advancedSection = (", 1)[1].split("const dataSection = (", 1)[0]
-        toolbar_source = source.split("<Toolbar>", 1)[1].split("</Toolbar>", 1)[0]
+        toolbar_source = source.split('<Page className="neko-live-page"', 1)[1].split(
+            "<Toolbar>", 1
+        )[1].split("</Toolbar>", 1)[0]
 
         assert 'className="neko-live-console-layout"' in source
         assert '<Page className="neko-live-page"' in source
@@ -446,7 +448,7 @@ def test_interaction_panel_uses_stable_cards_and_detail_modals() -> None:
 
         assert 'const [interactionDialog, setInteractionDialog]' in source
         assert 'open={!!interactionDialog}' in interaction_source
-        assert interaction_source.count('renderInteractionDetailsButton("') == 5
+        assert interaction_source.count('renderInteractionDetailsButton("') == 6
         assert 'setInteractionDialog("avatar_roast")' in interaction_source
         assert "entry_greet_enabled" in interaction_source
         assert "follow_greet_enabled" in interaction_source

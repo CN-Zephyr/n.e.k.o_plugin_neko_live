@@ -843,5 +843,11 @@
   "entries.twitch_credential_validate.name": "驗證 Twitch 授權",
   "entries.twitch_credential_validate.description": "向 Twitch 驗證 token，並在需要時原子更新加密憑據。",
   "entries.twitch_logout.name": "刪除 Twitch 授權",
-  "entries.twitch_logout.description": "刪除本機加密儲存的 Twitch token 和金鑰。"
+  "entries.twitch_logout.description": "刪除本機加密儲存的 Twitch token 和金鑰。",
+  "panel.interaction.module.danmakuFilter.title": "彈幕屏蔽",
+  "panel.interaction.module.danmakuFilter.desc": "依自訂前綴略過一般彈幕，避免回覆或帶入話題與記憶。",
+  "panel.interaction.module.danmakuFilter.prefixes": "屏蔽前綴（每行一個）",
+  "panel.interaction.module.danmakuFilter.hint": "僅比對去除開頭空白後的前綴，區分大小寫。前綴與彈幕內的連續空白統一為一個空格。最多32項，每項64個字元；留空不屏蔽。編輯後請儲存。",
+  "panel.interaction.module.danmakuFilter.reset": "恢復預設前綴",
+  "panel.interaction.module.danmakuFilter.invalid": "前綴清單過長，請縮短後重試（最多32項，每項64個字元）。"
 }

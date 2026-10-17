@@ -843,5 +843,11 @@
   "entries.twitch_credential_validate.name": "Validar autorização da Twitch",
   "entries.twitch_credential_validate.description": "Valida o token e atualiza atomicamente as credenciais criptografadas quando necessário.",
   "entries.twitch_logout.name": "Remover autorização da Twitch",
-  "entries.twitch_logout.description": "Exclui os tokens locais criptografados da Twitch e sua chave."
+  "entries.twitch_logout.description": "Exclui os tokens locais criptografados da Twitch e sua chave.",
+  "panel.interaction.module.danmakuFilter.title": "Filtro de chat",
+  "panel.interaction.module.danmakuFilter.desc": "Ignora mensagens comuns com prefixos personalizados antes de responder, selecionar assuntos ou guardar memórias de espectadores.",
+  "panel.interaction.module.danmakuFilter.prefixes": "Prefixos ignorados (um por linha)",
+  "panel.interaction.module.danmakuFilter.hint": "Compara apenas o início após espaços iniciais e diferencia maiúsculas de minúsculas. Espaços em branco consecutivos nos prefixos e no chat são reduzidos a um espaço. Até 32 prefixos de 64 caracteres. Uma lista vazia não filtra nada. Salve após editar.",
+  "panel.interaction.module.danmakuFilter.reset": "Restaurar prefixos padrão",
+  "panel.interaction.module.danmakuFilter.invalid": "A lista é longa demais. Use no máximo 32 prefixos de até 64 caracteres cada."
 }

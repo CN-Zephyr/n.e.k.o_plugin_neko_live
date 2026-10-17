@@ -843,5 +843,11 @@
   "entries.twitch_credential_validate.name": "Twitch 認証を検証",
   "entries.twitch_credential_validate.description": "Twitch token を検証し、必要に応じて暗号化認証情報を更新します。",
   "entries.twitch_logout.name": "Twitch 認証を削除",
-  "entries.twitch_logout.description": "ローカルの暗号化 Twitch token と鍵を削除します。"
+  "entries.twitch_logout.description": "ローカルの暗号化 Twitch token と鍵を削除します。",
+  "panel.interaction.module.danmakuFilter.title": "コメントフィルター",
+  "panel.interaction.module.danmakuFilter.desc": "指定した接頭辞で始まる通常コメントを、返信・話題・視聴者の記憶に使う前に除外します。",
+  "panel.interaction.module.danmakuFilter.prefixes": "除外する接頭辞（1行に1つ）",
+  "panel.interaction.module.danmakuFilter.hint": "先頭の空白を除いた行頭のみ、大文字と小文字を区別して照合します。接頭辞とチャット内の連続する空白は1つのスペースに統一します。最大32件、各64文字。空欄なら除外しません。編集後に保存してください。",
+  "panel.interaction.module.danmakuFilter.reset": "既定の接頭辞に戻す",
+  "panel.interaction.module.danmakuFilter.invalid": "接頭辞リストが長すぎます。32件以内、各64文字以内にしてください。"
 }

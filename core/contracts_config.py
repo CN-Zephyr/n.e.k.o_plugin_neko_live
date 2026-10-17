@@ -7,6 +7,7 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from ..modules.danmaku_filter.settings import DEFAULT_PREFIX_TEXT, normalize_prefixes
 from .co_stream_capabilities import normalize_activation_mode
 from .contracts_public import public_bool, public_text
 from .contracts_types import ActivityLevel, LiveMode, RoastStrength
@@ -61,6 +62,8 @@ class LiveConfig:
     avatar_roast_enabled: bool = True
     avatar_analysis_enabled: bool = True
     danmaku_response_enabled: bool = True
+    danmaku_filter_enabled: bool = True
+    danmaku_filter_prefixes: str = DEFAULT_PREFIX_TEXT
     live_support_events_enabled: bool = True
     warmup_hosting_enabled: bool = True
     idle_hosting_enabled: bool = True
@@ -134,6 +137,8 @@ class LiveConfig:
             avatar_roast_enabled=_safe_bool(raw.get("avatar_roast_enabled"), default=True),
             avatar_analysis_enabled=_safe_bool(raw.get("avatar_analysis_enabled"), default=True),
             danmaku_response_enabled=_safe_bool(raw.get("danmaku_response_enabled"), default=True),
+            danmaku_filter_enabled=_safe_bool(raw.get("danmaku_filter_enabled"), default=True),
+            danmaku_filter_prefixes=normalize_prefixes(raw.get("danmaku_filter_prefixes")),
             live_support_events_enabled=_safe_bool(raw.get("live_support_events_enabled"), default=True),
             warmup_hosting_enabled=_safe_bool(raw.get("warmup_hosting_enabled"), default=True),
             idle_hosting_enabled=_safe_bool(raw.get("idle_hosting_enabled"), default=True),
@@ -247,6 +252,8 @@ class LiveConfig:
             "avatar_roast_enabled": public_bool(self.avatar_roast_enabled, default=True),
             "avatar_analysis_enabled": public_bool(self.avatar_analysis_enabled, default=True),
             "danmaku_response_enabled": public_bool(self.danmaku_response_enabled, default=True),
+            "danmaku_filter_enabled": public_bool(self.danmaku_filter_enabled, default=True),
+            "danmaku_filter_prefixes": normalize_prefixes(self.danmaku_filter_prefixes),
             "live_support_events_enabled": public_bool(self.live_support_events_enabled, default=True),
             "warmup_hosting_enabled": public_bool(self.warmup_hosting_enabled, default=True),
             "idle_hosting_enabled": public_bool(self.idle_hosting_enabled, default=True),
