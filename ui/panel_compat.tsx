@@ -3318,7 +3318,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
     <Stack>
       <Text>{t("panel.interaction.module.avatarRoast.desc")}</Text>
       <Text>{t("panel.interaction.module.avatarRoast.repeatRequestHint")}</Text>
-      <ToggleSwitch checked={!!configForm.values.avatar_analysis_enabled} disabled={!configForm.values.avatar_roast_enabled || settingsSaving} label={t("panel.interaction.module.avatarRoast.avatarAnalysis")} onChange={(v) => { applySettingsPatch({ avatar_analysis_enabled: v }) }} />
+      <ToggleSwitch checked={!!configForm.values.avatar_analysis_enabled} disabled={settingsSaving} label={t("panel.interaction.module.avatarRoast.avatarAnalysis")} onChange={(v) => { applySettingsPatch({ avatar_analysis_enabled: v }) }} />
       <Text>{t("panel.interaction.module.avatarRoast.avatarAnalysisHint")}</Text>
       <StatusBadgeRow t={t} items={[
         { key: "panel.interaction.tags.currentDanmaku", tone: "success" },

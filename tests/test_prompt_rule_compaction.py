@@ -10,6 +10,25 @@ _GROUPS = (
 )
 
 
+@pytest.mark.parametrize("modified", [False, True])
+def test_speaker_rule_summary_retains_unknown_or_changed_constraints(modified):
+    originals, summary = next(
+        pair for pair in prompt_rules._DELIVERY_EXACT_RULE_GROUPS
+        if pair[1].startswith("danmaku_author alone wrote")
+    )
+    rules = list(originals)
+    if modified:
+        rules[-1] += " Also keep this future constraint."
+    text = "NEKO Live audience speaker identity:\n" + "\n".join(f"- {rule}" for rule in rules)
+    compact = prompt_rules.compact_rules_for_delivery(text)
+    if modified:
+        assert compact == text
+    else:
+        assert summary in compact
+        assert "{MASTER_NAME}, owner, operator or human co-streamer" in compact
+        assert "Never attribute this question/request to them" in compact
+
+
 @pytest.mark.parametrize("kind", ["reply", "host"])
 def test_complete_shared_groups_compact_without_losing_other_rules(kind):
     raw = "\n".join((

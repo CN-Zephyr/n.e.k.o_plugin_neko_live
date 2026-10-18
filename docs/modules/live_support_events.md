@@ -25,6 +25,8 @@ Before delivery, eligible verified support events enter one session-scoped sched
 
 ## Safety Boundary
 
+`clear_pending()` retires the support scheduler's current generation, clears queued/combo work and cancels owned workers while preserving processed event IDs and finalized combo dedupe. Session `reset()` additionally clears session dedupe/counters as before. The common cancellation/accounting boundary is defined in [Runtime Observability](../runtime-observability.md#safety-guard); neither operation recalls speech already accepted by the host.
+
 This module does not push messages directly. Support-event requests still pass through identity/profile preparation, pipeline steps, `safety_guard`, `neko_dispatcher`, audit records, `dry_run`, and runtime timeline projection. In co-stream, a high/milestone request takes the ordinary active dispatcher path: it is recorded as `pushed`, spends actual-output cooldown, and is delivered by the host as a normal proactive cue. The "must not enter callback or voice hot-swap queues" restriction applies only to the separate passive shadow, which stays a hidden `read` snapshot.
 
 `pushed` means the request reached the host, not that the audience heard it. The current

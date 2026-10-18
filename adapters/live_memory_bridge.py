@@ -255,6 +255,17 @@ class LiveMemoryBridge:
                 timeout=30.0,
             )
             response.raise_for_status()
+            acknowledgement = response.json()
+            trust = acknowledgement.get("trust") if isinstance(acknowledgement, dict) else None
+            if (
+                not isinstance(acknowledgement, dict)
+                or acknowledgement.get("status") != "processed"
+                or not isinstance(trust, dict)
+                or "persisted" not in trust
+                or not (trust["persisted"] is True or trust["persisted"] is None)
+            ):
+                self._remember_unavailable("memory_ack_unconfirmed")
+                return False
         except Exception as exc:
             self._remember_unavailable(type(exc).__name__)
             return False

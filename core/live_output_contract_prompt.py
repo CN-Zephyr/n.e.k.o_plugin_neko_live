@@ -189,6 +189,13 @@ def render_contract_instruction(
         absolute_limit = 64 if host_only else REPLY_TARGET_CHARS
     target_limit = min(36 if host_only or expanded_danmaku or room_bridge_danmaku else REPLY_TARGET_CHARS, absolute_limit)
     module_notes = [ROUTE_NOTES[module] for module in modules if module in ROUTE_NOTES]
+    if modules == ["danmaku_response"] and any(
+        cb["metadata"].get("danmaku_profile") == "current_avatar_question"
+        for cb in callbacks if is_live_reply_metadata(cb.get("metadata"))
+    ):
+        module_notes = [
+            "For current_avatar_question: describe only the current viewer's image attached to this request; without one, admit you cannot see it.",
+        ]
     entry_greeting = modules == ["danmaku_response"] and all(
         cb["metadata"].get("danmaku_profile") == "entry_greeting"
         for cb in callbacks if is_live_reply_metadata(cb.get("metadata"))

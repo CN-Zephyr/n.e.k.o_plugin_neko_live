@@ -11,6 +11,7 @@ from .contracts_public import public_int, public_text
 from .recent_results_store import save_recent_results
 from .runtime_live_session import is_current_live_session_event
 from .runtime_timeline import ensure_trace_id, record_timeline, timeline_for_trace
+from .viewer_utterance import viewer_utterance_text
 
 
 class _RecentChatObservedPayload(dict[str, Any]):
@@ -59,11 +60,11 @@ def record_result(runtime: Any, result: InteractionResult) -> None:
             payload["spent_output_family"] = ",".join(spent_families)
     runtime.recent_results.append(payload)
     save_recent_results(runtime)
-    _note_live_memory(runtime, payload)
+    _note_live_memory(runtime, payload, event=result.event)
     runtime.event_bus.emit("result", payload)
 
 
-def _note_live_memory(runtime: Any, payload: dict[str, Any]) -> None:
+def _note_live_memory(runtime: Any, payload: dict[str, Any], *, event: ViewerEvent | None = None) -> None:
     if getattr(getattr(runtime, "config", None), "viewer_memory_enabled", False) is not True:
         bridge = getattr(runtime, "live_memory", None)
         if bridge is not None:
@@ -71,9 +72,9 @@ def _note_live_memory(runtime: Any, payload: dict[str, Any]) -> None:
         return
     if str(payload.get("status") or "") != "pushed":
         return
-    event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
-    text = str(event.get("danmaku_text") or "").strip()
-    uid = str(event.get("uid") or "").strip()
+    public_event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+    text = viewer_utterance_text(event if event is not None else public_event)
+    uid = str(public_event.get("uid") or "").strip()
     if not text or not uid:
         return
     bridge = getattr(runtime, "live_memory", None)
@@ -87,11 +88,11 @@ def _note_live_memory(runtime: Any, payload: dict[str, Any]) -> None:
         return
     note(
         uid=uid,
-        nickname=str(event.get("nickname") or ""),
+        nickname=str(public_event.get("nickname") or ""),
         user_text=text,
         platform=runtime.live_provider.platform,
-        guard_level=_event_guard_level(event),
-        medal_level=_event_medal_level(event),
+        guard_level=_event_guard_level(public_event),
+        medal_level=_event_medal_level(public_event),
     )
 
 

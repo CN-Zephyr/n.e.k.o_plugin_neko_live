@@ -118,6 +118,8 @@ For natural pickup, `active_topic_recent_source.py` asks for at most three unsel
 
 ## Safety Boundary
 
+`clear_pending()` cancels selected active speech and the pending selection window while retaining recent chat, scene facts and passive room-context refreshes. Full `reset()` still owns session teardown. The shared action and SafetyGuard accounting are defined in [queue clearing](../runtime-observability.md#safety-guard).
+
 This module does not call `plugin.push_message()` directly. Active output stays behind `ctx.handle_live_payload()`, so the normal pipeline, safety guard, audit store, signal-only handling, and dispatcher boundaries remain intact. Co-stream passive room context uses the dispatcher-owned `read` boundary and cannot trigger a model turn by itself; selected active replies use the normal `respond` path and spend output cooldown.
 
 Content value and speech collision are separate decisions. A complete

@@ -59,6 +59,57 @@ class ConfigApi:
         self.ensure_payloads.append(payload)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["clear_queue", "resume"])
+async def test_clear_queue_cancels_owned_buffers_without_erasing_room_facts(runtime, action):
+    from plugin.plugins.neko_live.core.contracts import LiveEvent
+
+    runtime.config = LiveConfig(live_enabled=True, live_mode="solo_stream", rate_limit_seconds=60,
+                                like_greet_enabled=True, like_greet_min_count=1)
+    runtime.safety_guard.update(runtime.config)
+    release = asyncio.Event()
+    calls = []
+
+    async def handle(payload):
+        calls.append(payload)
+        await release.wait()
+
+    runtime.handle_live_payload = handle
+    await runtime.live_events.setup(runtime)
+    await runtime.live_support_events.setup(runtime)
+    await runtime.live_presence.setup(runtime)
+    runtime.live_presence._like_idle_seconds = 60
+    scheduler = runtime.live_support_events._scheduler
+    try:
+        for uid in ("1", "2"):
+            runtime.event_bus.publish("danmaku", LiveEvent(type="danmaku", uid=uid,
+                payload={"uid": uid, "nickname": "viewer", "text": "今天晚饭吃什么？", "room_id": 42}))
+        runtime.event_bus.publish("like", LiveEvent(type="like", uid="3", payload={"uid": "3", "room_id": 42}))
+        first = {"event_type": "gift", "uid": "4", "gift_name": "heart", "provider_event_id": "cleared-first"}
+        assert scheduler.submit(first)
+        assert scheduler.submit({**first, "provider_event_id": "cleared-second"})
+        await asyncio.sleep(0)
+        assert runtime.live_events._buffered_count == 1
+        assert runtime.live_presence._like_buckets
+        tasks = [*runtime.live_events._tasks, *runtime.live_presence._tasks, scheduler._worker]
+        count_before_clear = len(calls)
+        getattr(runtime, action)()
+        release.set()
+        await asyncio.gather(*(task for task in tasks if task is not None), return_exceptions=True)
+        await scheduler.wait_idle()
+        assert len(calls) == count_before_clear
+        assert runtime.live_events._buffered_count == 0
+        assert len(runtime.live_events.recent_chat_snapshot(limit=3)) == 2
+        assert not runtime.live_presence._like_buckets
+        assert scheduler.status()["pending_count"] == 0
+        assert scheduler.submit(first) is False
+    finally:
+        release.set()
+        await runtime.live_presence.teardown()
+        await runtime.live_support_events.teardown()
+        await runtime.live_events.teardown()
+
+
 class Plugin:
     def __init__(self, tmp_path: Path) -> None:
         self.config = ConfigApi()

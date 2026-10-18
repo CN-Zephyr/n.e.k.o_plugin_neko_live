@@ -642,15 +642,19 @@ class SupportEventScheduler:
             self._idle.clear()
 
     def reset(self) -> None:
-        self._dispatch_generation += 1
-        self._queue.clear()
-        self._combos.clear()
-        self._combo_deadlines.clear()
+        self.clear_pending()
         self._finalized_combos.clear()
         self._processed_ids.clear()
         self._overflow_count = 0
         self._dropped_count = 0
         self._aggregated_count = 0
+
+    def clear_pending(self) -> None:
+        """Retire pending speech, preserving already-seen support identities."""
+        self._dispatch_generation += 1
+        self._queue.clear()
+        self._combos.clear()
+        self._combo_deadlines.clear()
         for task in self._combo_tasks.values():
             task.cancel()
             self._retire_task(task)

@@ -28,6 +28,7 @@ from .._prompt_context import (
     viewer_preference_context_block,
     viewer_session_context_block,
 )
+from .avatar_request import requests_own_avatar
 
 
 class DanmakuResponseModule(BaseModule):
@@ -78,6 +79,14 @@ class DanmakuResponseModule(BaseModule):
             strength=strength,
             dry_run=bool(self.ctx.config.dry_run) if self.ctx else False,
             allow_avatar_image=False,
+            attach_avatar_image=(
+                event.source in {"live_danmaku", "manual_live_simulation", "developer_sandbox"}
+                and metadata["danmaku_profile"] != "entry_greeting"
+                and bool(getattr(getattr(self.ctx, "config", None), "avatar_analysis_enabled", True))
+                and requests_own_avatar(event.danmaku_text or "")
+                and identity.avatar_vision_ok
+                and not identity.is_default_avatar
+            ),
             metadata=metadata,
         )
 
@@ -245,6 +254,7 @@ class DanmakuResponseModule(BaseModule):
     def _response_move(kind: str) -> str:
         if kind in {
             "question",
+            "current_avatar_question",
             "content_request",
             "external_action_request",
             "target_roast_request",
@@ -317,6 +327,12 @@ class DanmakuResponseModule(BaseModule):
                 "kind": "viewer_to_viewer_mention",
                 "reply_target": "public_side_reaction",
                 "reply_shape": "tiny_side_reaction",
+            }
+        if requests_own_avatar(text):
+            return {
+                "kind": "current_avatar_question",
+                "reply_target": "current_viewer_avatar",
+                "reply_shape": "describe_current_image_or_admit_unavailable",
             }
         if not text:
             return {
@@ -466,6 +482,10 @@ class DanmakuResponseModule(BaseModule):
                 "Do not thank the viewer for entering; never say 谢谢进入直播间 or 感谢进入直播间. Welcome them instead.",
                 "Do not roast the avatar or nickname, invent viewer speech, or continue earlier chat or support thanks.",
             ],
+            "current_avatar_question": [
+                "Describe only this viewer's image attached to the current request; if no image is attached, say you cannot see it.",
+                "Never use older images or another viewer's avatar as visual evidence for this viewer.",
+            ],
             "content_request": [
                 "This danmaku asks NEKO to produce concrete content; deliver the content in this reply.",
                 "Do not merely acknowledge, promise, or announce that NEKO will do it next.",
@@ -538,6 +558,7 @@ class DanmakuResponseModule(BaseModule):
             "empty",
             "emoji_or_reaction",
             "entry_greeting",
+            "current_avatar_question",
             "greeting",
             "viewer_to_viewer_mention",
             "content_request",

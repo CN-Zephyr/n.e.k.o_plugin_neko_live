@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +41,8 @@ class SafetyGuard:
     _output_failures: list[float] = field(default_factory=list)
     _last_output_at: float = 0.0
     _last_support_output_at: float = 0.0
+    _queue_generation: int = 0
+    _event_tasks: dict[asyncio.Task[Any], int] = field(default_factory=dict, repr=False)
 
     def update(self, config: LiveConfig) -> None:
         self.config = config
@@ -61,7 +64,16 @@ class SafetyGuard:
         self.audit.record("safety_resumed", "safety guard reset", level="info")
 
     def clear_queue(self) -> None:
-        self.queue_size = 0
+        self._queue_generation += 1
+        current = _current_task()
+        pending = [task for task in self._event_tasks if not task.done()]
+        for task in pending:
+            if task is not current:
+                task.cancel()
+        # Cancelling work still owns its slot until after_event(). Resetting
+        # the count early would allow new work to overtake its finalization.
+        if not pending:
+            self.queue_size = 0
 
     def set_connected(self, connected: bool) -> None:
         self.connected = bool(connected)
@@ -90,9 +102,15 @@ class SafetyGuard:
             )
             return SafetyDecision(False, self.status(), "queue limit reached")
         self.queue_size += 1
+        task = _current_task()
+        if task is not None:
+            self._event_tasks[task] = self._queue_generation
         return SafetyDecision(True, self.status(), "")
 
     def after_event(self) -> None:
+        task = _current_task()
+        if task is not None:
+            self._event_tasks.pop(task, None)
         self.queue_size = max(0, self.queue_size - 1)
 
     def before_output(
@@ -107,6 +125,9 @@ class SafetyGuard:
         skips cooldown validation and does not advance ``_last_output_at``.
         Real ``push_roast`` output must keep the default value.
         """
+        generation = self._event_tasks.get(_current_task())
+        if generation is not None and generation != self._queue_generation:
+            return SafetyDecision(False, self.status(), "queue.cleared")
         if _requires_live_connection(event) and not self.connected:
             return SafetyDecision(
                 False, "disconnected", "live output source is disconnected"
@@ -154,3 +175,10 @@ class SafetyGuard:
             "pipeline_failures": len(self._pipeline_failures),
             "output_failures": len(self._output_failures),
         }
+
+
+def _current_task() -> asyncio.Task[Any] | None:
+    try:
+        return asyncio.current_task()
+    except RuntimeError:
+        return None

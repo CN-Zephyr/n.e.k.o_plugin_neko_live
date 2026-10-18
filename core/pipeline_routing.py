@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from ..modules.danmaku_response.avatar_request import declines_own_avatar, own_avatar_request_clauses
 from .contracts import ViewerEvent
 
 ENTRANCE_ROAST_MIN_INTERVAL_SECONDS = 45.0
@@ -72,37 +73,15 @@ def is_explicit_self_avatar_roast_request(event: ViewerEvent) -> bool:
 
     if not is_live_danmaku_with_text(event):
         return False
-    text = str(event.danmaku_text or "").strip().casefold()
-    dense = "".join(
-        ch for ch in text if ch.isalnum() or "\u4e00" <= ch <= "\u9fff"
-    )
-    cjk_self_avatar = any(
-        marker in dense
-        for marker in (
-            "我的头像",
-            "我头像",
-            "本人头像",
-            "给我看头像",
-        )
-    )
-    cjk_roast = any(
-        marker in dense
-        for marker in (
-            "锐评",
-            "吐槽",
-            "评价",
-            "点评",
-            "评评",
-            "打分",
-        )
-    )
-    if cjk_self_avatar and cjk_roast:
-        return True
-    return re.search(
-        r"\b(?:roast|rate|review|judge)\s+my\s+"
-        r"(?:avatar|profile\s+(?:picture|pic)|pfp)\b",
-        text,
-    ) is not None
+    for text in own_avatar_request_clauses(str(event.danmaku_text or "")):
+        dense = "".join(ch for ch in text if ch.isalnum())
+        if any(marker in dense for marker in ("我的头像", "我头像", "本人头像", "给我看头像")) and any(
+            marker in dense for marker in ("锐评", "吐槽", "评价", "点评", "评评", "打分")
+        ):
+            return True
+        if re.search(r"\b(?:roast|rate|review|judge)\s+my\s+(?:avatar|profile\s+(?:picture|pic)|pfp)\b", text, re.I):
+            return True
+    return False
 
 
 def is_entrance_paced_live_danmaku(
@@ -134,6 +113,8 @@ def route_for_event(
     avatar_roast_burst_active: bool = False,
     avatar_roast_batch_welcome: bool = False,
     entry_roast_owns_danmaku: bool = False,
+    entry_greet_enabled: bool = False,
+    entry_roast_enabled: bool = True,
 ) -> PipelineRoute:
     support_type = support_event_type(event)
     if support_type:
@@ -142,8 +123,17 @@ def route_for_event(
     if isinstance(event.raw, dict):
         presence = str(event.raw.get("presence_action") or "").strip().lower()
     if presence == "greet":
-        return PipelineRoute("danmaku_response", "entry_greet", False)
+        return (
+            PipelineRoute("danmaku_response", "entry_greet", False)
+            if entry_greet_enabled else PipelineRoute("live_presence", "presence_speech_disabled", False)
+        )
     if presence == "roast":
+        roast_enabled = avatar_roast_enabled and entry_roast_enabled
+        if not roast_enabled or (has_uid_lock and already_roasted):
+            if entry_greet_enabled:
+                return PipelineRoute("danmaku_response", "entry_greet", False)
+            if not roast_enabled:
+                return PipelineRoute("live_presence", "presence_speech_disabled", False)
         return PipelineRoute("avatar_roast", "entry_roast", True)
     if event.source == "warmup_hosting":
         return PipelineRoute("warmup_hosting", "warmup_hosting", False)
@@ -151,6 +141,8 @@ def route_for_event(
         return PipelineRoute("active_engagement", "active_engagement", False)
     if event.source == "idle_hosting":
         return PipelineRoute("idle_hosting", "idle_hosting", False)
+    if is_live_danmaku_with_text(event) and declines_own_avatar(event.danmaku_text or ""):
+        return PipelineRoute("danmaku_response", "avatar_roast_declined", False)
     explicit_self_avatar_roast = is_explicit_self_avatar_roast_request(event)
     if explicit_self_avatar_roast:
         if not avatar_roast_enabled:

@@ -173,6 +173,28 @@ try {
   openFilter()
   await new Promise(resolve => setTimeout(resolve, 30))
   assert.equal(window.document.querySelector('textarea').value, 'private chat:', 'reopening shows normalized whitespace')
+  clickButton('panel.actions.cancel', true)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const getRoastCard = () => [...panelContainer.querySelectorAll('section.neko-card')].find(card =>
+    card.textContent.includes('panel.interaction.module.avatarRoast.title') &&
+    card.textContent.includes('panel.interaction.module.entryGreet.title') && card.querySelector('[role="switch"]'))
+  assert.ok(getRoastCard())
+  getRoastCard().querySelector('[role="switch"]').click()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.deepEqual(settingsCalls.pop(), { avatar_roast_enabled: false })
+  const roastButtons = getRoastCard().querySelectorAll('button')
+  roastButtons[roastButtons.length - 1].click()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  const getAnalysisToggle = () => [...window.document.querySelectorAll('[role="switch"]')].find(toggle =>
+    toggle.textContent.includes('panel.interaction.module.avatarRoast.avatarAnalysis'))
+  assert.ok(getAnalysisToggle())
+  assert.equal(getAnalysisToggle().disabled, false, 'avatar analysis is independent of roasting')
+  getAnalysisToggle().click()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.deepEqual(settingsCalls.pop(), { avatar_analysis_enabled: false })
+  getAnalysisToggle().click()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.deepEqual(settingsCalls.pop(), { avatar_analysis_enabled: true })
   console.log('UI typecheck, compilation, profile actions, custom filter settings and action forwarding passed')
 } finally {
   await window.happyDOM.close()

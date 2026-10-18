@@ -83,6 +83,7 @@ def test_entry_greet_routes_without_marking_roasted():
         has_uid_lock=True,
         already_roasted=False,
         entrance_pacing_active=False,
+        entry_greet_enabled=True,
     )
 
     assert route.response_module_id == "danmaku_response"

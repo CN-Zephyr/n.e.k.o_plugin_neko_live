@@ -22,6 +22,7 @@ from .output_contract_bridge import (
     metadata_for_request,
     response_module_hint,
 )
+from .viewer_evidence import attribute_current_input, current_evidence_rules, viewer_identity_token
 
 _AVATAR_INLINE_BUDGET_BYTES = 64 * 1024
 _NEKO_LIVE_AUDIENCE_SOURCES = {"live_danmaku", "manual_live_simulation"}
@@ -238,7 +239,7 @@ def _prepend_live_delivery_boundary(text: str, request: InteractionRequest) -> s
     mode = str(request.live_mode or request.event.live_mode or "").strip() or "co_stream"
     boundary_lines = [
         "NEKO Live delivery boundary:",
-        "- This is a live-room speech request, not a private chat with {MASTER_NAME}.",
+        "- Live-room speech, not a private chat with {MASTER_NAME}.",
     ]
     if mode == "solo_stream":
         boundary_lines.append(
@@ -272,6 +273,8 @@ def _prepend_live_audience_speaker_lock(
     text: str,
     metadata: dict[str, Any],
     request: InteractionRequest,
+    *,
+    has_avatar_image: bool = False,
 ) -> str:
     source = str(request.event.source or "").strip()
     danmaku = str(request.event.danmaku_text or "").strip()
@@ -279,22 +282,29 @@ def _prepend_live_audience_speaker_lock(
     if (
         source not in _NEKO_LIVE_AUDIENCE_SOURCES
         or module not in {"avatar_roast", "danmaku_response"}
-        or not danmaku
+        or (not danmaku and not (has_avatar_image and isinstance(request.event.raw, dict) and request.event.raw.get("event_type") == "entry"))
     ):
         return text
-    viewer = str(metadata.get("danmaku_viewer_nickname") or "").strip()
-    if not viewer:
-        viewer = str(request.identity.nickname or request.event.nickname or "").strip()
-    viewer = " ".join(viewer.split())[:24] or "the current live viewer"
+    # Preferred addressing belongs to the spoken reply, not the identity of
+    # the author (different public names may share the same preferred alias).
+    viewer = public_text(
+        request.identity.nickname or request.event.nickname or metadata.get("danmaku_viewer_nickname") or "",
+        max_len=24,
+    ) or "the current live viewer"
+    identity_token = viewer_identity_token(str(request.identity.uid or request.event.uid or ""))
     lock = "\n".join(
         (
             "NEKO Live audience speaker identity:",
-            f"- danmaku_author: {viewer}",
+            f"- danmaku_author: {viewer} ({identity_token}; never speak this ID)",
             "- The current danmaku was written by danmaku_author, not by {MASTER_NAME}, the owner, the operator, or the human co-streamer.",
             "- If the current danmaku is a question or request, danmaku_author is the questioner/requester; never say or imply that the human streamer or owner asked this question.",
+            *current_evidence_rules(
+                danmaku, has_avatar_image=has_avatar_image,
+                avatar_requested=metadata.get("danmaku_profile") == "current_avatar_question",
+            ),
         )
     )
-    base = str(text or "").lstrip()
+    base = attribute_current_input(str(text or "").lstrip(), viewer, identity_token)
     return f"{lock}\n\n{base}" if base else lock
 
 
@@ -575,7 +585,7 @@ class NekoDispatcher:
             text = "（这是 NEKO Live 首次出场锐评的内置演示，也请像真实弹幕一样直接回应。）\n" + text
         parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
         if (
-            request.allow_avatar_image
+            (request.allow_avatar_image or request.attach_avatar_image)
             and identity.avatar_bytes
         ):
             avatar_bytes, avatar_mime = _normalize_avatar_for_neko_vision(
@@ -591,7 +601,7 @@ class NekoDispatcher:
                     }
                 )
             else:
-                parts[0]["text"] += "\n头像图片过大，本次先只根据昵称和弹幕锐评。"
+                parts[0]["text"] += "\n当前头像图片过大，未附加到本次请求；不能借用历史图片描述这个观众。"
         image_part_bytes = len(parts[1]["data"]) if len(parts) > 1 else 0
         target_lanlan = _resolve_target_lanlan(
             self.plugin,
@@ -632,6 +642,7 @@ class NekoDispatcher:
             str(parts[0].get("text") or ""),
             metadata,
             request,
+            has_avatar_image=image_part_bytes > 0,
         )
         prepared = _prepend_live_delivery_boundary(
             str(parts[0].get("text") or ""),

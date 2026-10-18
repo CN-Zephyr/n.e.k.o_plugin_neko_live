@@ -9,6 +9,7 @@ from .contracts import PipelineStep, ViewerEvent, ViewerIdentity, ViewerProfile
 from .live_provider_router import identity_provider_for
 from .runtime_live_session import is_current_live_session_event
 from .runtime_timeline import record_timeline
+from .viewer_utterance import viewer_utterance_text
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,7 @@ async def resolve_viewer_context(
         recorder = getattr(ctx.viewer_profile, "record_live_danmaku", None)
         if _should_record_live_danmaku(event) and callable(recorder):
             try:
-                recorded_profile = await recorder(identity, event.danmaku_text)
+                recorded_profile = await recorder(identity, viewer_utterance_text(event))
             except Exception as exc:
                 message = f"record_live_danmaku_failed: {type(exc).__name__}"
                 steps.append(
@@ -129,8 +130,4 @@ async def resolve_viewer_context(
 
 
 def _should_record_live_danmaku(event: ViewerEvent) -> bool:
-    return bool(
-        event.source == "live_danmaku"
-        and event.danmaku_text
-        and not event.uid.startswith("__neko_")
-    )
+    return bool(viewer_utterance_text(event))

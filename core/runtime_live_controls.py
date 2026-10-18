@@ -44,6 +44,7 @@ def pause(runtime: Any) -> None:
 
 
 def resume(runtime: Any) -> None:
+    _clear_pending(runtime)
     runtime.safety_guard.resume()
     if not bool(getattr(runtime.config, "live_enabled", False)):
         return
@@ -61,8 +62,16 @@ def resume(runtime: Any) -> None:
 
 
 def clear_queue(runtime: Any) -> None:
+    _clear_pending(runtime)
     runtime.safety_guard.clear_queue()
     runtime.audit.record("queue_clear", "queue cleared")
+
+
+def _clear_pending(runtime: Any) -> None:
+    for name in ("live_events", "live_support_events", "live_presence"):
+        clear_pending = getattr(getattr(runtime, name, None), "clear_pending", None)
+        if callable(clear_pending):
+            clear_pending()
 
 
 async def clear_viewer_profiles(runtime: Any) -> dict[str, Any]:

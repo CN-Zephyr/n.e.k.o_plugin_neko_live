@@ -339,8 +339,9 @@ class AvatarRoastModule(BaseModule):
                 "make one compact host reaction, then stop."
             )
         return (
-            "co_stream first-appearance contract - NEKO is a low-interrupt partner; "
-            "do not steal the human streamer's host role, and do not direct the streamer/operator/current viewer to greet viewers, warm up the room, carry chat, provide topics, or help NEKO host."
+            "co_stream first-appearance contract - low-interrupt partner; "
+            "do not steal the human streamer's host role. "
+            "Never delegate greetings/warmup/chat/topics/hosting to streamer/operator/viewers."
         )
 
     @staticmethod

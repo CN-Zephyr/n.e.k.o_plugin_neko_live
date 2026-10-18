@@ -101,6 +101,13 @@ class LiveSupportEventsModule(BaseModule):
             return max(1, min(100, int(queue_limit)))
         return scheduler.update_queue_limit(queue_limit)
 
+    def clear_pending(self) -> None:
+        if self._scheduler is not None:
+            self._scheduler.clear_pending()
+        for task in list(self._tasks):
+            if not task.done():
+                task.cancel()
+
     def status(self) -> dict[str, Any]:
         scheduler_status = self._scheduler.status() if self._scheduler is not None else {}
         return {

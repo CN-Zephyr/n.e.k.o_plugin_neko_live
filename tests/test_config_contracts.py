@@ -1833,8 +1833,7 @@ def test_avatar_roast_prompt_separates_solo_and_co_stream_roles():
     assert "NEKO is carrying the room alone" in solo.prompt_text
     assert "co_stream first-appearance contract" in co_stream.prompt_text
     assert "do not steal the human streamer's host role" in co_stream.prompt_text
-    assert "do not direct the streamer/operator/current viewer to greet viewers" in co_stream.prompt_text
-    assert "warm up the room, carry chat, provide topics, or help NEKO host" in co_stream.prompt_text
+    assert "Never delegate greetings/warmup/chat/topics/hosting to streamer/operator/viewers" in co_stream.prompt_text
     assert "Do not invent or hard-code streamer relationship labels" in solo.prompt_text
     assert "Do not invent or hard-code streamer relationship labels" in co_stream.prompt_text
 

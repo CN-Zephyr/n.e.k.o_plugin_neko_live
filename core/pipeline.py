@@ -276,7 +276,14 @@ class LivePipeline:
             entry_roast_owns_danmaku=bool(
                 getattr(self.ctx.config, "entry_roast_enabled", False)
             ),
+            entry_greet_enabled=bool(getattr(self.ctx.config, "entry_greet_enabled", False)),
+            entry_roast_enabled=bool(getattr(self.ctx.config, "entry_roast_enabled", False)),
         )
+        if route.viewer_gate_reason == "entry_greet" and isinstance(event.raw, dict):
+            # Resolve roast-vs-welcome under the existing per-UID lock, after
+            # checking both persisted and current-session roast ownership.
+            event.raw["presence_action"] = "greet"
+            event.danmaku_text = ""
         if route.viewer_gate_reason == "batch_welcome":
             self._mark_batch_welcome_event(event)
         return route

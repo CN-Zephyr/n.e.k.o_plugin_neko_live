@@ -30,6 +30,7 @@ class InteractionRequest:
     allow_avatar_image: bool = False
     reason: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    attach_avatar_image: bool = False
 
     def to_public_dict(self) -> dict[str, Any]:
         metadata = public_dict(self.metadata)
@@ -50,6 +51,7 @@ class InteractionRequest:
             "should_push": public_bool(self.should_push),
             "dry_run": public_bool(self.dry_run),
             "allow_avatar_image": public_bool(self.allow_avatar_image),
+            "attach_avatar_image": public_bool(self.attach_avatar_image),
             "reason": public_text(self.reason),
             "metadata": metadata,
         }

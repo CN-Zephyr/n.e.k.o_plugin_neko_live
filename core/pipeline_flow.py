@@ -74,7 +74,19 @@ async def run_event_flow(
                 "idle_hosting": "idle_hosting_enabled",
                 "active_engagement": "active_engagement_enabled",
             }.get(route.response_module_id)
-            if module_flag and not bool(getattr(ctx.config, module_flag, True)):
+            presence_flag = {
+                "like": "like_greet_enabled", "follow": "follow_greet_enabled",
+            }.get(support_event_type(event))
+            if presence_flag and not bool(getattr(ctx.config, presence_flag, False)):
+                module_id = presence_flag.removesuffix("_enabled")
+                record_timeline(
+                    ctx, event, stage="module_gate", status="skipped",
+                    reason=f"{module_id}.disabled", route=route.response_module_id,
+                )
+                return skip_module_disabled(ctx, event, identity, profile, steps, module_id)
+            if route.response_module_id == "live_presence" or (
+                module_flag and not bool(getattr(ctx.config, module_flag, True))
+            ):
                 record_timeline(
                     ctx,
                     event,

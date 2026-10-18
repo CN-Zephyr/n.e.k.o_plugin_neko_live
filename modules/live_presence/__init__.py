@@ -84,6 +84,9 @@ class LivePresenceModule(BaseModule):
         await super().teardown()
 
     def reset(self) -> None:
+        self.clear_pending()
+
+    def clear_pending(self) -> None:
         for task in list(self._tasks):
             if not task.done():
                 task.cancel()

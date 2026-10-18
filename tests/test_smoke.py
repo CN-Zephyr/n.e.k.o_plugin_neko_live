@@ -467,7 +467,9 @@ def test_interaction_panel_uses_stable_cards_and_detail_modals() -> None:
         assert 't("panel.coStreamEffects.channel.read")' not in interaction_source
         assert 't(`panel.coStreamEffects.channel.${channelKey}`)' in interaction_source
         assert "{coStreamEffectsCard}" in interaction_source
-        assert 'disabled={!configForm.values.avatar_roast_enabled || settingsSaving}' in interaction_source
+        analysis_toggle = interaction_source.split('label={t("panel.interaction.module.avatarRoast.avatarAnalysis")}', 1)[0].rsplit("<ToggleSwitch", 1)[1]
+        assert 'disabled={settingsSaving}' in analysis_toggle
+        assert 'disabled={!configForm.values.avatar_roast_enabled' not in analysis_toggle
         assert 't("panel.interaction.module.avatarRoast.repeatRequestHint")' in interaction_source
         assert '<Alert tone="info">{t("panel.interaction.autoSaveHint")}</Alert>' in interaction_source
         assert "<details" not in interaction_source

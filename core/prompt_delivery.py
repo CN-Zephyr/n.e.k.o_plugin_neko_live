@@ -12,11 +12,12 @@ from __future__ import annotations
 import re
 
 from ..modules._prompt_rules import compact_rules_for_delivery
+from .contracts_public import public_text
 
 HOST_CALLBACK_TOKEN_BUDGET = 1000
 _EXCERPT_SUFFIX = " … [truncated]"
 _CURRENT_INPUT = re.compile(
-    r"^(?P<label>(?:- )?(?:danmaku|current_danmaku|current_danmaku_claim|current danmaku):[ \t]*)"
+    r"^(?P<label>(?:- )?(?:danmaku|current_danmaku|current_danmaku_claim|current danmaku):[ \t]*(?:【[^】\r\n]{1,80}】)?)"
     r"(?P<value>[^\r\n]+)$",
     re.MULTILINE,
 )
@@ -97,14 +98,17 @@ def fit_live_callback_prompt(text: str, *, budget: int = HOST_CALLBACK_TOKEN_BUD
         return raw
     chunks = _split_sections(raw)
     trusted_rules = chunks.get("rules") or ""
-    if trusted_rules:
-        chunks["rules"] = compact_rules_for_delivery(trusted_rules)
+    for name in ("rules", "speaker"):
+        if chunks.get(name):
+            chunks[name] = compact_rules_for_delivery(chunks[name])
     selected = {name: chunks[name] for name in _ALWAYS if chunks.get(name)}
     contract_versions = _contract_candidates(chunks.get("contract") or "", trusted_rules)
     if contract_versions:
         selected["contract"] = contract_versions[-1]
     if _over_budget(_render(selected), budget) and selected.get("topic_material"):
         selected["topic_material"] = _compact_topic_material(selected["topic_material"])
+    if _over_budget(_render(selected), budget):
+        selected = _compact_speaker_references(selected)
     selected = _fit_current_input(selected, budget)
     terms = _focus_terms(chunks.get("header") or "")
     if not terms:
@@ -123,6 +127,40 @@ def fit_live_callback_prompt(text: str, *, budget: int = HOST_CALLBACK_TOKEN_BUD
     if _over_budget(rendered, budget):
         raise PromptBudgetExceeded()
     return rendered
+
+
+def _compact_speaker_references(selected: dict[str, str]) -> dict[str, str]:
+    """Reference one intact inline author label instead of repeating its name."""
+    speaker = selected.get("speaker", "")
+    author = re.search(
+        r"^- danmaku_author: (?P<name>[^\r\n]+) \((?P<id>v_[0-9a-f]{12}); never speak this ID\)$",
+        speaker, re.MULTILINE,
+    )
+    if author is None:
+        return selected
+    name, identity = author["name"], author["id"]
+    inline_name = name.replace("【", "").replace("】", "") or "viewer"
+    label = f"【{inline_name}·{identity}】"
+    # Keep the name beside the utterance, including when the utterance is
+    # excerpted later. A matching string in viewer data is not a binding.
+    if not any(match["label"].endswith(label) for match in _CURRENT_INPUT.finditer(selected.get("header", ""))):
+        return selected
+    compact = dict(selected)
+    compact["speaker"] = speaker.replace(
+        author[0], f"- danmaku_author: {identity} (name in current input label; never speak this ID)", 1,
+    )
+    # A distinct preferred address or unknown field is not redundant. Long
+    # public names may use the same bounded spelling as the intact label.
+    header = compact["header"]
+    has_address = any(line.startswith(("viewer_full_nickname:", "preferred_viewer_address:")) for line in header.splitlines())
+    lines = []
+    for line in header.splitlines():
+        viewer = re.fullmatch(r"viewer: (?P<name>.+?)(?P<uid> \(UID [^\r\n()]+\))?", line)
+        if viewer and not has_address and public_text(viewer["name"], max_len=24) == name:
+            line = "viewer: danmaku_author" + (viewer["uid"] or "")
+        lines.append(line)
+    compact["header"] = "\n".join(lines)
+    return compact
 
 
 def _compact_topic_material(block: str) -> str:

@@ -270,6 +270,13 @@ class LiveEventsModule(BaseModule):
         task.add_done_callback(_clear_if_current)
         return task
 
+    def clear_pending(self) -> None:
+        """Cancel selected speech/window work without discarding room facts."""
+        for task in list(self._tasks):
+            if task is not self._ambient_refresh_task and not task.done():
+                task.cancel()
+        self._clear_window()
+
     def reset(self) -> None:
         """清空缓冲并取消待触发的窗口。断开直播间时调用，避免迟到的择优在断开后误投。"""
         ambient_refresh_task = self._ambient_refresh_task

@@ -16,6 +16,7 @@ from typing import Any
 
 from ...core.contracts import ViewerEvent, ViewerIdentity
 from .._base import BaseModule
+from ..danmaku_response.avatar_request import declines_own_avatar, requests_own_avatar
 
 _MAX_AVATAR_BYTES = 1 * 1024 * 1024
 _MAX_AVATAR_REDIRECTS = 2
@@ -170,10 +171,12 @@ class BiliIdentityModule(BaseModule):
             return True
         if not bool(getattr(self.ctx.config, "avatar_analysis_enabled", True)):
             return False
+        if declines_own_avatar(event.danmaku_text or ""):
+            return False
         live_avatar_roast_enabled = bool(
             getattr(self.ctx.config, "avatar_roast_enabled", True)
         )
-        return live_avatar_roast_enabled or event.source not in {
+        return live_avatar_roast_enabled or requests_own_avatar(event.danmaku_text or "") or event.source not in {
             "live_danmaku",
             "manual_live_simulation",
         }

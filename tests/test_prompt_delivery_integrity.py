@@ -8,6 +8,7 @@ import pytest
 from plugin.plugins.neko_live.core.prompt_delivery import (
     HOST_CALLBACK_TOKEN_BUDGET,
     PromptBudgetExceeded,
+    _compact_speaker_references,
     _contract_candidates,
     fit_live_callback_prompt,
 )
@@ -23,6 +24,41 @@ _CONTRACT = "NEKO Live short output contract:\n- one line"
 _CONTEXT = "Recent spent live material:\n" + "\n".join(
     "- optional filler " * 30 for _ in range(20)
 )
+
+
+@pytest.mark.parametrize("inline", [True, False])
+@pytest.mark.parametrize("preferred", [True, False])
+def test_author_reference_requires_matching_inline_identity_and_keeps_preferred_address(inline, preferred):
+    name, identity = "测试观众喵喵喵喵喵喵喵喵喵喵", "v_0123456789ab"
+    label = f"【{name}·{identity}】"
+    current = label + "你好" if inline else "这段话引用了 " + label
+    viewer = "小鱼" if preferred else name
+    header = f"[NEKO Live first-appearance roast]\nviewer: {viewer} (UID 42)\ncurrent danmaku: {current}"
+    if preferred:
+        header += f"\npreferred_viewer_address: 小鱼\nviewer_full_nickname: {name}"
+    speaker = f"NEKO Live audience speaker identity:\n- danmaku_author: {name} ({identity}; never speak this ID)"
+    unknown = "Rules:\n- Unknown restriction must be kept exactly."
+    original = {"header": header, "speaker": speaker, "rules": unknown}
+    compact = _compact_speaker_references(original)
+    if not inline:
+        assert compact == original
+        return
+    assert f"current danmaku: {label}你好" in compact["header"]
+    assert compact["rules"] == unknown
+    assert "never speak this ID" in compact["speaker"]
+    if preferred:
+        assert "viewer: 小鱼 (UID 42)" in compact["header"]
+        assert f"viewer_full_nickname: {name}" in compact["header"]
+    else:
+        assert "viewer: danmaku_author (UID 42)" in compact["header"]
+
+
+def test_mismatched_inline_uid_never_replaces_the_author_binding():
+    original = {
+        "header": "[NEKO Live first-appearance roast]\ncurrent danmaku: 【viewer·v_000000000001】hello",
+        "speaker": "NEKO Live audience speaker identity:\n- danmaku_author: viewer (v_000000000002; never speak this ID)",
+    }
+    assert _compact_speaker_references(original) == original
 
 
 @pytest.mark.parametrize("marker", [
