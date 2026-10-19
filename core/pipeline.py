@@ -191,14 +191,16 @@ class LivePipeline:
             return None
         summary = getattr(self.ctx, "live_status_summary", None)
         snapshot = getattr(self.ctx, "live_connection_snapshot", None)
+        # LiveRuntime always mounts both; only bare contexts (tests, sandbox
+        # harnesses) lack them, and those have no room state to protect.
         if not callable(summary) or not callable(snapshot):
             return None
         try:
             status = summary(snapshot())
         except Exception:
-            return None
+            return self._live_status_unknown_decision(event)
         if not isinstance(status, dict):
-            return None
+            return self._live_status_unknown_decision(event)
         reason = str(status.get("reason") or "").strip()
         # Output cooldown is owned by SafetyGuard.before_output().  Keeping it
         # out of this coarse live-status gate is important because verified
@@ -230,6 +232,15 @@ class LivePipeline:
                 "paused",
                 f"live_status.not_live:{room_status or 'unknown'}",
             )
+        return None
+
+    @staticmethod
+    def _live_status_unknown_decision(event: ViewerEvent) -> SafetyDecision | None:
+        # Hosting speech is self-initiated, so an unknown room state must not
+        # let it talk into an offline room. Viewer danmaku already passed the
+        # connection check and stays deliverable.
+        if event.source in LIVE_STATUS_HOSTING_SOURCES:
+            return SafetyDecision(False, "paused", "live_status.check_failed")
         return None
 
     @staticmethod

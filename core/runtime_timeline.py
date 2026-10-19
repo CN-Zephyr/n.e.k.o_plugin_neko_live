@@ -21,6 +21,7 @@ _REASON_CODES = {
     "output_channel_unavailable", "ready", "room_not_configured", "safety_degraded",
     "safety_tripped", "live_presence.disabled", "avatar_roast_declined",
     "like_greet.disabled", "follow_greet.disabled", "queue.cleared",
+    "live_status.check_failed",
 }
 
 

@@ -1491,3 +1491,34 @@ async def test_pipeline_mark_roasted_failure_keeps_success_result():
     assert result.status == "pushed"
     assert any(step.id == "viewer_profile.mark_roasted" and step.status == "failed" for step in result.steps)
     assert any(record["op"] == "viewer_profile_mark_failed" for record in ctx.audit.records)
+
+
+@pytest.mark.parametrize("summary_result", ["raise", "not_a_dict"])
+def test_live_status_check_failure_blocks_hosting_but_keeps_danmaku(summary_result):
+    def summary(_snapshot):
+        if summary_result == "raise":
+            raise RuntimeError("status backend broke")
+        return None
+
+    ctx = SimpleNamespace(
+        live_connection_snapshot=lambda: {"connected": True},
+        live_status_summary=summary,
+    )
+    pipeline = LivePipeline(ctx)
+
+    for source in ("warmup_hosting", "idle_hosting", "active_engagement"):
+        decision = pipeline._live_status_gate_decision(
+            ViewerEvent(uid="__neko__", nickname="NEKO", source=source)
+        )
+        assert decision is not None
+        assert decision.allowed is False
+        assert decision.reason == "live_status.check_failed"
+
+    danmaku = ViewerEvent(uid="1", nickname="u1", danmaku_text="hi", source="live_danmaku")
+    assert pipeline._live_status_gate_decision(danmaku) is None
+
+
+def test_live_status_check_failed_reason_survives_timeline_sanitizer():
+    from plugin.plugins.neko_live.core.runtime_timeline import _reason_code
+
+    assert _reason_code("live_status.check_failed") == "live_status.check_failed"

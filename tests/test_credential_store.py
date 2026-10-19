@@ -174,3 +174,33 @@ async def test_credential_store_namespace_keeps_douyin_cookie_separate(tmp_path)
         "saved_at": "now",
     }
     assert b"secret-cookie" not in (tmp_path / "douyin_credential.enc").read_bytes()
+
+
+@pytest.mark.asyncio
+async def test_credential_load_failure_is_audited_without_secret_material(tmp_path):
+    pytest.importorskip("cryptography")
+    audit = _Audit()
+    store = CredentialStore(_FakePlugin(tmp_path), audit=audit)
+    assert await store.save({"SESSDATA": "sess-secret", "DedeUserID": "42"}) is True
+    audit.events.clear()
+
+    # A foreign key can no longer decrypt the stored token.
+    from cryptography.fernet import Fernet
+
+    (tmp_path / "bili_credential.key").write_bytes(Fernet.generate_key())
+
+    assert await store.load() is None
+    assert store.has_credential() is True
+    assert [event["op"] for event in audit.events] == ["bili_credential_load_failed"]
+    detail = audit.events[0]["detail"]
+    assert detail == {"error_type": "InvalidToken"}
+    assert "sess-secret" not in repr(audit.events)
+
+
+@pytest.mark.asyncio
+async def test_credential_missing_files_load_is_silent(tmp_path):
+    audit = _Audit()
+    store = CredentialStore(_FakePlugin(tmp_path), audit=audit)
+
+    assert await store.load() is None
+    assert audit.events == []
