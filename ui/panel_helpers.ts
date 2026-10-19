@@ -90,7 +90,7 @@ export function labelFallback(group: string, value: string): string {
       dry_run: "测试模式已开启，不会真实输出。",
       manual_paused: "猫猫已暂停。",
       room_not_configured: "还没有配置直播间。",
-      live_disabled: "NEKO 直播助手尚未启用。",
+      live_disabled: "直播助手尚未启用。",
       live_ingest_disconnected: "直播接收还没有连接。",
       cooldown: "猫猫正在等待冷却结束。",
       safety_tripped: "安全门已停止输出。",

@@ -140,15 +140,15 @@ class NekoLivePlugin(NekoPluginBase):
             self,
             query=query,
         )
-    @ui.context(id="dashboard", title=tr("panel.title", default="NEKO 直播助手"))
+    @ui.context(id="dashboard", title=tr("panel.title", default="直播助手"))
     async def get_dashboard_ui_context(self) -> dict[str, Any]:
         return await self._runtime().dashboard_state()
 
     @ui.action(id="update_config", label=tr("actions.update_config.label", default="保存设置"), group="control", order=10, refresh_context=True)
     @plugin_entry(
         id="update_config",
-        name=tr("entries.update_config.name", default="更新 NEKO 直播助手设置"),
-        description=tr("entries.update_config.description", default="更新 NEKO 直播助手的直播模式、开关和安全门设置。"),
+        name=tr("entries.update_config.name", default="更新 直播助手设置"),
+        description=tr("entries.update_config.description", default="更新 直播助手的直播模式、开关和安全门设置。"),
         timeout=25.0,
         input_schema={
             "type": "object",
@@ -260,7 +260,7 @@ class NekoLivePlugin(NekoPluginBase):
     @plugin_entry(
         id="set_live_room",
         name=tr("entries.set_live_room.name", default="设置直播间"),
-        description=tr("entries.set_live_room.description", default="设置当前平台下 NEKO 直播助手要监听的直播间目标。"),
+        description=tr("entries.set_live_room.description", default="设置当前平台下 直播助手要监听的直播间目标。"),
         timeout=25.0,
         input_schema={
             "type": "object",
@@ -306,7 +306,7 @@ class NekoLivePlugin(NekoPluginBase):
     @plugin_entry(
         id="connect_live_room",
         name=tr("entries.connect_live_room.name", default="开始监听直播间"),
-        description=tr("entries.connect_live_room.description", default="开启 NEKO 直播助手直播接收状态。v0.1 不复制旧弹幕插件的 WebSocket 实现。"),
+        description=tr("entries.connect_live_room.description", default="开启 直播助手直播接收状态。v0.1 不复制旧弹幕插件的 WebSocket 实现。"),
         timeout=28.0,
         input_schema={
             "type": "object",
@@ -326,7 +326,7 @@ class NekoLivePlugin(NekoPluginBase):
     @plugin_entry(
         id="disconnect_live_room",
         name=tr("entries.disconnect_live_room.name", default="停止监听直播间"),
-        description=tr("entries.disconnect_live_room.description", default="停止 NEKO 直播助手直播接收状态。"),
+        description=tr("entries.disconnect_live_room.description", default="停止 直播助手直播接收状态。"),
     )
     async def disconnect_live_room(self, **_):
         connection = await self._runtime().disconnect_live_room()

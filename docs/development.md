@@ -8,7 +8,7 @@
 
 本节是显示名与内部标识命名约定的 Canonical Source：
 
-- 中文界面（`zh-CN` / `zh-TW`）的显示名统一为 **NEKO 直播助手**，包括 i18n 正文中面向用户的产品名；英文及 `ja` / `ko` / `es` / `pt` / `ru` 界面仍显示 **NEKO Live**。中文操作指引引用插件详情、面板或控制台名称时，应使用中文显示名。
+- 中文界面（`zh-CN` / `zh-TW`）的显示名统一为 **直播助手**，包括 i18n 正文中面向用户的产品名；英文及 `ja` / `ko` / `es` / `pt` / `ru` 界面仍显示 **NEKO Live**。中文操作指引引用插件详情、面板或控制台名称时，应使用中文显示名。
 - 插件 id `neko_live`、entry、`previous_ids` 和 Python 包名保持不变；显示名调整不构成内部标识迁移。
 - 内部 prompt 标记（如 `NEKO Live delivery boundary:`、`[NEKO Live ...]`）保持原文，避免改动 prompt 契约和测试锚点。开发者文档中的产品/代码名叙述可继续使用 **NEKO Live**，无需机械替换；历史代号「猫娘锐评」只用于解释 v0.1 起点。
 

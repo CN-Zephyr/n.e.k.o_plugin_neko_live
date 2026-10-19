@@ -1,6 +1,6 @@
 [plugin]
 id = "neko_live"
-name = "NEKO 直播助手"
+name = "直播助手"
 previous_ids = [
     "neko_roast",
 ]
@@ -18,7 +18,7 @@ keywords = [
     "观众",
 ]
 passive = true
-version = "0.3.0"
+version = "0.3.1"
 entry = "plugin.plugins.neko_live:NekoLivePlugin"
 
 [plugin.author]
@@ -40,7 +40,7 @@ expose_legacy_static_panel = false
 
 [[plugin.ui.panel]]
 id = "main"
-title = { "$i18n" = "panel.title", default = "NEKO 直播助手" }
+title = { "$i18n" = "panel.title", default = "直播助手" }
 entry = "ui/panel_compat.tsx"
 context = "dashboard"
 permissions = [

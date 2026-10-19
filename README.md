@@ -1,6 +1,6 @@
-# NEKO 直播助手（NEKO Live / neko_live）
+# 直播助手（NEKO Live / neko_live）
 
-中文界面显示「NEKO 直播助手」，英文等其他语言显示「NEKO Live」，内部插件 id 仍是 `neko_live`。完整命名约定见[开发文档「命名与范围」](docs/development.md#命名与范围)。
+中文界面显示「直播助手」，英文等其他语言显示「NEKO Live」，内部插件 id 仍是 `neko_live`。完整命名约定见[开发文档「命名与范围」](docs/development.md#命名与范围)。
 
 > 维护提醒：直播已开启且监听状态满足条件后，插件才会注入轻量直播语境；开发者模式可叠加独立调试语境。断开、关闭直播或停止插件时会恢复对应语境。所有 NEKO 输出链路都必须走 `NekoDispatcher`。
 
