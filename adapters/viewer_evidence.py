@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import date, datetime, timezone
+from typing import Any
 
 _INPUT_LINE = re.compile(
     r"^(?P<label>(?:- )?(?:danmaku|current_danmaku|current_danmaku_claim|current danmaku):[ \t]*)"
@@ -11,15 +13,46 @@ _INPUT_LINE = re.compile(
 )
 
 
-def current_evidence_rules(text: str, *, has_avatar_image: bool, avatar_requested: bool = False) -> list[str]:
+def current_evidence_rules(
+    text: str, *, has_avatar_image: bool, avatar_requested: bool = False, profile: Any = None
+) -> list[str]:
     """Keep relevant factual boundaries mandatory without taxing every reply."""
     rules = []
     if avatar_requested or has_avatar_image or re.search(r"头像|頭像|形象|长啥样|长什么样|脸|臉|\bavatar\b|\bpfp\b|\bface\b|\bappearance\b", text, re.I):
         state = "attached in this request" if has_avatar_image else "unavailable in this request"
         rules.append(f"- Current viewer avatar: {state}. Never reuse historical images or another viewer's avatar.")
     if re.search(r"什么时候|什麼時候|何时|何時|多久|第一次|首次|认识|認識|相见|相見|记得|記得|\bwhen\b|\bfirst\b|\bmet\b|\bremember\b", text, re.I):
-        rules.append("- Never invent first visits or meeting dates; absent explicit records, admit unknown. Past model guesses are not evidence.")
+        first_seen = earliest_record_date(getattr(profile, "first_seen_at", ""))
+        if first_seen:
+            rules.append(
+                f"- Viewer first seen in local records: {first_seen}; the real first visit may be earlier. "
+                "Never invent first visits or meeting dates beyond this record. Past model guesses are not evidence."
+            )
+        else:
+            rules.append("- Never invent first visits or meeting dates; absent explicit records, admit unknown. Past model guesses are not evidence.")
     return rules
+
+
+def earliest_record_date(first_seen_at: Any, *, today: date | None = None) -> str:
+    """Local date of a first-seen record that predates today.
+
+    The store fills a missing or unreadable record with "now", so a same-day
+    value cannot be told apart from a fabricated one and is withheld.
+    """
+    first = _local_date(first_seen_at)
+    if first is None or first >= (today or datetime.now().astimezone().date()):
+        return ""
+    return first.isoformat()
+
+
+def _local_date(value: Any) -> date | None:
+    try:
+        parsed = datetime.fromisoformat(str(value or "").strip())
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone().date()
 
 
 def viewer_identity_token(uid: str) -> str:

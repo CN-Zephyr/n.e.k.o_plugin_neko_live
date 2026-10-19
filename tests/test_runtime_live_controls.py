@@ -3786,3 +3786,58 @@ async def test_room_edit_during_connect_lookup_cannot_start_the_previous_room(ru
     assert runtime.config.live_room_id == 456
     assert not runtime.bili_live_ingest.is_listening()
     assert not runtime._accepting_live_events
+
+
+@pytest.mark.asyncio
+async def test_disconnect_submits_pending_viewer_memory_batch(runtime: LiveRuntime) -> None:
+    # Only runtime shutdown closes the bridge; a room-only disconnect must not
+    # leave the last partial batch waiting for the next session.
+    runtime.config.live_room_id = 123
+    await runtime.connect_live_room()
+    runtime.live_memory = SimpleNamespace(flush=AsyncMock())
+
+    await runtime.disconnect_live_room()
+
+    runtime.live_memory.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_is_not_blocked_by_slow_memory_flush(
+    runtime: LiveRuntime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from plugin.plugins.neko_live.core import runtime_live_controls
+
+    monkeypatch.setattr(runtime_live_controls, "_DISCONNECT_MEMORY_FLUSH_TIMEOUT_SECONDS", 0.05)
+    release = asyncio.Event()
+    finished = []
+
+    async def slow_flush() -> None:
+        await release.wait()
+        finished.append(True)
+
+    runtime.config.live_room_id = 123
+    await runtime.connect_live_room()
+    runtime.live_memory = SimpleNamespace(flush=slow_flush)
+
+    snapshot = await asyncio.wait_for(runtime.disconnect_live_room(), 1)
+
+    assert snapshot["state"] == "disconnected"
+    assert any(item.get("op") == "live_memory_flush_timeout" for item in runtime.audit.recent())
+    # The shielded submission keeps running instead of being cancelled.
+    release.set()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert finished == [True]
+
+
+@pytest.mark.asyncio
+async def test_disconnect_survives_memory_flush_failure(runtime: LiveRuntime) -> None:
+    runtime.config.live_room_id = 123
+    await runtime.connect_live_room()
+    runtime.live_memory = SimpleNamespace(flush=AsyncMock(side_effect=RuntimeError("secret detail")))
+
+    snapshot = await runtime.disconnect_live_room()
+
+    assert snapshot["state"] == "disconnected"
+    records = [item for item in runtime.audit.recent() if item.get("op") == "live_memory_flush_failed"]
+    assert records and "secret detail" not in json.dumps(records, ensure_ascii=False)

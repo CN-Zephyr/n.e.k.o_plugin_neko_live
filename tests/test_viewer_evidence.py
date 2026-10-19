@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import re
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -515,3 +516,49 @@ async def test_presence_support_checks_latest_switch_after_lookup(live_context, 
     assert result.status == "skipped" and result.reason == kind + "_greet.disabled"
     assert not ctx.messages
     ctx.viewer_profile.mark_roasted.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_history_question_cites_recorded_first_seen_date(live_context):
+    ctx = live_context
+    today = datetime.now().astimezone().date()
+    prior = (today - timedelta(days=60)).isoformat()
+    event = ViewerEvent(uid="B", nickname="Baka", danmaku_text="我们是什么时候第一次见面的", source="live_danmaku")
+    profile = ViewerProfile(uid="B", nickname="Baka", first_seen_at=f"{prior}T12:00:00+00:00")
+    identity = ViewerIdentity(uid="B", nickname="Baka")
+    request = ctx.danmaku_response.build_request(event, identity, profile)
+    request.profile = profile
+    await ctx.dispatcher.push_roast(request)
+    text = ctx.messages[-1]["parts"][0]["text"]
+    assert prior in text and "first seen" in text.lower()
+    assert "Never invent first visits or meeting dates" in text
+
+
+@pytest.mark.asyncio
+async def test_same_day_first_seen_is_not_cited_as_meeting_date(live_context):
+    # A fresh or unreadable record is filled with "now"; citing it would let
+    # the model claim "we met today" without evidence.
+    ctx = live_context
+    event = ViewerEvent(uid="B", nickname="Baka", danmaku_text="你还记得我们第一次认识是什么时候吗", source="live_danmaku")
+    identity = ViewerIdentity(uid="B", nickname="Baka")
+    profile = ViewerProfile(uid="B", nickname="Baka")
+    request = ctx.danmaku_response.build_request(event, identity, profile)
+    request.profile = profile
+    await ctx.dispatcher.push_roast(request)
+    text = ctx.messages[-1]["parts"][0]["text"]
+    assert "first seen" not in text.lower()
+    assert "Never invent first visits or meeting dates" in text
+
+
+def test_first_seen_date_is_omitted_for_unrelated_questions():
+    from datetime import date, timedelta
+
+    from plugin.plugins.neko_live.adapters.viewer_evidence import current_evidence_rules, earliest_record_date
+
+    today = date.today()
+    prior = today - timedelta(days=60)
+    profile = ViewerProfile(uid="B", nickname="Baka", first_seen_at=f"{prior.isoformat()}T12:00:00+00:00")
+    assert not any("first seen" in rule.lower() for rule in current_evidence_rules("你好", has_avatar_image=False, profile=profile))
+    assert earliest_record_date(f"{today.isoformat()}T12:00:00+00:00", today=today) == ""
+    assert earliest_record_date("not-a-date") == ""
+    assert earliest_record_date(f"{prior.isoformat()}T12:00:00+00:00", today=today) == prior.isoformat()

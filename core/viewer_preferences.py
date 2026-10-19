@@ -51,6 +51,16 @@ _LOW_VALUE_FACTS = {
     "lol",
     "awsl",
 }
+# Delivery probes, like call-to-actions, and platform check-in captions say
+# nothing about the viewer. Kept narrow so real questions still count.
+_META_NOISE = re.compile(
+    r"以后不提示"
+    r"|第\s*\d+\s*天.{0,8}直播间"
+    r"|^(?:测试|test)[\s\d]*$|测试一下"
+    r"|(?:能不能|能否)(?:收到|看到|看见)|(?:收|看)得到吗|(?:收到|看到|看见)了?吗"
+    r"|有没有反应|点点赞|点个赞",
+    re.IGNORECASE,
+)
 _MEMORY_BOILERPLATE = {
     "likes games/strategy",
     "likes music/singing",
@@ -300,7 +310,9 @@ def _is_presence_boilerplate(text: str) -> bool:
     if stripped.endswith(("进入直播间", "进入了直播间", "关注了主播", "刚进直播间")):
         return True
     dense = "".join(ch for ch in stripped if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
-    return dense.startswith("点赞了") and dense.endswith("次")
+    if dense.startswith("点赞了") and dense.endswith("次"):
+        return True
+    return bool(_META_NOISE.search(stripped))
 
 
 def _is_low_value_fact(dense: str) -> bool:
