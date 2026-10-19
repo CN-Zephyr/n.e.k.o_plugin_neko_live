@@ -6,7 +6,11 @@
 
 ## 命名与范围
 
-当前产品名是 **NEKO Live**。`neko_live` 是历史包名和内部代号，不作为用户可见产品名扩展。历史代号「猫娘锐评」只用于解释 v0.1 起点；新增文档、UI 文案、i18n 和 manifest 应使用 **NEKO Live**。
+本节是显示名与内部标识命名约定的 Canonical Source：
+
+- 中文界面（`zh-CN` / `zh-TW`）的显示名统一为 **NEKO 直播助手**，包括 i18n 正文中面向用户的产品名；英文及 `ja` / `ko` / `es` / `pt` / `ru` 界面仍显示 **NEKO Live**。中文操作指引引用插件详情、面板或控制台名称时，应使用中文显示名。
+- 插件 id `neko_live`、entry、`previous_ids` 和 Python 包名保持不变；显示名调整不构成内部标识迁移。
+- 内部 prompt 标记（如 `NEKO Live delivery boundary:`、`[NEKO Live ...]`）保持原文，避免改动 prompt 契约和测试锚点。开发者文档中的产品/代码名叙述可继续使用 **NEKO Live**，无需机械替换；历史代号「猫娘锐评」只用于解释 v0.1 起点。
 
 “直播中心 / Live Center”是架构定位，表示把主播直播的生命周期接进 NEKO；“弹幕锐评”是当前已落地的 v0.1 功能模块。后续新增模块时不要把产品名、架构定位和单个功能模块混用。
 
@@ -21,7 +25,7 @@
 
 更新日期：2026-08-04
 
-核心闭环：**真实 B站直播间监听 → EventBus → live_events Selection → Roast Pipeline → Runtime → Dashboard**。`neko_live` v0.1 已进入主线，产品命名已统一为 **NEKO Live**；「弹幕锐评」是第一个落地的垂直切片。锐评采用**自适应焦点**（昵称与头像哪个更有料就主打哪个，看不到的头像绝不脑补）。
+核心闭环：**真实 B站直播间监听 → EventBus → live_events Selection → Roast Pipeline → Runtime → Dashboard**。`neko_live` v0.1 已进入主线；「弹幕锐评」是第一个落地的垂直切片。锐评采用**自适应焦点**（昵称与头像哪个更有料就主打哪个，看不到的头像绝不脑补）。
 
 协作基线：Phase 1 已落地 Canonical Source、PR 拆分规则和 Reviewer Checklist；Phase 2A 已落地模块 Owner Model 与 Protected Modules / Review Gate。Reviewer Checklist 的唯一 Canonical Source 是 `AGENTS.md`。
 

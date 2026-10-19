@@ -1,6 +1,6 @@
 [plugin]
 id = "neko_live"
-name = "NEKO Live"
+name = "NEKO 直播助手"
 previous_ids = [
     "neko_roast",
 ]
@@ -18,7 +18,7 @@ keywords = [
     "观众",
 ]
 passive = true
-version = "0.2.9"
+version = "0.3.0"
 entry = "plugin.plugins.neko_live:NekoLivePlugin"
 
 [plugin.author]
@@ -40,7 +40,7 @@ expose_legacy_static_panel = false
 
 [[plugin.ui.panel]]
 id = "main"
-title = "NEKO Live"
+title = { "$i18n" = "panel.title", default = "NEKO 直播助手" }
 entry = "ui/panel_compat.tsx"
 context = "dashboard"
 permissions = [
@@ -115,17 +115,17 @@ solo_output_policy = "auto_rate_limited"
 avatar_fetch_timeout_seconds = 8
 recent_limit = 30
 rate_limit_seconds = 20
-queue_limit = 3
+queue_limit = 5
 safety_auto_stop_enabled = true
 safety_window_seconds = 60
 safety_pipeline_failure_limit = 3
 safety_output_failure_limit = 2
 safety_queue_overflow_limit = 3
 viewer_store_dir = ""
-activity_level = "active"
+activity_level = "standard"
 co_stream_host_pause_fill_activation = "off"
 co_stream_host_pause_fill_auto_consent_version = 0
-stream_theme = "玩卡拉彼丘"
+stream_theme = ""
 stream_sub_theme = ""
 stream_goal = ""
 stream_columns = ""

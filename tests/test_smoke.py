@@ -113,6 +113,25 @@ def test_dry_run_defaults_off_and_is_hidden_from_normal_panel():
         assert "config.dry_run !== false" not in source
 
 
+def test_manifest_defaults_match_live_config_defaults():
+    from dataclasses import fields
+
+    from plugin.plugins.neko_live.core.contracts import LiveConfig
+
+    root = Path(__file__).resolve().parents[1]
+    with (root / "plugin.toml").open("rb") as handle:
+        manifest = tomllib.load(handle)
+
+    defaults = LiveConfig()
+    known = {field.name for field in fields(LiveConfig)}
+    mismatches = {
+        key: (value, getattr(defaults, key))
+        for key, value in manifest["neko_live"].items()
+        if key in known and value != getattr(defaults, key)
+    }
+    assert mismatches == {}
+
+
 def test_console_accepts_zero_cooldown_as_a_ready_live_setting() -> None:
     root = Path(__file__).resolve().parents[1]
 

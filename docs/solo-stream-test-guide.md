@@ -4,7 +4,7 @@
 
 ## 适用场景
 
-- 想体验 NEKO Live 猫猫独播能力。
+- 想体验 NEKO 直播助手的猫猫独播能力。
 - 想做 10-30 分钟低风险试播。
 - 想确认弹幕、冷场补位、主动营业是否都能走真实链路。
 
@@ -24,11 +24,11 @@ uv run python launcher.py
 npm start
 ```
 
-打开 NEKO Live 面板后，如果插件没有自动启动，先启动 `neko_live` 插件。
+打开 NEKO 直播助手面板后，如果插件没有自动启动，先启动 `neko_live` 插件。
 
 ## 开播前检查
 
-1. 进入 NEKO Live 控制台。
+1. 进入 NEKO 直播助手控制台。
 2. 登录 B 站账号。未登录、凭据失效或状态无法验证时，runtime 必须停在 `auth_required`，不得建立监听。
 3. 在“确认直播间”弹窗填直播间 ID 或粘贴 `https://live.bilibili.com/<room_id>`。
 4. 点击查询直播间，确认标题和主播是目标房间，再点击确认直播间。
@@ -69,7 +69,7 @@ npm start
 
 ## 现场监控
 
-本 monitor-tooling 切片已在 `tools/monitor_live.ps1` 分发 PowerShell monitor；它是补充证据，不替代 Dashboard、recent results、`live_explain` 和 backend log。试播时保持 NEKO Live 面板打开，每轮场景后刷新一次，并记录：
+本 monitor-tooling 切片已在 `tools/monitor_live.ps1` 分发 PowerShell monitor；它是补充证据，不替代 Dashboard、recent results、`live_explain` 和 backend log。试播时保持 NEKO 直播助手面板打开，每轮场景后刷新一次，并记录：
 
 - 控制台里的连接状态、直播目标、开播结论和本场运行摘要。
 - 观众页里的本场数据、最近互动观众和观众档案。

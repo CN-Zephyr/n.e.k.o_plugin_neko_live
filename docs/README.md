@@ -1,4 +1,4 @@
-# NEKO Live 文档
+# NEKO 直播助手文档
 
 本文是 `neko_live` 文档地图和维护路由。它只说明“去哪份文档找权威信息”，不复制架构规范、运行步骤或路线图细节。
 
@@ -12,7 +12,8 @@
 
 ## 开发文档
 
-- [v0.2.9 发布说明](releases/v0.2.9.md)：当前版本修复、升级边界和验证记录；不替代模块契约。
+- [v0.3.0 发布说明](releases/v0.3.0.md)：当前版本变更、升级边界和验证记录；不替代模块契约。
+- [v0.2.9 发布说明](releases/v0.2.9.md)：上一版本修复记录。
 - [v0.2.7 发布说明](releases/v0.2.7.md)：历史版本修复与升级说明。
 
 - [开发者指南（从这里开始）](developer-guide.md)：新开发者入口。负责心智模型、最短阅读路径、第一周建议和常见入口导航。
@@ -56,6 +57,7 @@
 | 事实类型 | 权威文档 | 其他文档如何处理 |
 |---|---|---|
 | 项目定位、用户入口、当前不做 | `../README.md` | 只链接，不复述完整定位 |
+| 显示名、内部标识与 prompt 标记的命名约定 | [development.md「命名与范围」](development.md#命名与范围) | 只链接；界面操作指引使用对应语言的显示名 |
 | 用户/主播操作流程 | `quickstart.md` | 只给入口链接 |
 | 猫猫独播试播 runbook | `solo-stream-test-guide.md` | quickstart 只给入口链接 |
 | 同播真机验收步骤 | `co-stream-verification-runbook.md` | 其他文档只给入口链接 |
@@ -74,6 +76,7 @@
 
 ## 文档更新路由
 
+- 改显示名、内部标识或 prompt 标记的命名约定：更新 [development.md「命名与范围」](development.md#命名与范围)。
 - 改用户流程、按钮、操作顺序：更新 `quickstart.md`。
 - 改猫猫独播试播步骤、dry_run 使用和可执行 runbook：更新 `solo-stream-test-guide.md`；改 30 分钟发布验收的产品判定标准：更新 `independent-mode-product-plan.md`。
 - 改 Independent Mode 产品路线、当前阶段开发分工、MVP、非目标或内测节奏：更新 `independent-mode-product-plan.md`。

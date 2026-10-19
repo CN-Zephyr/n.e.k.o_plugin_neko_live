@@ -15,7 +15,7 @@ def test_neko_live_uses_one_permanent_internal_identity() -> None:
 
     assert plugin_dir.name in {"neko_live", "n.e.k.o_plugin_neko_live"}
     assert manifest["plugin"]["id"] == "neko_live"
-    assert manifest["plugin"]["name"] == "NEKO Live"
+    assert manifest["plugin"]["name"] == "NEKO 直播助手"
     assert manifest["plugin"]["entry"] == "plugin.plugins.neko_live:NekoLivePlugin"
     assert manifest["plugin"]["previous_ids"] == ["neko_roast"]
     assert "neko_live" in manifest
@@ -38,7 +38,7 @@ def test_neko_live_executable_sources_do_not_restore_legacy_identity() -> None:
     violations: list[str] = []
 
     for path in plugin_dir.rglob("*"):
-        if not path.is_file() or path.suffix not in source_suffixes or path == Path(__file__):
+        if not path.is_file() or path.suffix not in source_suffixes or path.resolve() == Path(__file__).resolve():
             continue
         source = path.read_text(encoding="utf-8")
         if path.name == "plugin.toml":
