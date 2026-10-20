@@ -120,21 +120,24 @@ class CredentialStore:
         except Exception:
             return False
 
-    def _load_sync(self) -> dict | None:
+    def _load_sync(self) -> tuple[dict | None, str]:
+        """Return ``(data, failure)``; ``failure`` is an exception type name only."""
         try:
             data_dir = self._data_dir()
             cred_path = data_dir / self._cred_file()
             key_path = data_dir / self._key_file()
             if not cred_path.exists() or not key_path.exists():
-                return None
+                return None, ""
             from cryptography.fernet import Fernet
 
             fernet = Fernet(key_path.read_bytes())
             dec = fernet.decrypt(cred_path.read_bytes()).decode("utf-8")
             data = json.loads(dec)
-            return data if isinstance(data, dict) else None
-        except Exception:
-            return None
+        except Exception as exc:
+            return None, type(exc).__name__
+        if not isinstance(data, dict):
+            return None, "invalid_payload"
+        return data, ""
 
     def _delete_sync(self) -> list[str]:
         removed: list[str] = []
@@ -175,7 +178,17 @@ class CredentialStore:
 
     async def load(self) -> dict | None:
         async with self._lock:
-            return await asyncio.to_thread(self._load_sync)
+            data, failure = await asyncio.to_thread(self._load_sync)
+        # Missing files mean "never logged in"; anything else is a damaged or
+        # undecryptable store that would otherwise look identical in the UI.
+        if failure and self.audit is not None:
+            self.audit.record(
+                self._audit_op("load_failed"),
+                "decrypt/load failed; treated as logged out",
+                level="warning",
+                detail={"error_type": failure},
+            )
+        return data
 
     async def delete(self) -> list[str]:
         async with self._lock:
