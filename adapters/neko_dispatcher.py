@@ -301,6 +301,7 @@ def _prepend_live_audience_speaker_lock(
             *current_evidence_rules(
                 danmaku, has_avatar_image=has_avatar_image,
                 avatar_requested=metadata.get("danmaku_profile") == "current_avatar_question",
+                profile=request.profile,
             ),
         )
     )

@@ -348,6 +348,8 @@ Initial monitor signals:
 - `runtime.config_changed`
 - `runtime.config_persist_timeout`
 - `runtime.config_persist_failed`
+- `runtime.live_memory_flush_timeout`
+- `runtime.live_memory_flush_failed`
 
 ### Runtime Health Row
 

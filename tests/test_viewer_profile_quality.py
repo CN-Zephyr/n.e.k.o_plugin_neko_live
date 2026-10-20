@@ -165,3 +165,32 @@ async def test_viewer_profile_quality_matrix_persists_only_safe_impressions(tmp_
     assert topics["tech_ai"] >= 2
     assert cues["short_helper_mode"] >= 2
     assert profile["reply_guidance"] == "answer first, then add one light follow-up"
+
+
+@pytest.mark.parametrize("text", [
+    "测试一下能不能收到",
+    "谁来点点赞看猫有没有反应",
+    "今天应该是我第6天进入直播间。(以后不提示)",
+    "测试",
+    "test 1",
+    "能看到吗",
+])
+def test_delivery_probes_and_check_in_captions_are_not_viewer_facts(text):
+    from plugin.plugins.neko_live.core.viewer_preferences import _is_presence_boilerplate
+
+    assert _is_presence_boilerplate(text)
+
+
+@pytest.mark.parametrize("text", [
+    "测试版的卡拉彼丘好玩吗",
+    "我最近在玩原神",
+    "你能不能唱首歌",
+    "我在做一个 testing framework",
+    "给你点个赞，这首歌唱得真好",
+    "我下周要去测试一下新显卡",
+    "有没有反应啊我的猫今天生病了",
+])
+def test_real_viewer_statements_are_not_treated_as_noise(text):
+    from plugin.plugins.neko_live.core.viewer_preferences import _is_presence_boilerplate
+
+    assert not _is_presence_boilerplate(text)

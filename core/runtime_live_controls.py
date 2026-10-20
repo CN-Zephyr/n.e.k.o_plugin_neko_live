@@ -14,6 +14,32 @@ from .runtime_live_listener import (
 from .runtime_live_target import release_live_target_if_scene_restored
 
 _CONNECT_ROOM_CONTEXT_TIMEOUT_SECONDS = 4.0
+_DISCONNECT_MEMORY_FLUSH_TIMEOUT_SECONDS = 2.0
+
+
+async def _flush_live_memory(runtime: Any) -> None:
+    """Submit the last partial viewer-memory batch of a room session.
+
+    Only runtime shutdown closes the bridge, so a room-only disconnect would
+    otherwise leave fewer-than-a-batch lines pending until the next session.
+    The wait is bounded so a slow memory server never blocks disconnect; the
+    shielded submission keeps running in the background instead of being
+    cancelled, and an unsaved batch is re-queued by the bridge itself.
+    """
+    flush = getattr(getattr(runtime, "live_memory", None), "flush", None)
+    if not callable(flush):
+        return
+    try:
+        await asyncio.wait_for(asyncio.shield(flush()), timeout=_DISCONNECT_MEMORY_FLUSH_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        runtime.audit.record("live_memory_flush_timeout", "viewer memory flush timed out on disconnect", level="warning")
+    except Exception as exc:
+        runtime.audit.record(
+            "live_memory_flush_failed",
+            "viewer memory flush failed on disconnect",
+            level="warning",
+            detail={"error": type(exc).__name__},
+        )
 
 
 def _flush_runtime_log(runtime: Any, reason: str) -> None:
@@ -420,6 +446,7 @@ async def disconnect_live_room(runtime: Any) -> dict[str, Any]:
     # arrived but were silently dropped", which a log bundle could not
     # distinguish before.
     _flush_runtime_log(runtime, "disconnect")
+    await _flush_live_memory(runtime)
     runtime.audit.record(
         "live_disconnected",
         "live ingest marked disconnected",
