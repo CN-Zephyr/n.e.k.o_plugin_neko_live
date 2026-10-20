@@ -186,6 +186,9 @@ def test_delivery_probes_and_check_in_captions_are_not_viewer_facts(text):
     "我最近在玩原神",
     "你能不能唱首歌",
     "我在做一个 testing framework",
+    "给你点个赞，这首歌唱得真好",
+    "我下周要去测试一下新显卡",
+    "有没有反应啊我的猫今天生病了",
 ])
 def test_real_viewer_statements_are_not_treated_as_noise(text):
     from plugin.plugins.neko_live.core.viewer_preferences import _is_presence_boilerplate

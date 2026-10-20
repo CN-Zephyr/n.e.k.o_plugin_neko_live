@@ -51,16 +51,18 @@ _LOW_VALUE_FACTS = {
     "lol",
     "awsl",
 }
-# Delivery probes, like call-to-actions, and platform check-in captions say
-# nothing about the viewer. Kept narrow so real questions still count.
-_META_NOISE = re.compile(
-    r"以后不提示"
-    r"|第\s*\d+\s*天.{0,8}直播间"
-    r"|^(?:测试|test)[\s\d]*$|测试一下"
+# Platform check-in captions are generated text, so any match marks the line.
+_CHECK_IN_CAPTION = re.compile(r"以后不提示|第\s*\d+\s*天.{0,8}直播间")
+# Delivery probes and like call-to-actions say nothing about the viewer, but
+# only mark the line when little else is left: "给你点个赞，这首歌唱得真好"
+# still carries a real statement.
+_DELIVERY_PROBE = re.compile(
+    r"^(?:测试|test)[\s\d]*$|测试一下"
     r"|(?:能不能|能否)(?:收到|看到|看见)|(?:收|看)得到吗|(?:收到|看到|看见)了?吗"
     r"|有没有反应|点点赞|点个赞",
     re.IGNORECASE,
 )
+_PROBE_REMAINDER_MIN_LEN = 5
 _MEMORY_BOILERPLATE = {
     "likes games/strategy",
     "likes music/singing",
@@ -312,7 +314,15 @@ def _is_presence_boilerplate(text: str) -> bool:
     dense = "".join(ch for ch in stripped if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
     if dense.startswith("点赞了") and dense.endswith("次"):
         return True
-    return bool(_META_NOISE.search(stripped))
+    if _CHECK_IN_CAPTION.search(stripped):
+        return True
+    if not _DELIVERY_PROBE.search(stripped):
+        return False
+    remainder = _DELIVERY_PROBE.sub("", stripped)
+    remainder_dense = "".join(
+        ch for ch in remainder if ch.isalnum() or "一" <= ch <= "鿿"
+    )
+    return len(remainder_dense) < _PROBE_REMAINDER_MIN_LEN
 
 
 def _is_low_value_fact(dense: str) -> bool:
