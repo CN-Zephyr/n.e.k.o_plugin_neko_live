@@ -50,6 +50,10 @@
 - [进场与点赞](modules/live_presence.md)：进场、关注、点赞的可选开口。默认只计数，说话开关默认关闭。
 - [观众与安全存储](modules/viewer_stores.md)：观众档案、审计脱敏与加密凭据命名空间。
 
+## 许可迁移提案（尚未生效）
+
+- [许可迁移提案](licensing-draft/README.md)：许可证正文、使用边界、商业与贡献授权草案及插件范围登记的入口；仅供审阅，不改变当前许可或运行时行为。
+
 ## Canonical Source
 
 
@@ -57,6 +61,7 @@
 
 | 事实类型 | 权威文档 | 其他文档如何处理 |
 |---|---|---|
+| 尚未生效的许可迁移提案及配套草案 | [licensing-draft/README.md](licensing-draft/README.md) 及其职责表 | 只给草案入口，不描述成当前已生效许可 |
 | 项目定位、用户入口、当前不做 | `../README.md` | 只链接，不复述完整定位 |
 | 显示名、内部标识与 prompt 标记的命名约定 | [development.md「命名与范围」](development.md#命名与范围) | 只链接；界面操作指引使用对应语言的显示名 |
 | 用户/主播操作流程 | `quickstart.md` | 只给入口链接 |

@@ -60,3 +60,9 @@
 ## 输出链路提醒
 
 头像只作为本次 `push_message` 的临时视觉输入。发送前必须经过 `NekoDispatcher` 压缩到 message plane 可接受的内联预算内；如果仍然过大，应降级为纯文字锐评，避免 UI 显示 queued 但主程序没有收到 `proactive_message`。
+
+## 许可方案草案（尚未生效）
+
+团队正在审阅个人及普通主播免费、其他项目复用和商业使用单独授权的[许可迁移提案](docs/licensing-draft/README.md)，其中包含许可证、使用边界、商业授权和贡献授权草案。草案尚未生效，不替代已有声明或撤回历史授权。
+
+第三方组件保留各自的版权与许可证；内置 `douyinLive` bridge 的 [MIT 许可证](vendor/douyin_bridge/windows-amd64/LICENSE.douyinLive)保持原样。
