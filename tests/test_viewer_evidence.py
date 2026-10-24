@@ -408,9 +408,14 @@ async def test_author_tag_distinguishes_long_or_identical_names_and_survives_ren
     "龍龘靐齉齾爩鱻麤灪龖龗灩爨癵籲龘靐齉齾爩", "a" * 25, "鱼" * 30,
 ])
 @pytest.mark.parametrize("text", ["你好", "描述我的头像", "你还记得我们第一次认识是什么时候吗？"])
-async def test_first_roast_budget_with_chinese_emoji_and_history_requests(live_context, mode, name, text):
+@pytest.mark.parametrize("room_status", ["live", "unknown"])
+async def test_first_roast_budget_with_chinese_emoji_and_history_requests(live_context, mode, name, text, room_status):
     ctx = live_context
     ctx.config.entry_roast_enabled = False
+    ctx.dispatcher.runtime = SimpleNamespace(
+        live_provider=SimpleNamespace(platform="bilibili", configured_room_ref=lambda: "42"),
+        live_room_context={"platform": "bilibili", "room_ref": "42", "live_status": room_status},
+    )
 
     async def resolve(event):
         return ViewerIdentity(uid=event.uid, nickname=event.nickname, avatar_bytes=avatar_png("red"))
@@ -423,6 +428,8 @@ async def test_first_roast_budget_with_chinese_emoji_and_history_requests(live_c
     assert response_module_hint(result.request) == "avatar_roast"
     delivered = ctx.messages[-1]["parts"][0]["text"]
     assert count_tokens(delivered) <= 1000
+    assert "never seek permission to broadcast/interact" in delivered
+    assert ("Broadcast live." in delivered) == (room_status == "live")
     assert "danmaku_author:" in delivered and "never speak this ID" in delivered
     assert "Never reuse historical images" in delivered
     assert "公开示众, 劳改, 审判, 处刑, 惩罚" in delivered

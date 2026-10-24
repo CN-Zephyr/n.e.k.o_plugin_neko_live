@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .viewer_utterance import is_viewer_activity_event
+
 
 def hosting_live_state(runtime: Any) -> dict[str, Any]:
     live_connection = runtime.live_connection_snapshot()
@@ -60,7 +62,7 @@ def _recent_hosting_streak_since_viewer_activity(runtime: Any) -> int:
         if not isinstance(result, dict):
             continue
         event = result.get("event") if isinstance(result.get("event"), dict) else {}
-        if str(event.get("source") or "") == "live_danmaku":
+        if is_viewer_activity_event(event):
             return streak
         if str(result.get("status") or "") != "pushed":
             continue
@@ -101,7 +103,7 @@ def _latest_actual_output_is_idle_hosting(runtime: Any) -> bool:
         if str(result.get("status") or "") != "pushed":
             continue
         event = result.get("event") if isinstance(result.get("event"), dict) else {}
-        if str(event.get("source") or "") == "live_danmaku":
+        if is_viewer_activity_event(event):
             return False
         route = runtime._route_from_result(result)
         if route == "idle_hosting":

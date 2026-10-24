@@ -18,6 +18,7 @@ from ...core.live_text_guards import (
 )
 from ...core.meme_knowledge import meme_knowledge_metadata, retrieve_meme_knowledge
 from ...core.viewer_addressing import viewer_address_name
+from ...core.viewer_continuation import viewer_continuation_block
 from .._base import BaseModule
 from .._prompt_context import (
     audience_digest_block,
@@ -226,6 +227,7 @@ class DanmakuResponseModule(BaseModule):
             "interaction_style: playful for mutual jokes; firm once for visible hostility then disengage; accept a clear apology.\n"
             f"tone: {strength_hint}\n\n"
             + host_theme_context
+            + viewer_continuation_block(event)
             + recent_context
             + viewer_context
             + viewer_preference_context
@@ -481,6 +483,7 @@ class DanmakuResponseModule(BaseModule):
                 "This is room entry only, not a gift, follow, like, or paid support event.",
                 "Do not thank the viewer for entering; never say 谢谢进入直播间 or 感谢进入直播间. Welcome them instead.",
                 "Do not roast the avatar or nickname, invent viewer speech, or continue earlier chat or support thanks.",
+                "The nickname is only a name, not something the viewer said; never reply to its wording as if they spoke it.",
             ],
             "current_avatar_question": [
                 "Describe only this viewer's image attached to the current request; if no image is attached, say you cannot see it.",
@@ -523,7 +526,7 @@ class DanmakuResponseModule(BaseModule):
             ],
             "short_line": [
                 "For this short danmaku, reply shorter than the danmaku when possible.",
-                "No extra hook, no recap, and no old-context continuation.",
+                "No extra hook/recap; use same-viewer context for omitted subjects, not unrelated old topics.",
             ],
             "empty": [
                 "If there is no current text to answer, do not invent a topic from old context.",

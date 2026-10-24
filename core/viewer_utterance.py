@@ -6,6 +6,27 @@ from typing import Any
 
 from .contracts_public import public_text
 
+_PRESENCE_EVENT_TYPES = frozenset({"entry", "member", "like", "follow"})
+
+
+def is_presence_event(event: Any) -> bool:
+    """Entry/like/follow ride the live_danmaku source but are not viewer chat."""
+    if isinstance(event, dict):
+        raw = event.get("raw")
+        kind = (raw.get("event_type") if isinstance(raw, dict) else None) or event.get("event_type")
+    else:
+        raw = getattr(event, "raw", None)
+        kind = raw.get("event_type") if isinstance(raw, dict) else None
+    return str(kind or "").strip().lower() in _PRESENCE_EVENT_TYPES
+
+
+def is_viewer_activity_event(event: Any) -> bool:
+    if isinstance(event, dict):
+        source = event.get("source")
+    else:
+        source = getattr(event, "source", None)
+    return str(source or "") == "live_danmaku" and not is_presence_event(event)
+
 
 def viewer_utterance_text(event: Any) -> str:
     def field(name: str, default: Any = "") -> Any:

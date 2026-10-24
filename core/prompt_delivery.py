@@ -13,6 +13,7 @@ import re
 
 from ..modules._prompt_rules import compact_rules_for_delivery
 from .contracts_public import public_text
+from .viewer_continuation import CONTINUATION_HEADER
 
 HOST_CALLBACK_TOKEN_BUDGET = 1000
 _EXCERPT_SUFFIX = " … [truncated]"
@@ -32,6 +33,7 @@ _MARKERS = (
     ("theme", "Current stream theme (private style anchor):"),
     ("recent", "Recent spent live material:"),
     ("viewer", "Same-viewer recent talk:"),
+    ("continuation", CONTINUATION_HEADER),
     ("impression", "Viewer impression memory (private guidance):"),
     ("meme", "Meme knowledge hints, optional seasoning only:"),
     ("pulse", "Room pulse, background only:"),
@@ -44,7 +46,7 @@ _ALWAYS = (
     "boundary", "speaker", "target", "lead", "header",
     "host_material", "topic_material", "rules",
 )
-_FILL = ("recent", "viewer", "impression", "theme", "meme", "pulse", "room", "contract")
+_FILL = ("continuation", "recent", "viewer", "impression", "theme", "meme", "pulse", "room", "contract")
 _ORDER = (
     "boundary",
     "speaker",
@@ -53,6 +55,7 @@ _ORDER = (
     "header",
     "host_material",
     "topic_material",
+    "continuation",
     "theme",
     "recent",
     "viewer",

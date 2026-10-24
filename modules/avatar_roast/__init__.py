@@ -10,6 +10,7 @@ from ...core.live_host_theme import live_host_theme_block
 from ...core.live_text_guards import looks_like_support_claim_text
 from ...core.meme_knowledge import meme_knowledge_metadata, render_meme_knowledge_block, retrieve_meme_knowledge
 from ...core.viewer_addressing import viewer_address_name
+from ...core.viewer_continuation import viewer_continuation_block
 from .._base import BaseModule
 from .._prompt_context import (
     anti_repeat_rules,
@@ -91,8 +92,10 @@ class AvatarRoastModule(BaseModule):
                 profile,
                 strength,
                 live_host_theme_block(self.ctx, kind="reply"),
-                recent_context_block(self.ctx),
-                viewer_session_context_block(self.ctx, identity.uid),
+                recent_context_block(self.ctx, follow_up=bool(event.danmaku_text)),
+                viewer_continuation_block(event) + viewer_session_context_block(
+                    self.ctx, identity.uid, follow_up=bool(event.danmaku_text),
+                ),
                 viewer_preference_context_block(self.ctx, profile),
                 live_events_context_block(self.ctx, event),
             )

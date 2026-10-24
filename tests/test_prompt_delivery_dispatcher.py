@@ -453,3 +453,22 @@ async def test_avatar_delivery_leaves_room_for_ordinary_viewer_fields(live_mode,
     assert "UID routing-only unless nickname absent or viewer makes ID relevant." in text
     assert "Chinese nickname: preferred short Chinese or full name" in text
     assert count_tokens(text) <= 1000
+
+
+@pytest.mark.asyncio
+async def test_sentence_like_nickname_is_never_presented_as_viewer_speech():
+    nickname = "我讨厌你我不不管"
+    event = ViewerEvent(
+        uid="42", nickname=nickname, danmaku_text="", source="live_danmaku",
+        live_mode="solo_stream", raw={"event_type": "entry", "presence_action": "greet"},
+    )
+    request = DanmakuResponseModule().build_request(
+        event, ViewerIdentity(uid="42", nickname=nickname), ViewerProfile(uid="42", nickname=nickname),
+    )
+    plugin = _Plugin()
+    assert (await NekoDispatcher(plugin).push_roast(request)).startswith("queued_to_neko(")
+    text = plugin.messages[0]["parts"][0]["text"]
+    assert "danmaku: (empty)" in text
+    assert "The nickname is only a name, not something the viewer said" in text
+    assert "A nickname is only a name, never something the viewer said" in text
+    assert count_tokens(text) <= 1000

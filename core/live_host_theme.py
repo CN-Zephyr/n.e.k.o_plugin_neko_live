@@ -23,7 +23,6 @@ def live_host_theme_block(config: Any | None = None, *, kind: str = "reply") -> 
     if live_mode == "solo_stream":
         # Solo: NEKO is the host; a human anchor name invites the model to address them.
         anchor_name = ""
-    live_status = _prompt_live_status(room_context.get("live_status"))
     stream_goal = _optional_text(getattr(config, "stream_goal", ""), max_len=160)
     stream_columns = _optional_text(getattr(config, "stream_columns", ""), max_len=160)
     stream_avoid_topics = _optional_text(getattr(config, "stream_avoid_topics", ""), max_len=160)
@@ -70,8 +69,6 @@ def live_host_theme_block(config: Any | None = None, *, kind: str = "reply") -> 
         )
     if anchor_name:
         lines.append(f"- live_room_anchor_name: {anchor_name}")
-    if live_status:
-        lines.append(f"- live_room_status: {live_status}")
     if stream_goal:
         lines.append(f"- stream_goal: {stream_goal}")
     if stream_columns:
@@ -103,10 +100,3 @@ def _optional_text(value: Any, *, max_len: int) -> str:
     if not isinstance(value, str):
         return ""
     return public_text(value.strip(), max_len=max_len)
-
-
-def _prompt_live_status(value: Any) -> str:
-    text = _optional_text(value, max_len=40).casefold()
-    if text in {"offline", "ended", "finish", "finished", "unknown"}:
-        return ""
-    return text

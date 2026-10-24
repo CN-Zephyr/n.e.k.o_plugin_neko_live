@@ -172,3 +172,29 @@ def test_live_director_status_routes_idle_takeover_to_active_engagement():
     assert director["next_auto_action"] == "active_engagement"
     assert director["eligible"] is True
     assert director["reason"] == "idle_hosting_streak"
+
+
+def test_entry_welcome_does_not_end_solo_warmup():
+    config = LiveConfig(live_room_id=42, live_enabled=True, live_mode="solo_stream", dry_run=True)
+    entry_result = {
+        "status": "pushed",
+        "created_at": "2099-01-01T00:00:00+00:00",
+        "response_module": "danmaku_response",
+        "event": {"source": "live_danmaku", "uid": "7", "raw": {"event_type": "entry"}},
+    }
+
+    state = live_status.live_state_summary(
+        config=config,
+        live_status={"summary": "test_only", "safety_status": "running", "cooldown_remaining": 0.0},
+        health_rows=[],
+        recent_results=[entry_result],
+        warmup_observed=False,
+        warmup_elapsed=10.0,
+        engaged_threshold=60.0,
+        idle_threshold=120.0,
+        warmup_timeout_seconds=45.0,
+        iso_age_fn=lambda _value: 1.0,
+    )
+
+    assert state["state"] == "warmup"
+    assert state["warmup_hosting_candidate"] is True

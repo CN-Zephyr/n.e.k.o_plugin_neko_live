@@ -229,7 +229,30 @@ def _append_plugin_output_contract(
     return f"{base}\n\n{contract}" if base else contract
 
 
-def _prepend_live_delivery_boundary(text: str, request: InteractionRequest) -> str:
+def _current_room_live_status(runtime: Any) -> str:
+    """Read cached provider evidence only when it belongs to the current room."""
+    context = getattr(runtime, "live_room_context", None)
+    provider = getattr(runtime, "live_provider", None)
+    configured_room = getattr(provider, "configured_room_ref", None)
+    if not isinstance(context, dict) or not callable(configured_room):
+        return "unknown"
+    try:
+        room_ref = str(configured_room() or "").strip()
+    except Exception:
+        return "unknown"
+    if (
+        not room_ref
+        or context.get("platform") != getattr(provider, "platform", None)
+        or str(context.get("room_ref") or "").strip() != room_ref
+    ):
+        return "unknown"
+    status = context.get("live_status")
+    return status if status in ("live", "offline") else "unknown"
+
+
+def _prepend_live_delivery_boundary(
+    text: str, request: InteractionRequest, *, room_status: str = "unknown",
+) -> str:
     source = str(request.event.source or "").strip()
     if source not in _NEKO_LIVE_LIVE_SOURCES:
         return text
@@ -239,15 +262,26 @@ def _prepend_live_delivery_boundary(text: str, request: InteractionRequest) -> s
     mode = str(request.live_mode or request.event.live_mode or "").strip() or "co_stream"
     boundary_lines = [
         "NEKO Live delivery boundary:",
-        "- Live-room speech, not a private chat with {MASTER_NAME}.",
+        "- not a private chat with {MASTER_NAME}.",
     ]
     if mode == "solo_stream":
         boundary_lines.append(
-            "- solo_stream: {LANLAN_NAME} is already the only on-stage host."
+            "- solo_stream: sole on-stage host."
         )
     else:
         boundary_lines.append(
-            "- co_stream: {LANLAN_NAME} is a low-interrupt partner."
+            "- co_stream: low-interrupt partner."
+        )
+    if source == "manual_live_simulation":
+        boundary_lines.append(
+            "- Simulation only; no real broadcast is confirmed. Respond in this test without asking permission to start."
+        )
+    else:
+        turn = "Host now" if source in _NEKO_LIVE_HOSTING_SOURCES else "Answer viewers"
+        status = room_status if room_status in ("live", "offline") else "unknown"
+        evidence = f"Broadcast {status}." if status != "unknown" else "Broadcast unconfirmed."
+        boundary_lines.append(
+            f"- {turn}; never seek permission to broadcast/interact. {evidence}"
         )
     boundary = "\n".join(boundary_lines)
     # Keep the boundary at the head: the host truncates long callback text from the tail.
@@ -648,6 +682,7 @@ class NekoDispatcher:
         prepared = _prepend_live_delivery_boundary(
             str(parts[0].get("text") or ""),
             request,
+            room_status=_current_room_live_status(self.runtime or getattr(self.plugin, "runtime", None)),
         )
         try:
             parts[0]["text"] = prepare_live_delivery_text(prepared, kind="speech")

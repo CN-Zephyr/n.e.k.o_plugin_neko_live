@@ -1210,6 +1210,11 @@ class LiveEventsModule(BaseModule):
             provider_event_id=provider_event_id,
         )
 
+    def preceding_viewer_danmaku(self, event: Any, *, seq: int) -> tuple[str, ...]:
+        return self._recent_chat.preceding_viewer_texts(
+            seq=seq, uid=event_uid(event), text=event_text(event),
+        )
+
     def _payload_for_event(self, event: Any, event_type: str) -> dict[str, Any]:
         payload = {
             "uid": event_uid(event),
@@ -1407,7 +1412,10 @@ class LiveEventsModule(BaseModule):
         if selected_event_type == "danmaku" and recent_chat_seq > 0:
             # submit() already recorded this exact provider event before the
             # selected payload re-enters the shared runtime pipeline.
-            payload = mark_recent_chat_observed(payload)
+            payload = mark_recent_chat_observed(
+                payload,
+                prior_danmaku=self.preceding_viewer_danmaku(event, seq=recent_chat_seq),
+            )
         record_payload_timeline(
             self.ctx,
             payload,
