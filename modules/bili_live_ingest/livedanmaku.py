@@ -1,6 +1,9 @@
 """
 MagicalDanmaku LiveDanmaku 数据模型（Python 移植版）
 
+许可：本文件移植自 iwxyi/MagicalDanmaku（GPL-3.0），不适用本插件的
+社区源码许可证，见仓库根目录 NOTICE。
+
 功能：
 - MessageType 枚举（15种 B站消息类型）
 - LiveDanmaku dataclass（30+ 字段）

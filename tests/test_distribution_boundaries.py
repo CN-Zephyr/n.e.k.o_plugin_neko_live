@@ -63,3 +63,5 @@ def test_distribution_copy_contains_verified_bridge_and_license(tmp_path):
     assert binary.resolve() in copied
     assert hashlib.sha256(binary.read_bytes()).hexdigest() == (vendor / "CHECKSUMS.txt").read_text().split()[0]
     assert list((destination / "vendor" / "douyin_bridge").rglob("*LICENSE*"))
+    for name in ("LICENSE", "NOTICE"):
+        assert (destination / name).resolve() in copied
