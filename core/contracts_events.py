@@ -27,6 +27,9 @@ class ViewerEvent:
     trace_id: str = ""
     seen_at: str = field(default_factory=utc_now_iso)
     raw: dict[str, Any] = field(default_factory=dict)
+    # Ephemeral, internally captured input context; never accepted from raw
+    # provider fields or included in public/store projections.
+    prior_danmaku: tuple[str, ...] = field(default=(), init=False, repr=False)
 
     def to_dict(self) -> dict[str, Any]:
         data = {

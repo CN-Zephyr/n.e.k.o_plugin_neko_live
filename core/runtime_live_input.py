@@ -11,17 +11,23 @@ from .contracts_public import public_int, public_text
 from .recent_results_store import save_recent_results
 from .runtime_live_session import is_current_live_session_event
 from .runtime_timeline import ensure_trace_id, record_timeline, timeline_for_trace
-from .viewer_utterance import viewer_utterance_text
+from .viewer_utterance import is_viewer_activity_event, viewer_utterance_text
 
 
 class _RecentChatObservedPayload(dict[str, Any]):
     """Internal handoff marker that provider payloads cannot spoof by key."""
 
+    prior_danmaku: tuple[str, ...] = ()
 
-def mark_recent_chat_observed(payload: dict[str, Any]) -> _RecentChatObservedPayload:
+
+def mark_recent_chat_observed(
+    payload: dict[str, Any], *, prior_danmaku: tuple[str, ...] = (),
+) -> _RecentChatObservedPayload:
     """Tag a selected payload before provider normalization copies its fields."""
 
-    return _RecentChatObservedPayload(payload)
+    marked = _RecentChatObservedPayload(payload)
+    marked.prior_danmaku = prior_danmaku
+    return marked
 
 
 def record_result(runtime: Any, result: InteractionResult) -> None:
@@ -162,7 +168,9 @@ async def handle_live_payload(runtime: Any, payload: dict[str, Any]) -> Interact
     # the pipeline reaches its own stale-event gate.
     if is_current_live_session_event(runtime, event) and not viewer_event_skip_reason(runtime, event):
         remember_live_danmaku_seen(runtime, event)
-        if not recent_chat_observed:
+        if recent_chat_observed:
+            event.prior_danmaku = payload.prior_danmaku
+        else:
             observe_live_danmaku(runtime, event)
     record_timeline(
         runtime,
@@ -177,11 +185,18 @@ async def handle_live_payload(runtime: Any, payload: dict[str, Any]) -> Interact
 def observe_live_danmaku(runtime: Any, event: ViewerEvent) -> int:
     """Mirror developer/live-entry danmaku into the production context store."""
 
+    event.prior_danmaku = ()
+    if not is_current_live_session_event(runtime, event):
+        return 0
     observer = getattr(getattr(runtime, "live_events", None), "observe_danmaku", None)
     if not callable(observer):
         return 0
     try:
-        return max(0, int(observer(event) or 0))
+        seq = max(0, int(observer(event) or 0))
+        preceding = getattr(runtime.live_events, "preceding_viewer_danmaku", None)
+        if seq and callable(preceding):
+            event.prior_danmaku = preceding(event, seq=seq)
+        return seq
     except Exception as exc:
         runtime.audit.record(
             "live_danmaku_observe_failed",
@@ -192,7 +207,7 @@ def observe_live_danmaku(runtime: Any, event: ViewerEvent) -> int:
 
 
 def remember_live_danmaku_seen(runtime: Any, event: ViewerEvent) -> None:
-    if str(event.source or "") != "live_danmaku":
+    if not is_viewer_activity_event(event):
         return
     runtime._last_live_danmaku_seen_at = time.time()
     runtime._last_live_danmaku_seen_type = "live_danmaku"

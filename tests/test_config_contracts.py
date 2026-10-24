@@ -734,7 +734,8 @@ def test_danmaku_response_prompt_uses_live_room_title_when_theme_is_blank():
 
     assert "live_room_title_theme: 战雷陆战练车：今晚只打轻松局" in request.prompt_text
     assert "live_room_anchor_name: 水水" in request.prompt_text
-    assert "live_room_status: live" in request.prompt_text
+    # Platform evidence belongs to the Dispatcher's mandatory delivery boundary.
+    assert "live_room_status:" not in request.prompt_text
     assert "theme_name: NEKO tiny radio patrol" not in request.prompt_text
 
 
@@ -1989,7 +1990,8 @@ def test_avatar_roast_prompt_includes_same_viewer_used_material_blocklist():
     assert "old avatar bit" in request.prompt_text
     assert "spent_output_family=audience_prompt" in request.prompt_text
     assert "Do not repeat NEKO's previous sentence." in request.prompt_text
-    assert "Do not continue this viewer's previous topic." in request.prompt_text
+    assert "If the current danmaku follows this thread, answer the follow-up." in request.prompt_text
+    assert "Do not continue this viewer's previous topic." not in request.prompt_text
 
 
 def test_idle_hosting_prompt_includes_recent_interaction_context_without_metrics():

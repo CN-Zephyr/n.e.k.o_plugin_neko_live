@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from . import recent_context
+from .viewer_utterance import is_viewer_activity_event
 
 
 def activity_level(config: Any) -> str:
@@ -174,7 +175,7 @@ def recent_live_danmaku_event_age_sec(recent_results: Any, iso_age_fn: IsoAgeFn 
         if str(result.get("status") or "") != "pushed":
             continue
         event = result.get("event") if isinstance(result.get("event"), dict) else {}
-        if str(event.get("source") or "") != "live_danmaku":
+        if not is_viewer_activity_event(event):
             continue
         age = iso_age_fn(result.get("created_at"))
         if age is not None:

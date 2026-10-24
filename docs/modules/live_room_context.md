@@ -19,6 +19,56 @@ The context system has four distinct responsibilities:
 
 These responsibilities must not be collapsed into one large prompt history.
 
+## Same-viewer continuation
+
+Ordinary danmaku can split one thought across several messages. For example,
+`我只是一个穷猫猫` followed by `又笨又懒` needs the preceding subject; the latter
+must not automatically become criticism of NEKO because the character is also
+a cat. Explicitly naming NEKO, another person, or a new subject still takes
+precedence. When the subject remains unclear, the reply should not guess.
+
+`RecentChatBuffer.preceding_viewer_texts` reads the existing session-local buffer
+by the selected message's exact sequence, UID and text. It captures at most two
+earlier messages from the same UID within 30 seconds, oldest first, including
+messages not selected for reply. It excludes later arrivals, other UIDs even
+with identical nicknames, anonymous UIDs, stale session tails and filtered input.
+Each captured text is sanitized and limited to 96 characters. The current event
+and its routing/dedupe text are unchanged; messages are not delayed or merged.
+
+The selected-event handoff carries the snapshot as an internal Python attribute,
+not a provider-supplied JSON key. Direct and manual live input use the same
+observation helper. `ViewerEvent.prior_danmaku` is initialized internally and
+excluded from public event, audit and store projections. No new persistent
+history is introduced. Existing session reset and stale-event gates still apply.
+
+`core/viewer_continuation.py` renders the snapshot as a single quoted, untrusted
+context block for ordinary replies and first-appearance roasts. The snapshot and
+its subject-resolution rule are fitted or omitted together. Both routes still
+pass through pipeline, Safety Guard and Dispatcher; selection and speaking
+frequency are unchanged. The snapshot does not prove what NEKO has spoken.
+Budget priority and atomic omission are defined in
+[prompt delivery](prompt_delivery.md#same-viewer-continuation-budget).
+
+### Decision Points
+
+The continuation defect fix uses these bounded choices within the existing
+live-interaction path; it does not add a separate conversation engine.
+
+| Decision | Selected implementation and budget | Alternative / tradeoff |
+|---|---|---|
+| Context source | Scan the existing maximum 12 records; two prior texts of at most 96 characters per in-flight event | Completed results alone miss unselected input; a new per-viewer history adds storage and lifecycle complexity |
+| Time and identity | Existing 30-second window; exact UID and selected sequence; explicit subject changes win | Joining all adjacent room messages can mix viewers; always treating a short message as a continuation can misread a topic change |
+| Delivery cost | No additional model calls, network requests, timers, queues, dependencies or disk writes; transient per-event snapshot only | Waiting for a burst would add latency and alter selection; this fix does neither |
+| Prompt budget | Existing 1000-token ceiling; prioritize this block over optional room history, omit it whole if it cannot fit | Average prompt tokens may change within the ceiling; raising the host limit is outside this fix |
+| Degrade / rollback | No matching record or insufficient prompt space means no continuation block; the existing uncertainty rule still applies. Revert capture, renderer and fitter changes together to restore the previous behavior | Missing/evicted context is not reconstructed from private history or inferred speaker identity; context must not cause an otherwise valid reply to exceed the hard budget |
+| Verification | Buffer boundaries, selection-to-normalization handoff, manual input, filter/session isolation, final dispatched prompts and token limits | Tests verify delivered evidence and constraints, not deterministic model semantics or audible playback |
+
+Regression coverage is in `tests/test_viewer_continuation.py`. The runtime keeps
+the existing normalize / selection / Safety Guard / dispatch outcomes and skip
+reasons; it does not log preceding utterances for diagnostics. Real-model checks
+should cover self-description, another person's cat, an explicit NEKO target,
+same-name different-UID viewers and a topic change.
+
 ## Current Baseline
 
 The plugin already has two bounded and deliberately separate live-room views:

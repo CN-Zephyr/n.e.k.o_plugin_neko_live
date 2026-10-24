@@ -8,6 +8,7 @@ from collections import OrderedDict, deque
 from dataclasses import dataclass
 from typing import Callable
 
+from ...core.contracts_public import public_text
 from .recent_chat_relevance import build_relevance_scorer
 
 _EVENT_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
@@ -114,6 +115,31 @@ class RecentChatBuffer:
                 record.selected = True
                 return True
         return False
+
+    def preceding_viewer_texts(self, *, seq: int, uid: str, text: str) -> tuple[str, ...]:
+        """Freeze up to two earlier utterances from this exact viewer/turn.
+
+        Selected and unselected messages both supply context. Later arrivals,
+        other viewers and stale session-tail records never do.
+        """
+        now = self._clock_now()
+        self._prune(now)
+        if not uid or uid == "0":
+            return ()
+        current = next((row for row in self._records if row.seq == seq), None)
+        if (
+            current is None
+            or current.uid != uid
+            or current.text != _clean_text(text, max_length=512)
+            or now - current.observed_at > self._window_seconds
+        ):
+            return ()
+        previous = [
+            row for row in self._records
+            if row.uid == current.uid and row.seq < current.seq
+            and 0 <= current.observed_at - row.observed_at <= self._window_seconds
+        ][-2:]
+        return tuple(public_text(row.text, max_len=96) for row in previous)
 
     def mark_ambient_used(self, seq: int) -> bool:
         if seq <= 0:

@@ -18,7 +18,7 @@ keywords = [
     "观众",
 ]
 passive = true
-version = "0.3.2"
+version = "0.3.3"
 entry = "plugin.plugins.neko_live:NekoLivePlugin"
 
 [plugin.author]

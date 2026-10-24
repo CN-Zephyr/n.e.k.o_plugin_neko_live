@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import recent_context
+from .viewer_utterance import is_viewer_activity_event
 
 
 class RuntimeRecentContextApiMixin:
@@ -88,7 +89,7 @@ class RuntimeRecentContextApiMixin:
             if str(result.get("status") or "") != "pushed":
                 continue
             event = result.get("event") if isinstance(result.get("event"), dict) else {}
-            if str(event.get("source") or "") == "live_danmaku":
+            if is_viewer_activity_event(event):
                 return streak
             if self._route_from_result(result) == target:
                 streak += 1
