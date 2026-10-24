@@ -1,0 +1,51 @@
+直播助手（NEKO Live / neko_live）
+Copyright (c) 2026 上九天揽星辰 (GitHub: CN-Zephyr)
+
+本插件自 v0.3.2 起按《N.E.K.O. 直播助手社区源码许可证 1.0》提供，
+见同目录 LICENSE。下列内容不适用该许可证，按各自的许可处理。
+
+------------------------------------------------------------------------------
+历史版本
+------------------------------------------------------------------------------
+
+本插件独立建仓（2026-08-13）之前，其代码曾作为 N.E.K.O. 主项目的一部分
+随主项目发布：2026-06-15 之前为 MIT，之后为 Apache-2.0
+（https://github.com/Project-N-E-K-O/N.E.K.O）。依据这些历史版本已经合法
+取得的权利继续有效，不因本插件改用新许可证而撤回；新许可证约束 v0.3.2 及
+之后发布的版本。
+
+------------------------------------------------------------------------------
+随包第三方组件
+------------------------------------------------------------------------------
+
+douyinLive v2.0.18（Windows amd64 bridge）
+  位置：vendor/douyin_bridge/windows-amd64/
+  来源：https://github.com/jwwsjlm/douyinLive/releases/tag/v2.0.18
+  许可：MIT License，Copyright (c) 2025 今晚打打
+  原文：vendor/douyin_bridge/windows-amd64/LICENSE.douyinLive
+
+------------------------------------------------------------------------------
+参考来源
+------------------------------------------------------------------------------
+
+modules/bili_live_ingest/livedanmaku.py
+  数据模型移植自 iwxyi/MagicalDanmaku 的 livedanmaku.h
+  （https://github.com/iwxyi/MagicalDanmaku，GPL-3.0）。该文件不适用
+  本插件许可证，按 GPL-3.0 处理，计划以独立实现替换。
+
+modules/bili_live_ingest/danmaku_core.py、protobuf_commands.py、
+browser_headers.py
+  协议与字段参考 xfgryujk/blivedm（https://github.com/xfgryujk/blivedm，
+  MIT，Copyright (c) 2018 xfgryujk）。
+
+modules/bili_live_ingest/protobuf_commands.py
+  rankdb 字段参考 pskdje/bilibili_live_message_stream
+  （https://github.com/pskdje/bilibili_live_message_stream，CC0-1.0）。
+
+------------------------------------------------------------------------------
+运行时依赖
+------------------------------------------------------------------------------
+
+本插件不随包分发 Python 依赖，由 N.E.K.O. 宿主环境提供，各依赖按其自身
+许可证使用，主要包括：bilibili-api-dev（GPL-3.0-or-later）、aiohttp、
+Brotli、cryptography、Pillow、TwitchIO、websockets、requests。

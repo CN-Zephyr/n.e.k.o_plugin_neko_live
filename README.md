@@ -61,8 +61,12 @@
 
 头像只作为本次 `push_message` 的临时视觉输入。发送前必须经过 `NekoDispatcher` 压缩到 message plane 可接受的内联预算内；如果仍然过大，应降级为纯文字锐评，避免 UI 显示 queued 但主程序没有收到 `proactive_message`。
 
-## 许可方案草案（尚未生效）
+## 许可证
 
-团队正在审阅个人及普通主播免费、其他项目复用和商业使用单独授权的[许可迁移提案](docs/licensing-draft/README.md)，其中包含许可证、使用边界、商业授权和贡献授权草案。草案尚未生效，不替代已有声明或撤回历史授权。
+自 v0.3.2 起，本插件采用[《N.E.K.O. 直播助手社区源码许可证 1.0》](LICENSE)：
 
-第三方组件保留各自的版权与许可证；内置 `douyinLive` bridge 的 [MIT 许可证](vendor/douyin_bridge/windows-amd64/LICENSE.douyinLive)保持原样。
+- 个人学习、自用和修改免费；
+- 普通主播用于本人直播免费，打赏、广告、赞助等正常内容收入不需要另付许可费；
+- 把代码搬到其他项目、改名另发，或用于收费部署、托管、集成等商业产品和服务，须事先取得书面授权。
+
+常见场景见[使用说明](docs/licensing/USAGE.md)，授权申请见 [LICENSE](LICENSE) 第 12 条。第三方组件与历史版本说明见 [NOTICE](NOTICE)；内置 `douyinLive` bridge 保留其 [MIT 许可证](vendor/douyin_bridge/windows-amd64/LICENSE.douyinLive)。
