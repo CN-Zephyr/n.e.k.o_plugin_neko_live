@@ -9,7 +9,7 @@ The output-contract slice keeps NEKO Live speech short, attributable, and safe b
 - `modules/danmaku_response/module.py` classifies the current public danmaku and builds an `InteractionRequest`; `core/danmaku_text_rules.py` owns its small reaction and mention classifiers without depending on the later active-topic slice.
 - `adapters/output_contract_bridge.py` maps that request to plugin-owned reply metadata.
 - `core/live_reply_contract.py` declares route limits and reply modes.
-- `core/live_output_contract_prompt.py`, `core/live_output_quality.py`, and `core/live_output_shape.py` render, validate, and shape the final spoken line.
+- `core/live_output_contract_prompt.py`, `core/live_output_quality.py`, and `core/live_output_shape.py` render the prompt contract; the quality and shape helpers are ready-but-unwired (see [Post-Generation Enforcement Status](#post-generation-enforcement-status)).
 - `adapters/neko_dispatcher.py` is the only output boundary. The host receives opaque metadata and does not own NEKO Live wording policy.
 
 ## Data Flow And Safety
@@ -19,6 +19,10 @@ Live and sandbox input still enter `core/pipeline.py`. The pipeline applies the 
 Viewer-supplied nicknames, named targets, and short danmaku anchors may be interpolated into the output contract so the reply remains attributable. They are always marked as untrusted public data, never instructions; embedded requests to change rules, reveal context, or perform actions must not be followed.
 
 The pure shaper can remove stage directions and internal-context leaks, reject unsafe or unfulfilled reply shapes, enforce a route character ceiling, and record shaping reasons in plugin metadata. The current host SDK does not expose the generated reply to the plugin before TTS, so live delivery currently relies on the injected prompt contract and opaque metadata; hard post-generation shaping is reserved for a future generic host callback. Hosting coalescing uses the target, hosting source, and stable beat identifier so duplicate delivery can collapse without merging different beats.
+
+## Post-Generation Enforcement Status
+
+`shape_reply_text()` and the quality fallbacks have no runtime caller: they are exercised only by tests. Until a generic host pre-TTS callback exists, nothing the plugin writes can block, trim, or rewrite the generated reply, and no plugin-side content filter runs on model output. Passing `test_output_contract.py` proves the helpers behave as specified, not that live speech is shaped. A generic host callback and a minimal content filter are future host-side work and have no design document yet.
 
 ## Entry Greeting
 

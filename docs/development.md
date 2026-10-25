@@ -94,8 +94,8 @@
 | `core/pipeline_failure_results.py` | dispatcher/pipeline exception 的 failed result、安全失败记账、failure audit 和 `record_result` 口径 | 不处理 gate skip，不处理 successful dispatch outcome，不做 route/request/viewer 逻辑 |
 | `core/live_reply_policy.py` / `core/live_output_policy.py` | 插件侧回复合约兼容 facade、旧导入路径出口 | 不承载具体质量兜底、裁剪、记忆渲染或 metadata 桥接细节 |
 | `core/live_reply_contract.py` / `adapters/output_contract_bridge.py` | 模块字数上限、插件私有回复策略 metadata、调试/复盘口径 | 不导入 `main_logic`，不修改宿主最终输出层，不要求宿主理解这些字段 |
-| `core/live_output_quality.py` | 禁止词 / 低置信漂移 / 模板营业 / 无聊弹幕回复的质量兜底 | 不裁剪句子，不渲染 prompt 合约，不合并 metadata |
-| `core/live_output_shape.py` | 最终短句裁剪、未完成二选一修剪、质量兜底应用和 shape metadata | 不维护禁止词表，不读取 recent-output 记忆 |
+| `core/live_output_quality.py` | 禁止词 / 低置信漂移 / 模板营业 / 无聊弹幕回复的质量兜底（**尚未接入运行时**，见 [output_contract](modules/output_contract.md#post-generation-enforcement-status)） | 不裁剪句子，不渲染 prompt 合约，不合并 metadata |
+| `core/live_output_shape.py` | 最终短句裁剪、未完成二选一修剪、质量兜底应用和 shape metadata（**尚未接入运行时**，宿主无 pre-TTS 回调） | 不维护禁止词表，不读取 recent-output 记忆 |
 | `core/live_output_memory.py` | recent NEKO Live 输出负例整理、recent reply avoidance 渲染 | 不判断输出质量，不修改 reply metadata |
 | `core/live_output_contract_prompt.py` | 输出合约 prompt 渲染、route note、callback metadata 合并 | 不裁剪最终文本，不直接调用 dispatcher |
 | `core/prompt_delivery.py` | 单条 callback 预算装配、必要规则保留、相关上下文筛选和保守分词降级；详见[提示词投送与预算](modules/prompt_delivery.md) | 不维护跨轮规则计数，不决定是否开口或目标角色，不调用模型 / 网络 / store，不记录原始提示词 |

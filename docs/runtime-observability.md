@@ -503,7 +503,7 @@ Expected outcomes: `skipped`, `degraded`, `failed`.
 
 `adapters/neko_dispatcher.py` is the only output boundary. It must explain whether output was pushed, dry-run, skipped as non-deliverable, degraded to text-only, or failed.
 
-Plugin-owned output-contract helpers are split by concern: `core/live_reply_contract.py` defines structured metadata, `core/live_output_quality.py` owns quality fallback rules, `core/live_output_shape.py` owns final text shaping, `core/live_output_memory.py` owns recent-output negative examples, and `core/live_output_contract_prompt.py` renders prompt-contract text and merges callback metadata. These helpers may shape plugin-owned live output metadata and prompts, but they must not bypass Dispatcher or patch host/core final output paths.
+Plugin-owned output-contract helpers are split by concern: `core/live_reply_contract.py` defines structured metadata, `core/live_output_quality.py` owns quality fallback rules, `core/live_output_shape.py` owns final text shaping (both are not yet called on the live path because the host exposes no pre-TTS callback; see [output_contract](modules/output_contract.md#post-generation-enforcement-status)), `core/live_output_memory.py` owns recent-output negative examples, and `core/live_output_contract_prompt.py` renders prompt-contract text and merges callback metadata. These helpers may shape plugin-owned live output metadata and prompts, but they must not bypass Dispatcher or patch host/core final output paths.
 
 `dry_run` is a Dispatcher Outcome, not an early exit. A `dry_run` event should still explain the earlier lifecycle stages that led to Dispatcher.
 
@@ -607,3 +607,5 @@ Because the flush is driven by record count rather than a clock, this adds no ba
 Session boundaries always flush, including when nothing happened. A `connect` summary followed by a `disconnect` summary reading `records=0` is itself the diagnosis, and is the specific evidence the earlier bundle could not provide.
 
 Status exposes `runtime_log_records` and `runtime_log_pending` only. Diagnostics must never break the live path: a logger that raises is dropped silently, and a missing logger is a no-op.
+
+Pipeline probes into other modules (burst / batch-welcome / listener-state / live-status) still degrade to their safe default when the callee raises, but `LivePipeline._report_probe_failure` logs one warning per probe per pipeline instance (`probe=<name> error_type=<ExceptionType>`). Only the exception type is logged, never its message, because callee messages may carry payload or credential text. Failing Hosted UI / plugin entries follow the same rule (`entry=<name> failed error_type=<ExceptionType>`); see `tests/test_failure_visibility.py`.

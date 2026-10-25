@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -10,6 +11,27 @@ from plugin.sdk.plugin import Err, NekoPluginBase, Ok, SdkError, lifecycle, neko
 
 if TYPE_CHECKING:
     from .core.runtime import LiveRuntime
+
+
+def _err_on_exception(fn):
+    """Map an unexpected entry failure to ``Err(SdkError)`` and log its type.
+
+    Place it directly under ``@plugin_entry``; ``functools.wraps`` keeps the
+    signature visible to the SDK's schema inference. Only the exception type is
+    logged so credentials or payload fragments in messages stay out of logs.
+    """
+
+    @functools.wraps(fn)
+    async def wrapper(self, *args, **kwargs):
+        try:
+            return await fn(self, *args, **kwargs)
+        except Exception as exc:
+            logger = getattr(self, "logger", None)
+            if logger is not None:
+                logger.warning(f"[neko_live] entry={fn.__name__} failed error_type={type(exc).__name__}")
+            return Err(SdkError(str(exc)))
+
+    return wrapper
 
 
 @neko_plugin
@@ -334,35 +356,27 @@ class NekoLivePlugin(NekoPluginBase):
 
     @ui.action(id="bili_login", label=tr("actions.bili_login.label", default="扫码登录"), group="auth", order=10, refresh_context=True)
     @plugin_entry(id="bili_login", name=tr("entries.bili_login.name", default="B站扫码登录"), description=tr("entries.bili_login.description", default="生成B站扫码登录二维码（已登录则直接回报）。登录态用于绕过 -352 风控、抓取头像与连接弹幕。"))
+    @_err_on_exception
     async def bili_login(self, **_):
-        try:
-            return Ok(await self._runtime().bili_login())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        return Ok(await self._runtime().bili_login())
 
     @ui.action(id="bili_login_check", label=tr("actions.bili_login_check.label", default="检查登录"), group="auth", order=20, refresh_context=True)
     @plugin_entry(id="bili_login_check", name=tr("entries.bili_login_check.name", default="检查扫码登录状态"), description=tr("entries.bili_login_check.description", default="轮询扫码状态；用户在手机确认后加密保存凭据。"))
+    @_err_on_exception
     async def bili_login_check(self, **_):
-        try:
-            return Ok(await self._runtime().bili_login_check())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        return Ok(await self._runtime().bili_login_check())
 
     @ui.action(id="bili_login_status", label=tr("actions.bili_login_status.label", default="登录状态"), group="auth", order=30, refresh_context=True)
     @plugin_entry(id="bili_login_status", name=tr("entries.bili_login_status.name", default="查询B站登录状态"), description=tr("entries.bili_login_status.description", default="查询当前是否已登录B站及用户名。"))
+    @_err_on_exception
     async def bili_login_status(self, **_):
-        try:
-            return Ok(await self._runtime().bili_login_status())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        return Ok(await self._runtime().bili_login_status())
 
     @ui.action(id="bili_logout", label=tr("actions.bili_logout.label", default="退出登录"), group="auth", order=40, refresh_context=True)
     @plugin_entry(id="bili_logout", name=tr("entries.bili_logout.name", default="退出B站登录"), description=tr("entries.bili_logout.description", default="本地注销：删除本机加密保存的B站凭据与密钥（不吊销服务端 token）。"))
+    @_err_on_exception
     async def bili_logout(self, **_):
-        try:
-            return Ok(await self._runtime().bili_logout())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        return Ok(await self._runtime().bili_logout())
 
     @ui.action(id="douyin_cookie_import", label=tr("actions.douyin_cookie_import.label", default="导入抖音 Cookie"), group="auth", order=50, refresh_context=True)
     @plugin_entry(
@@ -379,11 +393,9 @@ class NekoLivePlugin(NekoPluginBase):
             "required": ["cookie"],
         },
     )
+    @_err_on_exception
     async def douyin_cookie_import(self, cookie="", uid="", nickname="", **_):
-        try:
-            return Ok(await self._runtime().douyin_cookie_import(cookie, uid=uid, nickname=nickname))
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        return Ok(await self._runtime().douyin_cookie_import(cookie, uid=uid, nickname=nickname))
 
     @ui.action(id="douyin_cookie_status", label=tr("actions.douyin_cookie_status.label", default="检查抖音 Cookie"), group="auth", order=60, refresh_context=True)
     @plugin_entry(
@@ -391,11 +403,9 @@ class NekoLivePlugin(NekoPluginBase):
         name=tr("entries.douyin_cookie_status.name", default="检查抖音 Cookie 状态"),
         description=tr("entries.douyin_cookie_status.description", default="读取本地加密保存的抖音 Cookie 状态，不回传原始 Cookie。"),
     )
+    @_err_on_exception
     async def douyin_cookie_status(self, **_):
-        try:
-            return Ok(await self._runtime().douyin_cookie_status())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        return Ok(await self._runtime().douyin_cookie_status())
 
     @ui.action(id="douyin_cookie_validate", label=tr("actions.douyin_cookie_validate.label", default="校验抖音 Cookie"), group="auth", order=70, refresh_context=True)
     @plugin_entry(
@@ -407,11 +417,9 @@ class NekoLivePlugin(NekoPluginBase):
             "properties": {"room_ref": {"type": "string", "description": "抖音直播间 URL 或标识；留空使用当前配置。"}},
         },
     )
+    @_err_on_exception
     async def douyin_cookie_validate(self, room_ref="", **_):
-        try:
-            return Ok(await self._runtime().douyin_cookie_validate(room_ref=room_ref))
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        return Ok(await self._runtime().douyin_cookie_validate(room_ref=room_ref))
 
     @ui.action(id="douyin_cookie_delete", label=tr("actions.douyin_cookie_delete.label", default="删除抖音 Cookie"), group="auth", order=80, refresh_context=True)
     @plugin_entry(
@@ -419,11 +427,9 @@ class NekoLivePlugin(NekoPluginBase):
         name=tr("entries.douyin_cookie_delete.name", default="删除抖音 Cookie"),
         description=tr("entries.douyin_cookie_delete.description", default="删除本地加密保存的抖音 Cookie 和密钥。"),
     )
+    @_err_on_exception
     async def douyin_cookie_delete(self, **_):
-        try:
-            return Ok(await self._runtime().douyin_cookie_delete())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        return Ok(await self._runtime().douyin_cookie_delete())
 
     @ui.action(id="twitch_device_authorization_start", label=tr("actions.twitch_device_authorization_start.label", default="授权 Twitch"), group="auth", order=90, refresh_context=True)
     @plugin_entry(
@@ -479,11 +485,9 @@ class NekoLivePlugin(NekoPluginBase):
         description=tr("entries.twitch_device_authorization_check.description", default="执行一次定时 Device Code Flow 检查；成功后加密保存 token。"),
         timeout=25.0,
     )
+    @_err_on_exception
     async def twitch_device_authorization_check(self, **_):
-        try:
-            return Ok(await self._runtime().twitch_device_authorization_check())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        return Ok(await self._runtime().twitch_device_authorization_check())
 
     @ui.action(id="twitch_device_authorization_cancel", label=tr("actions.twitch_device_authorization_cancel.label", default="取消 Twitch 授权"), group="auth", order=105, refresh_context=True)
     @plugin_entry(
@@ -491,11 +495,9 @@ class NekoLivePlugin(NekoPluginBase):
         name=tr("entries.twitch_device_authorization_cancel.name", default="取消 Twitch 设备授权"),
         description=tr("entries.twitch_device_authorization_cancel.description", default="停止当前 Device Code Flow 并清除临时授权会话。"),
     )
+    @_err_on_exception
     async def twitch_device_authorization_cancel(self, **_):
-        try:
-            return Ok(await self._runtime().twitch_device_authorization_cancel())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        return Ok(await self._runtime().twitch_device_authorization_cancel())
 
     @ui.action(id="twitch_login_status", label=tr("actions.twitch_login_status.label", default="Twitch 授权状态"), group="auth", order=110, refresh_context=True)
     @plugin_entry(
@@ -503,11 +505,9 @@ class NekoLivePlugin(NekoPluginBase):
         name=tr("entries.twitch_login_status.name", default="查询 Twitch 授权状态"),
         description=tr("entries.twitch_login_status.description", default="读取本地凭据存在状态；账号信息仅在联网校验成功后回传，始终不回传 token。"),
     )
+    @_err_on_exception
     async def twitch_login_status(self, **_):
-        try:
-            return Ok(await self._runtime().twitch_login_status())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        return Ok(await self._runtime().twitch_login_status())
 
     @ui.action(id="twitch_credential_validate", label=tr("actions.twitch_credential_validate.label", default="校验 Twitch 授权"), group="auth", order=120, refresh_context=True)
     @plugin_entry(
@@ -516,11 +516,9 @@ class NekoLivePlugin(NekoPluginBase):
         description=tr("entries.twitch_credential_validate.description", default="向 Twitch 校验 token，并在需要时原子刷新加密凭据。"),
         timeout=25.0,
     )
+    @_err_on_exception
     async def twitch_credential_validate(self, **_):
-        try:
-            return Ok(await self._runtime().twitch_credential_validate())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        return Ok(await self._runtime().twitch_credential_validate())
 
     @ui.action(id="twitch_logout", label=tr("actions.twitch_logout.label", default="退出 Twitch 授权"), group="auth", order=130, refresh_context=True)
     @plugin_entry(
@@ -528,11 +526,9 @@ class NekoLivePlugin(NekoPluginBase):
         name=tr("entries.twitch_logout.name", default="删除 Twitch 授权"),
         description=tr("entries.twitch_logout.description", default="删除本地加密保存的 Twitch token 和密钥。"),
     )
+    @_err_on_exception
     async def twitch_logout(self, **_):
-        try:
-            return Ok(await self._runtime().twitch_logout())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        return Ok(await self._runtime().twitch_logout())
 
     @ui.action(id="pause_roast", label=tr("actions.pause.label", default="一键暂停"), group="safety", order=20, refresh_context=True)
     @plugin_entry(id="pause_roast", name=tr("entries.pause_roast.name", default="暂停锐评"), description=tr("entries.pause_roast.description", default="立即暂停弹幕锐评输出。"))
@@ -558,12 +554,10 @@ class NekoLivePlugin(NekoPluginBase):
         name=tr("entries.trigger_idle_hosting.name", default="触发空闲营业"),
         description=tr("entries.trigger_idle_hosting.description", default="猫猫独播空闲时手动触发一次营业。"),
     )
+    @_err_on_exception
     async def trigger_idle_hosting(self, **_):
-        try:
-            result = await self._runtime().trigger_idle_hosting()
-            return Ok(result.to_public_dict())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        result = await self._runtime().trigger_idle_hosting()
+        return Ok(result.to_public_dict())
 
     @ui.action(id="trigger_warmup_hosting", label=tr("panel.actions.triggerWarmupHosting", default="触发开场营业"), group="hosting", order=20, refresh_context=True)
     @plugin_entry(
@@ -571,12 +565,10 @@ class NekoLivePlugin(NekoPluginBase):
         name=tr("entries.trigger_warmup_hosting.name", default="触发开场营业"),
         description=tr("entries.trigger_warmup_hosting.description", default="猫猫独播刚开始时手动触发一次开场话题。"),
     )
+    @_err_on_exception
     async def trigger_warmup_hosting(self, **_):
-        try:
-            result = await self._runtime().trigger_warmup_hosting()
-            return Ok(result.to_public_dict())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        result = await self._runtime().trigger_warmup_hosting()
+        return Ok(result.to_public_dict())
 
     @ui.action(id="trigger_active_engagement", label=tr("panel.actions.triggerActiveEngagement", default="触发主动营业"), group="hosting", order=30, refresh_context=True)
     @plugin_entry(
@@ -584,12 +576,10 @@ class NekoLivePlugin(NekoPluginBase):
         name=tr("entries.trigger_active_engagement.name", default="触发主动营业"),
         description=tr("entries.trigger_active_engagement.description", default="猫猫独播冷场时手动触发一次主动互动。"),
     )
+    @_err_on_exception
     async def trigger_active_engagement(self, **_):
-        try:
-            result = await self._runtime().trigger_active_engagement()
-            return Ok(result.to_public_dict())
-        except Exception as exc:
-            return Err(SdkError(str(exc)))
+        result = await self._runtime().trigger_active_engagement()
+        return Ok(result.to_public_dict())
 
     @ui.action(id="submit_viewer_event", label=tr("panel.actions.submitSandbox", default="发射模拟弹幕"), group="developer", order=20, refresh_context=True)
     @plugin_entry(
