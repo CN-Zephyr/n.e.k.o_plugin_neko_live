@@ -21,6 +21,26 @@ def memory_runtime():
     )
 
 
+def epochs_get(*answers):
+    """Fake ``GET forget_epochs``: each call pops the next answer; the last one repeats."""
+    queue = list(answers) or [{"epochs": {}}]
+    calls = []
+
+    async def get(url, *, params, **_kwargs):
+        calls.append((url, params))
+        answer = queue.pop(0) if len(queue) > 1 else queue[0]
+        status = answer if isinstance(answer, int) else 200
+
+        def raise_for_status():
+            if status >= 400:
+                raise RuntimeError(f"HTTP {status}")
+
+        return SimpleNamespace(status_code=status, raise_for_status=raise_for_status, json=lambda: answer)
+
+    get.calls = calls
+    return get
+
+
 @pytest.mark.asyncio
 async def test_memory_preserves_collection_scope_and_excludes_submission_receipt():
     runtime = memory_runtime()
@@ -217,7 +237,7 @@ async def test_memory_unconfirmed_response_retains_batch_for_same_key_retry(monk
 
         return SimpleNamespace(raise_for_status=lambda: None, json=response_json)
 
-    monkeypatch.setattr(internal_http_client, "get_internal_http_client", lambda: SimpleNamespace(post=post))
+    monkeypatch.setattr(internal_http_client, "get_internal_http_client", lambda: SimpleNamespace(post=post, get=epochs_get()))
     bridge.note_exchange(uid="42", nickname="viewer", user_text="hello")
     await bridge.flush()
     assert len(bridge._buckets) == 1 and not bridge._posted_keys
@@ -237,9 +257,95 @@ async def test_memory_confirmed_response_is_not_reposted(monkeypatch, persisted)
         raise_for_status=lambda: None,
         json=lambda: {"status": "processed", "trust": {"persisted": persisted}},
     ))
-    monkeypatch.setattr(internal_http_client, "get_internal_http_client", lambda: SimpleNamespace(post=post))
+    monkeypatch.setattr(internal_http_client, "get_internal_http_client", lambda: SimpleNamespace(post=post, get=epochs_get()))
     bridge.note_exchange(uid="42", nickname="viewer", user_text="hello")
     await bridge.flush()
     await bridge.flush()
     post.assert_awaited_once()
     assert not bridge._buckets and len(bridge._posted_keys) == 1
+
+
+def ok_post(requests, status=200):
+    async def post(_url, *, json, **_kwargs):
+        requests.append(json)
+        return SimpleNamespace(
+            status_code=status, raise_for_status=lambda: None,
+            json=lambda: {"status": "processed", "trust": {"persisted": True}},
+        )
+
+    return post
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer, expected", [({"epochs": {}}, 0), ({"epochs": {"participant:twitch:42": 3}}, 3)])
+async def test_memory_keyed_post_carries_server_forget_epoch(monkeypatch, answer, expected):
+    from utils import internal_http_client
+
+    bridge = LiveMemoryBridge(memory_runtime())
+    bridge._memory_port = AsyncMock(return_value=1)
+    requests, get = [], epochs_get(answer)
+    monkeypatch.setattr(internal_http_client, "get_internal_http_client", lambda: SimpleNamespace(post=ok_post(requests), get=get))
+    bridge.note_exchange(uid="42", nickname="viewer", user_text="hello")
+    await bridge.flush()
+    assert get.calls == [("http://127.0.0.1:1/internal/memory/A/forget_epochs", [("subject", "participant:twitch:42")])]
+    assert requests[0]["subject_epochs"] == {"participant:twitch:42": expected}
+    assert "scope" not in requests[0]["subject"]
+    assert not bridge._buckets and not bridge._epoch_cache
+
+
+@pytest.mark.asyncio
+async def test_memory_retry_reuses_epoch_captured_for_the_key(monkeypatch):
+    from utils import internal_http_client
+
+    bridge = LiveMemoryBridge(memory_runtime())
+    bridge._memory_port = AsyncMock(return_value=1)
+    requests = []
+    acks = [{"status": "ignored"}, {"status": "processed", "trust": {"persisted": True}}]
+
+    async def post(_url, *, json, **_kwargs):
+        requests.append(json)
+        ack = acks.pop(0)
+        return SimpleNamespace(status_code=200, raise_for_status=lambda: None, json=lambda: ack)
+
+    get = epochs_get({"epochs": {}}, {"epochs": {"participant:twitch:42": 9}})
+    monkeypatch.setattr(internal_http_client, "get_internal_http_client", lambda: SimpleNamespace(post=post, get=get))
+    bridge.note_exchange(uid="42", nickname="viewer", user_text="hello")
+    await bridge.flush()
+    await bridge.flush()
+    assert len(get.calls) == 1
+    assert requests[0] == requests[1]
+    assert requests[1]["subject_epochs"] == {"participant:twitch:42": 0}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", [503, {"epochs": {"participant:twitch:42": -1}}, {"epochs": []}, {}])
+async def test_memory_unreadable_forget_epoch_holds_batch_without_posting(monkeypatch, answer):
+    from utils import internal_http_client
+
+    runtime = memory_runtime()
+    audit = []
+    runtime.audit = SimpleNamespace(record=lambda kind, _msg, **kw: audit.append((kind, kw["detail"])))
+    bridge = LiveMemoryBridge(runtime)
+    bridge._memory_port = AsyncMock(return_value=1)
+    requests = []
+    monkeypatch.setattr(internal_http_client, "get_internal_http_client", lambda: SimpleNamespace(post=ok_post(requests), get=epochs_get(answer)))
+    bridge.note_exchange(uid="42", nickname="viewer", user_text="hello")
+    await bridge.flush()
+    assert not requests and len(bridge._buckets) == 1
+    assert audit == [("live_memory_unavailable", {"reason": "forget_epochs_unavailable"})]
+
+
+@pytest.mark.asyncio
+async def test_memory_rejected_request_is_dropped_not_retried(monkeypatch):
+    from utils import internal_http_client
+
+    bridge = LiveMemoryBridge(memory_runtime())
+    bridge._memory_port = AsyncMock(return_value=1)
+    requests = []
+    monkeypatch.setattr(internal_http_client, "get_internal_http_client", lambda: SimpleNamespace(post=ok_post(requests, 422), get=epochs_get()))
+    bridge.note_exchange(uid="42", nickname="viewer", user_text="hello")
+    await bridge.flush()
+    await bridge.flush()
+    assert len(requests) == 1
+    assert not bridge._buckets and not bridge._posted_keys and not bridge._epoch_cache
+    assert bridge._unavailable_reason == "memory_request_rejected"
