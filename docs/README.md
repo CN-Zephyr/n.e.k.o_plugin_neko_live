@@ -52,10 +52,6 @@
 - [进场与点赞](modules/live_presence.md)：进场、关注、点赞的可选开口。默认只计数，说话开关默认关闭。
 - [观众与安全存储](modules/viewer_stores.md)：观众档案、审计脱敏与加密凭据命名空间。
 
-## 许可
-
-- [许可说明](licensing/README.md)：许可证适用范围、历史版本、使用场景、商业授权与贡献授权的入口；正文以根目录 [LICENSE](../LICENSE) 为准。
-
 ## Canonical Source
 
 
@@ -63,7 +59,7 @@
 
 | 事实类型 | 权威文档 | 其他文档如何处理 |
 |---|---|---|
-| 许可证条款与适用范围 | 根目录 `LICENSE`、`NOTICE` 及 [licensing/README.md](licensing/README.md) | 只链接，不复述条款 |
+| 许可证条款与适用范围 | 根目录 `LICENSE`（Apache-2.0）与 `NOTICE` | 只链接，不复述条款 |
 | 项目定位、用户入口、当前不做 | `../README.md` | 只链接，不复述完整定位 |
 | 显示名、内部标识与 prompt 标记的命名约定 | [development.md「命名与范围」](development.md#命名与范围) | 只链接；界面操作指引使用对应语言的显示名 |
 | 用户/主播操作流程 | `quickstart.md` | 只给入口链接 |

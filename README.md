@@ -63,10 +63,4 @@
 
 ## 许可证
 
-自 v0.3.2 起，本插件采用[《N.E.K.O. 直播助手社区源码许可证 1.0》](LICENSE)：
-
-- 个人学习、自用和修改免费；
-- 普通主播用于本人直播免费，打赏、广告、赞助等正常内容收入不需要另付许可费；
-- 把代码搬到其他项目、改名另发，或用于收费部署、托管、集成等商业产品和服务，须事先取得书面授权。
-
-常见场景见[使用说明](docs/licensing/USAGE.md)，授权申请见 [LICENSE](LICENSE) 第 12 条。第三方组件与历史版本说明见 [NOTICE](NOTICE)；内置 `douyinLive` bridge 保留其 [MIT 许可证](vendor/douyin_bridge/windows-amd64/LICENSE.douyinLive)。
+本插件按 [Apache License 2.0](LICENSE) 提供，与 N.E.K.O. 主程序一致。第三方组件、参考来源与历史版本说明见 [NOTICE](NOTICE)：`modules/bili_live_ingest/livedanmaku.py` 按 GPL-3.0 处理，内置 `douyinLive` bridge 保留其 [MIT 许可证](vendor/douyin_bridge/windows-amd64/LICENSE.douyinLive)。
