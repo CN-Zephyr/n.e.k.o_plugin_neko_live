@@ -1,8 +1,9 @@
 直播助手（NEKO Live / neko_live）
 Copyright (c) 2026 上九天揽星辰 (GitHub: CN-Zephyr)
 
-本插件按 Apache License, Version 2.0 提供，见同目录 LICENSE。
-下列内容不适用该许可证，按各自的许可处理。
+本插件按 GNU Affero General Public License 第 3 版或（由你选择）任何更新
+版本（AGPL-3.0-or-later）提供，见同目录 LICENSE。下列内容不适用该许可证，
+按各自的许可处理。
 
 ------------------------------------------------------------------------------
 历史版本
@@ -12,8 +13,10 @@ Copyright (c) 2026 上九天揽星辰 (GitHub: CN-Zephyr)
 随主项目发布：2026-06-15 之前为 MIT，之后为 Apache-2.0
 （https://github.com/Project-N-E-K-O/N.E.K.O）。
 
-v0.3.2 与 v0.3.3 曾按《N.E.K.O. 直播助手社区源码许可证 1.0》发布；此后的
-版本改按 Apache-2.0 提供。依据历史版本已经合法取得的权利继续有效。
+v0.3.2 与 v0.3.3 曾按《N.E.K.O. 直播助手社区源码许可证 1.0》发布。
+2026-10-25 起 main 分支曾短暂改按 Apache-2.0 提供（提交 d1e723f），期间未
+发布新版本。此后的版本改按 AGPL-3.0-or-later 提供。依据历史版本已经合法
+取得的权利继续有效。
 
 ------------------------------------------------------------------------------
 随包第三方组件
@@ -31,8 +34,8 @@ douyinLive v2.0.18（Windows amd64 bridge）
 
 modules/bili_live_ingest/livedanmaku.py
   数据模型移植自 iwxyi/MagicalDanmaku 的 livedanmaku.h
-  （https://github.com/iwxyi/MagicalDanmaku，GPL-3.0）。该文件不适用
-  Apache-2.0，按 GPL-3.0 处理，计划以独立实现替换。
+  （https://github.com/iwxyi/MagicalDanmaku，GPL-3.0）。GPL-3.0 第 13 条
+  允许与 AGPL-3.0 作品组合；该文件本身仍按 GPL-3.0 提供。
 
 modules/bili_live_ingest/danmaku_core.py、protobuf_commands.py、
 browser_headers.py
@@ -48,5 +51,7 @@ modules/bili_live_ingest/protobuf_commands.py
 ------------------------------------------------------------------------------
 
 本插件不随包分发 Python 依赖，由 N.E.K.O. 宿主环境提供，各依赖按其自身
-许可证使用，主要包括：bilibili-api-dev（GPL-3.0-or-later）、aiohttp、
-Brotli、cryptography、Pillow、TwitchIO、websockets、requests。
+许可证使用，主要包括：bilibili-api-dev（GPL-3.0-or-later）、aiohttp
+（Apache-2.0 AND MIT）、Brotli（MIT）、cryptography（Apache-2.0 OR
+BSD-3-Clause）、Pillow（MIT-CMU）、TwitchIO（MIT）、websockets
+（BSD-3-Clause）、requests（Apache-2.0）。

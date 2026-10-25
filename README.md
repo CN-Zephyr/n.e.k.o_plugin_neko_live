@@ -63,4 +63,4 @@
 
 ## 许可证
 
-本插件按 [Apache License 2.0](LICENSE) 提供，与 N.E.K.O. 主程序一致。第三方组件、参考来源与历史版本说明见 [NOTICE](NOTICE)：`modules/bili_live_ingest/livedanmaku.py` 按 GPL-3.0 处理，内置 `douyinLive` bridge 保留其 [MIT 许可证](vendor/douyin_bridge/windows-amd64/LICENSE.douyinLive)。
+本插件按 [GNU AGPL-3.0-or-later](LICENSE) 提供。修改后分发本插件，或通过网络向他人提供修改后的版本，都须按同一许可证公开对应源码。N.E.K.O. 主程序仍是 Apache-2.0，不受影响。第三方组件、参考来源与历史版本说明见 [NOTICE](NOTICE)：`modules/bili_live_ingest/livedanmaku.py` 按 GPL-3.0 提供，内置 `douyinLive` bridge 保留其 [MIT 许可证](vendor/douyin_bridge/windows-amd64/LICENSE.douyinLive)。
