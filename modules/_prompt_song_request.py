@@ -85,6 +85,11 @@ def _status_instructions(status: str, permission_level: str) -> str:
             "Acknowledge that the requested song (queued_song_title and artist if available) "
             "is now in the playlist; may mention it is queued, but do not claim it is playing now."
         )
+    elif status == "dry_run":
+        return (
+            "Acknowledge the viewer_query song request briefly; do not claim it is already "
+            "in the playlist or playing."
+        )
     elif status == "not_found":
         return (
             "Say politely that the song is not in the local song library; "

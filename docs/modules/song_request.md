@@ -21,6 +21,7 @@ The **Song request** card under live interaction has an enable switch and settin
    - `denied` / `empty_query`: replied to, and the cooldown starts so a viewer cannot spam replies.
    - `unavailable`: `custom_music_list` is not installed or not enabled (`ctx.plugin.plugins.require_enabled`).
    - `queued` / `not_found` / `error`: result of the music plugin's `add_song_to_playlist` LLM-tool entry. `SONG_NOT_FOUND` maps to `not_found`.
+   - `dry_run`: when `dry_run=true`, the `require_enabled` availability check still runs, but `add_song_to_playlist` is never called. The reply only acknowledges the request and the row cannot be jumped, so no-sound chain checks leave the playlist untouched.
 5. Every non-cooldown outcome becomes an `InteractionRequest` from `build_song_request_reply()` with prompt rules in `modules/_prompt_song_request.py`, then goes through `dispatch_routed_request()`; it does not mark avatar roast as sent.
 
 Cross-plugin calls use `ctx.plugin.plugins.call_entry_json()` with timeouts (15 s for adding, 5 s otherwise). `add_song_to_playlist` does not return the new item id, so after adding the module reads `playlist_get` and picks the newest untracked item with the same public title and artist. Adding and locating run under one lock so concurrent requests cannot claim each other's item.
@@ -52,6 +53,6 @@ uv run pytest ../n.e.k.o_plugin_neko_live/tests -q
 uv run python -m plugin.neko_plugin_cli.cli check plugin/plugins/neko_live
 ```
 
-Tests use a fake cross-plugin accessor and cover trigger matching, permission tiers, cooldown, music-plugin errors, item location under concurrency, jump refusals, the pipeline route, and the `live_events` window bypass (`tests/test_live_events.py`). They do not exercise a real `custom_music_list` process or audible playback.
+Tests use a fake cross-plugin accessor and cover trigger matching, permission tiers, cooldown, music-plugin errors, `dry_run` skipping the add call, item location under concurrency, jump refusals, the pipeline route, and the `live_events` window bypass (`tests/test_live_events.py`). They do not exercise a real `custom_music_list` process or audible playback.
 
 Known limits: the song is queued before output, so when the Safety Guard output cooldown is still active the song is added but the spoken reply is skipped as `rate limited`. the jump needs the music plugin's autoplay to be running, since that is the only place it reports the current index. If a viewer requests a song identical to an untracked one already at the end of the playlist, the locator may pick that one; the jump then moves an identical song.

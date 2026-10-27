@@ -511,6 +511,7 @@
   "panel.interaction.module.songRequest.jumped": "Moved up",
   "panel.interaction.module.songRequest.jumpFailed": "Could not move the song",
   "panel.interaction.module.songRequest.status.queued": "Queued",
+  "panel.interaction.module.songRequest.status.dry_run": "Dry run (not added)",
   "panel.interaction.module.songRequest.status.not_found": "Song not found",
   "panel.interaction.module.songRequest.status.empty_query": "No song name",
   "panel.interaction.module.songRequest.status.denied": "Not allowed",

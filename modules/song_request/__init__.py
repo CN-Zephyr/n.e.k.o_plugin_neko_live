@@ -43,7 +43,7 @@ _CALL_TIMEOUT = 5.0
 class SongRequestOutcome:
     """Result of one song request; consumed by the pipeline reply builder."""
 
-    status: str  # queued / not_found / empty_query / denied / unavailable / error / cooldown
+    status: str  # queued / dry_run / not_found / empty_query / denied / unavailable / error / cooldown
     query: str
     title: str = ""
     artist: str = ""
@@ -214,6 +214,9 @@ class SongRequestModule(BaseModule):
             required = None
         if required is None or isinstance(required, Err):
             return SongRequestOutcome(status="unavailable", query=query)
+        if getattr(getattr(ctx, "config", None), "dry_run", False) is True:
+            # dry_run 只验链路：可用性照常检查，但不往歌单里写歌。
+            return SongRequestOutcome(status="dry_run", query=query)
         async with self._queue_lock:
             added = await _call_json(plugins, ADD_SONG_ENTRY, {"title": query}, timeout=_ADD_TIMEOUT)
             if added is None:

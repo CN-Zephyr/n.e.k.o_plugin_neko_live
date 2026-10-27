@@ -504,6 +504,7 @@
   "panel.interaction.module.songRequest.jumped": "已插队",
   "panel.interaction.module.songRequest.jumpFailed": "插队失败",
   "panel.interaction.module.songRequest.status.queued": "已入队",
+  "panel.interaction.module.songRequest.status.dry_run": "试运行（未加歌）",
   "panel.interaction.module.songRequest.status.not_found": "没找到这首歌",
   "panel.interaction.module.songRequest.status.empty_query": "没写歌名",
   "panel.interaction.module.songRequest.status.denied": "权限不足",

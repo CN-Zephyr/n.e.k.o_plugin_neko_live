@@ -71,7 +71,7 @@ import { LiveExplainSection, LiveSessionSection, RecentResultsTable, ViewerProfi
 const ONBOARDING_STORAGE_KEY = "neko-live:onboarding:v2"
 const SONG_REQUEST_DEFAULT_TRIGGERS = "点歌\n我想听\n来一首\n来首\n放一首\n放首\n求歌"
 const SONG_REQUEST_PERMISSIONS = ["anyone", "fans", "guard"]
-const SONG_REQUEST_STATUSES = ["queued", "not_found", "empty_query", "denied", "unavailable", "error"]
+const SONG_REQUEST_STATUSES = ["queued", "dry_run", "not_found", "empty_query", "denied", "unavailable", "error"]
 
 function CompactTabs(props: { id: string; items: Array<{ id: string; label: any; content: any }> }) {
   const { id, items } = props

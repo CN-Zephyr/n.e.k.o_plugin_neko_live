@@ -504,6 +504,7 @@
   "panel.interaction.module.songRequest.jumped": "割り込み済み",
   "panel.interaction.module.songRequest.jumpFailed": "割り込みに失敗しました",
   "panel.interaction.module.songRequest.status.queued": "キュー追加済み",
+  "panel.interaction.module.songRequest.status.dry_run": "ドライラン（未追加）",
   "panel.interaction.module.songRequest.status.not_found": "曲が見つかりません",
   "panel.interaction.module.songRequest.status.empty_query": "曲名なし",
   "panel.interaction.module.songRequest.status.denied": "権限なし",

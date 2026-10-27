@@ -504,6 +504,7 @@
   "panel.interaction.module.songRequest.jumped": "Передвинута",
   "panel.interaction.module.songRequest.jumpFailed": "Не удалось передвинуть песню",
   "panel.interaction.module.songRequest.status.queued": "В очереди",
+  "panel.interaction.module.songRequest.status.dry_run": "Пробный запуск (не добавлено)",
   "panel.interaction.module.songRequest.status.not_found": "Песня не найдена",
   "panel.interaction.module.songRequest.status.empty_query": "Нет названия",
   "panel.interaction.module.songRequest.status.denied": "Нет прав",

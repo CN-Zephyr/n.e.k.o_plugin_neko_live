@@ -504,6 +504,7 @@
   "panel.interaction.module.songRequest.jumped": "Adiantada",
   "panel.interaction.module.songRequest.jumpFailed": "Não foi possível mover a música",
   "panel.interaction.module.songRequest.status.queued": "Na fila",
+  "panel.interaction.module.songRequest.status.dry_run": "Teste (não adicionada)",
   "panel.interaction.module.songRequest.status.not_found": "Música não encontrada",
   "panel.interaction.module.songRequest.status.empty_query": "Sem nome da música",
   "panel.interaction.module.songRequest.status.denied": "Sem permissão",

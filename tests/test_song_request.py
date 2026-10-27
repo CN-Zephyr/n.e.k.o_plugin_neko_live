@@ -255,3 +255,23 @@ async def test_music_plugin_state(listed, expected):
 async def test_music_plugin_state_without_plugins_accessor():
     module = _module(_ctx(None))
     assert await module.music_plugin_state(module.ctx) == "unknown"
+
+
+async def test_dry_run_checks_availability_but_never_adds_song():
+    plugins = FakePlugins()
+    ctx = _ctx(plugins, dry_run=True)
+    module = _module(ctx)
+
+    outcome = await module.handle(ctx, _event(), "晴天")
+
+    assert outcome.status == "dry_run"
+    assert outcome.request_id == ""
+    assert [ref for ref, _ in plugins.calls if ref == ADD_SONG_ENTRY] == []
+    assert plugins.songs == []
+    assert module.recent_requests()[0]["status"] == "dry_run"
+    assert module.recent_requests()[0]["can_jump"] is False
+
+
+async def test_dry_run_still_reports_unavailable_music_plugin():
+    ctx = _ctx(FakePlugins(available=False), dry_run=True)
+    assert (await _module(ctx).handle(ctx, _event(), "晴天")).status == "unavailable"

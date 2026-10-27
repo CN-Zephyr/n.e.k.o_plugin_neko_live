@@ -504,6 +504,7 @@
   "panel.interaction.module.songRequest.jumped": "끼워 넣음",
   "panel.interaction.module.songRequest.jumpFailed": "순서를 옮기지 못했습니다",
   "panel.interaction.module.songRequest.status.queued": "대기열 추가됨",
+  "panel.interaction.module.songRequest.status.dry_run": "드라이런(추가 안 함)",
   "panel.interaction.module.songRequest.status.not_found": "곡을 찾지 못함",
   "panel.interaction.module.songRequest.status.empty_query": "곡 이름 없음",
   "panel.interaction.module.songRequest.status.denied": "권한 없음",
