@@ -20,6 +20,7 @@ _MAX_BUCKETS = 256
 _MAX_TASKS = 8
 _MAX_POSTED_KEYS = 1024
 _MAX_PENDING_MESSAGES = 12
+_MAX_CACHED_EPOCHS = 512
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,10 @@ def _subject_id(platform: str, uid: str) -> str:
     prefix = platform + ":"
     return uid if uid.startswith(prefix) else prefix + uid
 
+
+def subject_key(platform: str, uid: str) -> str:
+    """``MemorySubject.key`` of a viewer: the key ``subject_epochs`` is indexed by."""
+    return "participant:" + _subject_id(platform, uid)
 
 
 def _batch_key(uid: str, messages: list[dict[str, str]]) -> str:
@@ -72,6 +77,7 @@ def scoped_history_payload(
     medal_level: int = 0,
     platform: str = "bilibili",
     scope_key: str = "",
+    subject_epochs: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     label = (nickname or uid)[:64]
     payload: dict[str, Any] = {
@@ -90,6 +96,8 @@ def scoped_history_payload(
     activity = _activity_events(scope_key or _subject_id(platform, uid), messages)
     if activity:
         payload["speaker_activity_events"] = activity
+    if subject_epochs is not None:
+        payload["subject_epochs"] = dict(subject_epochs)
     return payload
 
 
@@ -100,6 +108,7 @@ class LiveMemoryBridge:
         self._metadata: dict[MemoryScope, tuple[str, int, int]] = {}
         self._tasks: dict[asyncio.Task, MemoryScope] = {}
         self._posted_keys: OrderedDict[str, None] = OrderedDict()
+        self._epoch_cache: OrderedDict[str, int] = OrderedDict()
         self._unavailable_reason = ""
         self._closed = False
 
@@ -116,6 +125,7 @@ class LiveMemoryBridge:
                 task.cancel()
         if uid is None:
             self._posted_keys.clear()
+            self._epoch_cache.clear()
 
     def note_exchange(
         self, *, uid: str, nickname: str, user_text: str, assistant_text: str = "",
@@ -169,7 +179,7 @@ class LiveMemoryBridge:
         except Exception as exc:
             self._remember_unavailable(type(exc).__name__)
             saved = False
-        if not saved and self._enabled():
+        if saved is False and self._enabled():
             if scope in self._buckets or len(self._buckets) < _MAX_BUCKETS:
                 self._buckets[scope] = (messages + self._buckets.get(scope, []))[-_MAX_PENDING_MESSAGES:]
                 self._metadata[scope] = metadata
@@ -221,7 +231,8 @@ class LiveMemoryBridge:
     async def post_viewer(
         self, uid: str, nickname: str, messages: list[dict[str, str]], *,
         scope: MemoryScope, guard_level: int = 0, medal_level: int = 0,
-    ) -> bool:
+    ) -> bool | None:
+        """Submit one batch: True when saved, False to retry later, None when rejected for good."""
         if not self._enabled() or not messages:
             return False
         port = await self._memory_port()
@@ -233,6 +244,23 @@ class LiveMemoryBridge:
         except Exception as exc:
             self._remember_unavailable(type(exc).__name__)
             return False
+        scope_key = json.dumps([scope.target, scope.platform, scope.session, scope.uid])
+        batch_key = _batch_key(scope_key, messages)
+        if batch_key in self._posted_keys:
+            return True
+        base_url = f"http://127.0.0.1:{port}/internal/memory/{quote(scope.target, safe='')}"
+        key = subject_key(scope.platform, uid)
+        client = get_internal_http_client()
+        # 带键请求必须给出 subject 的清除代数，且同一个键的每次重试都要原样带回：
+        # 请求哈希覆盖 subject_epochs，代数一变服务端就按「键被另一个请求复用」拒绝
+        epoch = self._epoch_cache.get(batch_key)
+        if epoch is None:
+            epoch = await self._forget_epoch(client, base_url, key)
+            if epoch is None:
+                return False
+            self._epoch_cache[batch_key] = epoch
+            if len(self._epoch_cache) > _MAX_CACHED_EPOCHS:
+                self._epoch_cache.popitem(last=False)
         payload = scoped_history_payload(
             uid=uid,
             nickname=nickname,
@@ -240,20 +268,18 @@ class LiveMemoryBridge:
             guard_level=guard_level,
             medal_level=medal_level,
             platform=scope.platform,
-            scope_key=json.dumps([scope.target, scope.platform, scope.session, scope.uid]),
+            scope_key=scope_key,
+            subject_epochs={key: epoch},
         )
-        batch_key = str(payload.get("idempotency_key") or "")
-        if batch_key and batch_key in self._posted_keys:
-            return True
         if not self._enabled():
             return False
         try:
-            client = get_internal_http_client()
-            response = await client.post(
-                f"http://127.0.0.1:{port}/internal/memory/{quote(scope.target, safe='')}/scoped_history",
-                json=payload,
-                timeout=30.0,
-            )
+            response = await client.post(f"{base_url}/scoped_history", json=payload, timeout=30.0)
+            if getattr(response, "status_code", None) == 422:
+                # 请求本身被拒（键已被另一请求占用、字段不合法）：同键重试只会一直 422，丢弃这一批
+                self._epoch_cache.pop(batch_key, None)
+                self._remember_unavailable("memory_request_rejected")
+                return None
             response.raise_for_status()
             acknowledgement = response.json()
             trust = acknowledgement.get("trust") if isinstance(acknowledgement, dict) else None
@@ -269,11 +295,37 @@ class LiveMemoryBridge:
         except Exception as exc:
             self._remember_unavailable(type(exc).__name__)
             return False
-        if batch_key:
-            self._posted_keys[batch_key] = None
-            if len(self._posted_keys) > _MAX_POSTED_KEYS:
-                self._posted_keys.popitem(last=False)
+        self._epoch_cache.pop(batch_key, None)
+        self._posted_keys[batch_key] = None
+        if len(self._posted_keys) > _MAX_POSTED_KEYS:
+            self._posted_keys.popitem(last=False)
         return True
+
+    async def _forget_epoch(self, client: Any, base_url: str, key: str) -> int | None:
+        """Server-side forget fence of ``key``; ``None`` when it cannot be read.
+
+        A key without a tombstone is absent from the answer and means 0. An
+        unreadable fence (503, transport error, malformed body) must not read
+        as 0, so the batch waits for a later flush instead.
+        """
+        try:
+            response = await client.get(
+                f"{base_url}/forget_epochs", params=[("subject", key)], timeout=5.0,
+            )
+            response.raise_for_status()
+            body = response.json()
+            epochs = body.get("epochs") if isinstance(body, dict) else None
+            if not isinstance(epochs, dict):
+                raise ValueError("malformed epochs")
+            value = epochs.get(key, 0)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError("malformed epoch")
+            return value
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self._remember_unavailable("forget_epochs_unavailable")
+            return None
 
     def _remember_unavailable(self, reason: str) -> None:
         if self._unavailable_reason == reason:
