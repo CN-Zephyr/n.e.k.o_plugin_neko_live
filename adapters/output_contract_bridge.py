@@ -28,6 +28,7 @@ def response_module_hint(request: InteractionRequest) -> str:
     if isinstance(explicit, str) and explicit.strip() in {
         "avatar_roast",
         "danmaku_response",
+        "song_request",
         "live_support_events",
         "warmup_hosting",
         "idle_hosting",

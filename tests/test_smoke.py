@@ -445,6 +445,7 @@ def test_interaction_panel_uses_stable_cards_and_detail_modals() -> None:
         "panel.interaction.module.avatarRoast.disabledHint",
         "panel.interaction.module.danmakuResponse.disabledHint",
         "panel.interaction.module.liveSupportEvents.disabledHint",
+        "panel.interaction.module.songRequest.disabledHint",
         "panel.interaction.module.warmupHosting.disabledHint",
         "panel.interaction.module.idleHosting.disabledHint",
         "panel.interaction.module.activeEngagement.disabledHint",
@@ -467,7 +468,8 @@ def test_interaction_panel_uses_stable_cards_and_detail_modals() -> None:
 
         assert 'const [interactionDialog, setInteractionDialog]' in source
         assert 'open={!!interactionDialog}' in interaction_source
-        assert interaction_source.count('renderInteractionDetailsButton("') == 6
+        assert interaction_source.count('renderInteractionDetailsButton("') == 7
+        assert 'renderInteractionDetailsButton("song_request")' in interaction_source
         assert 'setInteractionDialog("avatar_roast")' in interaction_source
         assert "entry_greet_enabled" in interaction_source
         assert "follow_greet_enabled" in interaction_source

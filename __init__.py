@@ -699,6 +699,39 @@ class NekoLivePlugin(NekoPluginBase):
             return Err(SdkError(str(exc)))
         return Ok({"profiles": profiles})
 
+    @plugin_entry(
+        id="song_request_status",
+        name=tr("entries.song_request_status.name", default="点歌记录"),
+        description=tr("entries.song_request_status.description", default="读取本场最近的点歌记录和可插队状态。"),
+    )
+    async def song_request_status(self, **_):
+        runtime = self._runtime()
+        module = getattr(runtime, "song_request", None)
+        recent = getattr(module, "recent_requests", None)
+        state = getattr(module, "music_plugin_state", None)
+        return Ok({
+            "requests": recent() if callable(recent) else [],
+            "music_plugin": await state(runtime) if callable(state) else "unknown",
+        })
+
+    @plugin_entry(
+        id="song_request_jump",
+        name=tr("entries.song_request_jump.name", default="点歌插队"),
+        description=tr("entries.song_request_jump.description", default="把一条已入队的点歌移到当前播放歌曲之后。"),
+        input_schema={
+            "type": "object",
+            "properties": {"request_id": {"type": "string"}},
+            "required": ["request_id"],
+        },
+    )
+    async def song_request_jump(self, request_id="", **_):
+        runtime = self._runtime()
+        module = getattr(runtime, "song_request", None)
+        jump = getattr(module, "jump", None)
+        if not callable(jump):
+            return Ok({"ok": False, "reason": "song_request_unavailable"})
+        return Ok(await jump(runtime, request_id))
+
     @ui.action(id="delete_viewer_profile", label=tr("entries.delete_viewer_profile.name"), group="audience", refresh_context=True)
     @plugin_entry(
         id="delete_viewer_profile",

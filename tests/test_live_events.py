@@ -2823,3 +2823,35 @@ def test_recent_viewer_window_expires_from_front_and_refreshes_reseen_uid():
 
     assert list(hub._recent_viewer_uids) == ["a", "c"]
     assert hub.new_viewer_burst_count() == 2
+
+
+async def test_song_request_danmaku_bypasses_cooldown_window():
+    from plugin.plugins.neko_live.modules.song_request import SongRequestModule
+
+    ctx = _FakeCtx(remaining=5.0)
+    ctx.config.song_request_enabled = True
+    ctx.song_request = SongRequestModule()
+    hub = await _make_hub(ctx)
+
+    hub.submit(_danmaku("2", text="总督驾到", guard=1))
+    hub.submit(_danmaku("1", text="点歌 晴天"))
+
+    await _drain(hub)
+
+    assert sorted(payload["uid"] for payload in ctx.payloads) == ["1", "2"]
+    assert hub._buffered_count == 0
+
+
+async def test_disabled_song_request_keeps_cooldown_window_selection():
+    from plugin.plugins.neko_live.modules.song_request import SongRequestModule
+
+    ctx = _FakeCtx(remaining=5.0)
+    ctx.song_request = SongRequestModule()
+    hub = await _make_hub(ctx)
+
+    hub.submit(_danmaku("2", text="总督驾到", guard=1))
+    hub.submit(_danmaku("1", text="点歌 晴天"))
+
+    await _drain(hub)
+
+    assert [payload["uid"] for payload in ctx.payloads] == ["2"]

@@ -8,6 +8,13 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from ..modules.danmaku_filter.settings import DEFAULT_PREFIX_TEXT, normalize_prefixes
+from ..modules.song_request.settings import (
+    DEFAULT_COOLDOWN_SECONDS,
+    DEFAULT_TRIGGER_TEXT,
+    MAX_COOLDOWN_SECONDS,
+    normalize_permission,
+    normalize_triggers,
+)
 from .co_stream_capabilities import normalize_activation_mode
 from .contracts_public import public_bool, public_text
 from .contracts_types import ActivityLevel, LiveMode, RoastStrength
@@ -82,6 +89,10 @@ class LiveConfig:
     like_greet_cross_viewer: bool = False
     viewer_context_limit: int = 6
     roast_strength: RoastStrength = "normal"
+    song_request_enabled: bool = False
+    song_request_triggers: str = DEFAULT_TRIGGER_TEXT
+    song_request_permission: str = "anyone"
+    song_request_cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS
     activity_level: ActivityLevel = "standard"
     co_stream_host_pause_fill_activation: ActivationMode = "off"
     co_stream_host_pause_fill_auto_consent_version: int = 0
@@ -163,6 +174,15 @@ class LiveConfig:
                 raw.get("viewer_context_limit"), default=6, minimum=1, maximum=12
             ),
             roast_strength=roast_strength,  # type: ignore[arg-type]
+            song_request_enabled=_safe_bool(raw.get("song_request_enabled"), default=False),
+            song_request_triggers=normalize_triggers(raw.get("song_request_triggers")),
+            song_request_permission=normalize_permission(raw.get("song_request_permission")),
+            song_request_cooldown_seconds=_safe_int(
+                raw.get("song_request_cooldown_seconds"),
+                default=DEFAULT_COOLDOWN_SECONDS,
+                minimum=0,
+                maximum=MAX_COOLDOWN_SECONDS,
+            ),
             activity_level=activity_level,  # type: ignore[arg-type]
             co_stream_host_pause_fill_activation=normalize_activation_mode(
                 raw.get("co_stream_host_pause_fill_activation")
@@ -278,6 +298,15 @@ class LiveConfig:
                 self.viewer_context_limit, default=6, minimum=1, maximum=12
             ),
             "roast_strength": self.roast_strength if isinstance(self.roast_strength, str) and self.roast_strength in {"gentle", "normal", "sharp"} else "normal",
+            "song_request_enabled": public_bool(self.song_request_enabled, default=False),
+            "song_request_triggers": normalize_triggers(self.song_request_triggers),
+            "song_request_permission": normalize_permission(self.song_request_permission),
+            "song_request_cooldown_seconds": _safe_int(
+                self.song_request_cooldown_seconds,
+                default=DEFAULT_COOLDOWN_SECONDS,
+                minimum=0,
+                maximum=MAX_COOLDOWN_SECONDS,
+            ),
             "activity_level": self.activity_level if isinstance(self.activity_level, str) and self.activity_level in {"quiet", "standard", "active"} else "standard",
             "co_stream_host_pause_fill_activation": normalize_activation_mode(
                 self.co_stream_host_pause_fill_activation

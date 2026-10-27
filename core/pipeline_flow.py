@@ -5,13 +5,20 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from .contracts import InteractionResult, PipelineStep, ViewerEvent
+from .contracts import (
+    InteractionResult,
+    PipelineStep,
+    ViewerEvent,
+    ViewerIdentity,
+    ViewerProfile,
+)
 from .pipeline_dispatch import dispatch_routed_request
-from .pipeline_requests import build_request_for_route
+from .pipeline_requests import build_request_for_route, build_song_request_reply
 from .pipeline_results import (
     fail_pipeline,
     skip_already_roasted,
     skip_module_disabled,
+    skip_song_request_cooldown,
     skip_stale_live_event,
 )
 from .pipeline_routing import support_event_type
@@ -40,6 +47,13 @@ async def run_event_flow(
         profile = viewer.profile
         if not viewer.session_current:
             return skip_stale_live_event(ctx, event, identity, profile, steps)
+
+        # 点歌拦截：放在 stale 检查之后、普通路由之前；不受 already_roasted 影响，也不标记锐评。
+        song_request_result = await _maybe_handle_song_request(
+            pipeline, event, identity, profile, steps
+        )
+        if song_request_result is not None:
+            return song_request_result
 
         uid_lock: asyncio.Lock | None = None
         needs_session_gate = pipeline._is_live_danmaku_with_text(event)
@@ -170,3 +184,66 @@ async def run_event_flow(
         return fail_pipeline(ctx, event, steps, exc)
     finally:
         ctx.safety_guard.after_event()
+
+
+SONG_REQUEST_MODULE_ID = "song_request"
+SONG_REQUEST_COOLDOWN_REASON = "song_request.cooldown"
+
+
+async def _maybe_handle_song_request(
+    pipeline: Any,
+    event: ViewerEvent,
+    identity: ViewerIdentity,
+    profile: ViewerProfile,
+    steps: list[PipelineStep],
+) -> InteractionResult | None:
+    """Handle a live song request danmaku, or return None to keep normal routing."""
+
+    if not pipeline._is_live_danmaku_with_text(event):
+        return None
+    ctx = pipeline.ctx
+    module = getattr(ctx, SONG_REQUEST_MODULE_ID, None)
+    match = getattr(module, "match", None)
+    handle = getattr(module, "handle", None)
+    # 模块缺失或仍是 ReservedModule 占位时视为功能不可用，走原有路由。
+    if not callable(match) or not callable(handle):
+        return None
+    query = match(event.danmaku_text or "", event_type="danmaku", config=ctx.config)
+    if query is None:
+        return None
+    outcome = await handle(ctx, event, query)
+    if str(getattr(outcome, "status", "") or "") == "cooldown":
+        # 冷却中直接静默，避免刷屏。
+        record_timeline(
+            ctx,
+            event,
+            stage=SONG_REQUEST_MODULE_ID,
+            status="skipped",
+            reason=SONG_REQUEST_COOLDOWN_REASON,
+            route=SONG_REQUEST_MODULE_ID,
+        )
+        return skip_song_request_cooldown(
+            ctx, event, identity, profile, steps, SONG_REQUEST_COOLDOWN_REASON
+        )
+    request = build_song_request_reply(ctx, outcome, event, identity, profile)
+    steps.append(PipelineStep(SONG_REQUEST_MODULE_ID, "ok", request.metadata.get("song_request_status", "")))
+    record_timeline(
+        ctx,
+        event,
+        stage="request.build",
+        status="ok",
+        reason=request.reason,
+        route=SONG_REQUEST_MODULE_ID,
+    )
+    return await dispatch_routed_request(
+        ctx,
+        pipeline.session,
+        event=event,
+        identity=identity,
+        profile=profile,
+        request=request,
+        steps=steps,
+        response_module_id=SONG_REQUEST_MODULE_ID,
+        should_mark_roasted=False,
+        mark_avatar_roast_sent=lambda: None,
+    )

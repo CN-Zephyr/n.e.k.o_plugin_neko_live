@@ -15,6 +15,7 @@ from .pipeline_skip_results import (
     skip_before_output,
     skip_module_disabled,
     skip_permission,
+    skip_song_request_cooldown,
     skip_stale_live_event,
 )
 
@@ -30,5 +31,6 @@ __all__ = [
     "skip_module_disabled",
     "skip_dispatcher",
     "skip_permission",
+    "skip_song_request_cooldown",
     "skip_stale_live_event",
 ]

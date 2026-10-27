@@ -270,14 +270,14 @@ export function interactionRoute(result: any): string {
   const steps = Array.isArray(result && result.steps) ? result.steps : []
   const routeStep = [...steps].reverse().find((step: any) => {
     const id = String((step && step.id) || "")
-    return id === "danmaku_response" || id === "avatar_roast" || id === "live_support_events" || id === "warmup_hosting" || id === "idle_hosting" || id === "active_engagement"
+    return id === "danmaku_response" || id === "avatar_roast" || id === "live_support_events" || id === "song_request" || id === "warmup_hosting" || id === "idle_hosting" || id === "active_engagement"
   })
   if (routeStep && routeStep.id) return String(routeStep.id)
   return source || "-"
 }
 
 export function interactionRouteTone(route: string): "success" | "warning" | "danger" | "default" {
-  if (route === "avatar_roast" || route === "danmaku_response" || route === "live_support_events") return "success"
+  if (route === "avatar_roast" || route === "danmaku_response" || route === "live_support_events" || route === "song_request") return "success"
   if (route === "warmup_hosting" || route === "idle_hosting") return "warning"
   if (route === "active_engagement") return "default"
   return "default"
@@ -287,6 +287,7 @@ export function interactionRouteLabel(route: string, t: (key: string) => string)
   if (route === "avatar_roast") return panelText(t, "panel.interaction.module.avatarRoast.title", "首次出场锐评")
   if (route === "danmaku_response") return panelText(t, "panel.interaction.module.danmakuResponse.title", "后续弹幕接话")
   if (route === "live_support_events") return panelText(t, "panel.interaction.module.liveSupportEvents.title", "礼物/SC/上舰致谢")
+  if (route === "song_request") return panelText(t, "panel.interaction.module.songRequest.title", "点歌")
   if (route === "warmup_hosting") return panelText(t, "panel.interaction.module.warmupHosting.title", "开场接待")
   if (route === "idle_hosting") return panelText(t, "panel.interaction.module.idleHosting.title", "冷场陪播")
   if (route === "active_engagement") return panelText(t, "panel.interaction.module.activeEngagement.title", "主动营业")

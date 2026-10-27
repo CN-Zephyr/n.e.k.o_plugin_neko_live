@@ -69,6 +69,9 @@ import {
 import { LiveExplainSection, LiveSessionSection, RecentResultsTable, ViewerProfilesTable } from "./panel_data_sections"
 
 const ONBOARDING_STORAGE_KEY = "neko-live:onboarding:v2"
+const SONG_REQUEST_DEFAULT_TRIGGERS = "点歌\n我想听\n来一首\n来首\n放一首\n放首\n求歌"
+const SONG_REQUEST_PERMISSIONS = ["anyone", "fans", "guard"]
+const SONG_REQUEST_STATUSES = ["queued", "dry_run", "not_found", "empty_query", "denied", "unavailable", "error"]
 
 function CompactTabs(props: { id: string; items: Array<{ id: string; label: any; content: any }> }) {
   const { id, items } = props
@@ -137,6 +140,18 @@ function CompactTabs(props: { id: string; items: Array<{ id: string; label: any;
   )
 }
 
+function formatSongRequestTime(value: any, locale?: string): string {
+  const raw = String(value || "").trim()
+  if (!raw) return "-"
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return raw
+  try {
+    return parsed.toLocaleTimeString(locale || undefined)
+  } catch {
+    return parsed.toLocaleTimeString()
+  }
+}
+
 function formatLocaleDateTime(value: number, locale?: string): string {
   const parsed = new Date(value)
   try {
@@ -174,8 +189,15 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
   const [twitchAuthState, setTwitchAuthState] = useState<any>(null)
   const [twitchRemainingSeconds, setTwitchRemainingSeconds] = useState(0)
   const [consoleDialog, setConsoleDialog] = useState<"account" | "room" | "theme" | "pacing" | "diagnostics" | "">("")
-  const [interactionDialog, setInteractionDialog] = useState<"avatar_roast" | "danmaku_response" | "danmaku_filter" | "live_support_events" | "warmup_hosting" | "idle_hosting" | "active_engagement" | "">("")
+  const [interactionDialog, setInteractionDialog] = useState<"avatar_roast" | "danmaku_response" | "danmaku_filter" | "live_support_events" | "song_request" | "warmup_hosting" | "idle_hosting" | "active_engagement" | "">("")
   const [filterPrefixesDraft, setFilterPrefixesDraft] = useState("!\n！")
+  const [songTriggersDraft, setSongTriggersDraft] = useState(SONG_REQUEST_DEFAULT_TRIGGERS)
+  const [songCooldownDraft, setSongCooldownDraft] = useState("30")
+  const [songRequestStatus, setSongRequestStatus] = useState<any>(null)
+  const [songRequestLoading, setSongRequestLoading] = useState(false)
+  const [songRequestHintOpen, setSongRequestHintOpen] = useState(false)
+  const [songJumpPending, setSongJumpPending] = useState("")
+  const [songJumpError, setSongJumpError] = useState("")
   const [connectPending, setConnectPending] = useState(false)
   const [sessionStartAccepted, setSessionStartAccepted] = useState(false)
   const [startConfirmOpen, setStartConfirmOpen] = useState(false)
@@ -243,6 +265,11 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
     twitchValidationGenerationRef.current += 1
   }, [])
 
+  // The song request card needs the music plugin install state once per panel open.
+  useEffect(() => {
+    void loadSongRequestStatus(true)
+  }, [])
+
   useEffect(() => {
     configForm.setValues({
       live_platform: String(config.live_platform || "bilibili"),
@@ -257,6 +284,10 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
       warmup_hosting_enabled: config.warmup_hosting_enabled !== false,
       idle_hosting_enabled: config.idle_hosting_enabled !== false,
       active_engagement_enabled: config.active_engagement_enabled !== false,
+      song_request_enabled: config.song_request_enabled === true,
+      song_request_triggers: String(config.song_request_triggers ?? SONG_REQUEST_DEFAULT_TRIGGERS),
+      song_request_permission: SONG_REQUEST_PERMISSIONS.includes(String(config.song_request_permission)) ? String(config.song_request_permission) : "anyone",
+      song_request_cooldown_seconds: Number.isFinite(Number(config.song_request_cooldown_seconds ?? 30)) ? Number(config.song_request_cooldown_seconds ?? 30) : 30,
       entry_greet_enabled: !!config.entry_greet_enabled,
       entry_roast_enabled: !!config.entry_roast_enabled,
       follow_greet_enabled: !!config.follow_greet_enabled,
@@ -301,6 +332,10 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
     config.warmup_hosting_enabled,
     config.idle_hosting_enabled,
     config.active_engagement_enabled,
+    config.song_request_enabled,
+    config.song_request_triggers,
+    config.song_request_permission,
+    config.song_request_cooldown_seconds,
     config.entry_greet_enabled,
     config.entry_roast_enabled,
     config.follow_greet_enabled,
@@ -1023,6 +1058,35 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
     const rows = result.profiles
     if (!Array.isArray(rows)) throw new Error("search failed")
     return rows
+  }
+
+  async function loadSongRequestStatus(silent = false): Promise<void> {
+    setSongRequestLoading(true)
+    try {
+      setSongRequestStatus(unwrapActionResult(await props.api.call("song_request_status", {})))
+    } catch (err) {
+      if (!silent) toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSongRequestLoading(false)
+    }
+  }
+
+  async function jumpSongRequest(requestId: string): Promise<void> {
+    if (!requestId || songJumpPending) return
+    setSongJumpPending(requestId)
+    setSongJumpError("")
+    try {
+      const result = unwrapActionResult(await props.api.call("song_request_jump", { request_id: requestId }))
+      if (result.ok !== true) {
+        const reason = String(result.reason || "").trim()
+        setSongJumpError(reason ? `${t("panel.interaction.module.songRequest.jumpFailed")}: ${reason}` : t("panel.interaction.module.songRequest.jumpFailed"))
+      }
+    } catch (err) {
+      setSongJumpError(`${t("panel.interaction.module.songRequest.jumpFailed")}: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setSongJumpPending("")
+    }
+    await loadSongRequestStatus()
   }
 
   async function runViewerProfileAction(action: string, uid: string): Promise<void> {
@@ -1903,10 +1967,10 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
     gap: "8px",
     minHeight: "26px",
   }
-  const renderInteractionToggle = (title: any, enabled: boolean, onChange: (value: boolean) => void) => (
+  const renderInteractionToggle = (title: any, enabled: boolean, onChange: (value: boolean) => void, disabled = false) => (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
       <span style={{ minWidth: 0, color: "var(--text)", fontSize: "15px", fontWeight: 720 }}>{title}</span>
-      <ToggleSwitch checked={enabled} disabled={settingsSaving} label={title} tone="success" onChange={onChange} />
+      <ToggleSwitch checked={enabled} disabled={settingsSaving || disabled} label={title} tone="success" onChange={onChange} />
     </div>
   )
   const renderInteractionDisabledHint = (enabled: boolean, key: string) => (
@@ -1914,10 +1978,16 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
       <span style={{ color: "var(--muted)", fontSize: "12px", lineHeight: "18px" }}>{t(key)}</span>
     </div>
   )
-  const renderInteractionDetailsButton = (dialog: "avatar_roast" | "danmaku_response" | "danmaku_filter" | "live_support_events" | "warmup_hosting" | "idle_hosting" | "active_engagement") => (
+  const renderInteractionDetailsButton = (dialog: "avatar_roast" | "danmaku_response" | "danmaku_filter" | "live_support_events" | "song_request" | "warmup_hosting" | "idle_hosting" | "active_engagement") => (
     <div style={{ marginTop: "auto" }}>
       <Button tone="default" onClick={() => {
         if (dialog === "danmaku_filter") setFilterPrefixesDraft(String(configForm.values.danmaku_filter_prefixes ?? "!\n！"))
+        if (dialog === "song_request") {
+          setSongTriggersDraft(String(configForm.values.song_request_triggers ?? SONG_REQUEST_DEFAULT_TRIGGERS))
+          setSongCooldownDraft(String(configForm.values.song_request_cooldown_seconds ?? 30))
+          setSongJumpError("")
+          void loadSongRequestStatus()
+        }
         setInteractionDialog(dialog)
       }}>{t("panel.interaction.details")}</Button>
     </div>
@@ -2073,6 +2143,67 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
     </Card>
   )
 
+  const musicPluginState = String(songRequestStatus?.music_plugin || "unknown")
+  const musicPluginMissing = musicPluginState === "not_installed" || musicPluginState === "not_running"
+  const musicPluginHint = musicPluginState === "not_installed"
+    ? t("panel.interaction.module.songRequest.musicPluginNotInstalled")
+    : t("panel.interaction.module.songRequest.musicPluginNotRunning")
+  const renderSongRequestCard = (m: any) => musicPluginMissing ? (
+    <div
+      tabIndex={0}
+      aria-disabled="true"
+      aria-describedby={songRequestHintOpen ? "song-request-music-hint" : undefined}
+      onMouseEnter={() => setSongRequestHintOpen(true)}
+      onMouseLeave={() => setSongRequestHintOpen(false)}
+      onFocus={() => setSongRequestHintOpen(true)}
+      onBlur={() => setSongRequestHintOpen(false)}
+      style={{ position: "relative", height: "100%", cursor: "not-allowed", outline: "none" }}
+    >
+      {songRequestHintOpen ? (
+        <div
+          id="song-request-music-hint"
+          role="tooltip"
+          style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", zIndex: 10, maxWidth: "min(280px, calc(100% - 24px))", padding: "8px 12px", borderRadius: "8px", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)", fontSize: "13px", lineHeight: "20px", textAlign: "center", boxShadow: "0 6px 20px rgba(0, 0, 0, 0.18)", pointerEvents: "none" }}
+        >
+          {musicPluginHint}
+        </div>
+      ) : null}
+      <div style={{ height: "100%", opacity: 0.5, filter: "grayscale(1)", pointerEvents: "none" }}>
+        <Card>
+          <div style={interactionCardBodyStyle}>
+            {renderInteractionToggle(t("panel.interaction.module.songRequest.title"), false, () => {}, true)}
+            <div style={interactionStatusRowStyle}>
+              <StatusBadge tone="default" label={t("panel.interaction.module.songRequest.musicPluginMissingBadge")} />
+            </div>
+            <Text>{t("panel.interaction.module.songRequest.desc")}</Text>
+            <span style={{ color: "var(--muted)", fontSize: "12px", lineHeight: "18px" }}>{musicPluginHint}</span>
+          </div>
+        </Card>
+      </div>
+    </div>
+  ) : (
+    <Card>
+      <div style={interactionCardBodyStyle}>
+        {renderInteractionToggle(t("panel.interaction.module.songRequest.title"), !!configForm.values.song_request_enabled, (v) => { applySettingsPatch({ song_request_enabled: v }) })}
+        <div style={interactionStatusRowStyle}>
+          <StatusBadge tone={configForm.values.song_request_enabled && m ? "success" : "default"} label={!configForm.values.song_request_enabled ? t("panel.modules.off") : (m ? t("panel.interaction.module.songRequest.badge") : t("panel.modules.soon"))} />
+          <StatusBadge tone="info" label={t("panel.interaction.tags.safetyRequired")} />
+        </div>
+        <Text>{t("panel.interaction.module.songRequest.desc")}</Text>
+        {renderInteractionDisabledHint(!!configForm.values.song_request_enabled, "panel.interaction.module.songRequest.disabledHint")}
+        {renderInteractionDetailsButton("song_request")}
+      </div>
+    </Card>
+  )
+
+  const songRequestRows: any[] = Array.isArray(songRequestStatus?.requests) ? songRequestStatus.requests : []
+  const songRequestStatusLabel = (status: string) => (
+    SONG_REQUEST_STATUSES.includes(status) ? t(`panel.interaction.module.songRequest.status.${status}`) : (status || "-")
+  )
+  const songRequestStatusTone = (status: string) => (
+    status === "queued" ? "success" : status === "error" || status === "unavailable" ? "danger" : "warning"
+  )
+
   const renderIdleHostingCard = () => (
     <Card>
       <div style={interactionCardBodyStyle}>
@@ -2126,6 +2257,8 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
       ? t("panel.interaction.module.danmakuResponse.title")
       : interactionDialog === "live_support_events"
         ? t("panel.interaction.module.liveSupportEvents.title")
+        : interactionDialog === "song_request"
+          ? t("panel.interaction.module.songRequest.title")
         : interactionDialog === "warmup_hosting"
           ? t("panel.interaction.module.warmupHosting.title")
           : interactionDialog === "idle_hosting"
@@ -2186,6 +2319,71 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
       <Text>{t("panel.interaction.module.liveSupportEvents.desc")}</Text>
       {interactionModuleById.live_support_events ? <ModuleHealthBadge module={interactionModuleById.live_support_events} t={t} /> : null}
       <StatusBadgeRow t={t} items={[{ key: "panel.interaction.tags.safetyRequired" }]} />
+    </Stack>
+  ) : interactionDialog === "song_request" ? (
+    <Stack gap={12}>
+      <Text>{t("panel.interaction.module.songRequest.desc")}</Text>
+      {interactionModuleById.song_request ? <ModuleHealthBadge module={interactionModuleById.song_request} t={t} /> : null}
+      <Field label={t("panel.interaction.module.songRequest.permission")}>
+        <Select
+          value={String(configForm.values.song_request_permission || "anyone")}
+          disabled={settingsSaving}
+          options={SONG_REQUEST_PERMISSIONS.map((value) => ({ value, label: t(`panel.interaction.module.songRequest.permission.${value}`) }))}
+          onChange={(value) => { applySettingsPatch({ song_request_permission: String(value) }) }}
+        />
+      </Field>
+      <Field label={t("panel.interaction.module.songRequest.triggers")} help={t("panel.interaction.module.songRequest.triggersHint")}>
+        <Textarea disabled={settingsSaving} value={songTriggersDraft} onChange={setSongTriggersDraft} />
+      </Field>
+      <Field label={t("panel.interaction.module.songRequest.cooldown")} help={t("panel.interaction.module.songRequest.cooldownHint")}>
+        <Input type="number" min={0} max={3600} step={1} disabled={settingsSaving} value={songCooldownDraft} onChange={setSongCooldownDraft} />
+      </Field>
+      <Toolbar>
+        <Button disabled={settingsSaving} tone="success" onClick={async () => {
+          const triggers = [...new Set(songTriggersDraft.split(/\r\n|\r|\n/).map(value => value.trim()).filter(Boolean))].join("\n")
+          const parsed = Math.round(Number(songCooldownDraft))
+          const cooldown = songCooldownDraft.trim() !== "" && Number.isFinite(parsed) ? Math.min(3600, Math.max(0, parsed)) : 30
+          setSongTriggersDraft(triggers)
+          setSongCooldownDraft(String(cooldown))
+          await applySettingsPatch({ song_request_triggers: triggers, song_request_cooldown_seconds: cooldown })
+        }}>{t("panel.actions.save")}</Button>
+        <Button disabled={settingsSaving} tone="default" onClick={() => { setSongTriggersDraft(SONG_REQUEST_DEFAULT_TRIGGERS) }}>{t("panel.interaction.module.danmakuFilter.reset")}</Button>
+      </Toolbar>
+      <Toolbar>
+        <Text>{t("panel.interaction.module.songRequest.recent")}</Text>
+        <Button tone="default" disabled={songRequestLoading} onClick={() => { void loadSongRequestStatus() }}>{t("panel.actions.refreshStatus")}</Button>
+      </Toolbar>
+      {songJumpError ? <span style={{ color: "var(--danger)", fontSize: "13px" }}>{songJumpError}</span> : null}
+      {songRequestRows.length ? (
+        <DataTable
+          data={songRequestRows.map((row: any, index: number) => ({ ...row, id: String(row.request_id || index) }))}
+          rowKey="id"
+          columns={[
+            { key: "nickname", label: t("panel.columns.nickname"), render: (row: any) => row.nickname || row.uid || "-" },
+            {
+              key: "query",
+              label: t("panel.interaction.module.songRequest.song"),
+              render: (row: any) => {
+                const matched = [row.title, row.artist].map((v: any) => String(v || "").trim()).filter(Boolean).join(" - ")
+                return matched ? `${row.query || "-"} → ${matched}` : (row.query || "-")
+              },
+            },
+            { key: "status", label: t("panel.columns.status"), render: (row: any) => <StatusBadge tone={songRequestStatusTone(String(row.status || ""))} label={songRequestStatusLabel(String(row.status || ""))} /> },
+            { key: "created_at", label: t("panel.columns.time"), render: (row: any) => formatSongRequestTime(row.created_at, props.locale) },
+            {
+              key: "op",
+              label: t("panel.columns.op"),
+              render: (row: any) => row.jumped
+                ? <StatusBadge tone="info" label={t("panel.interaction.module.songRequest.jumped")} />
+                : row.can_jump
+                  ? <Button tone="info" disabled={!!songJumpPending} onClick={() => { void jumpSongRequest(String(row.request_id || "")) }}>{t("panel.interaction.module.songRequest.jump")}</Button>
+                  : "-",
+            },
+          ]}
+        />
+      ) : (
+        <Text>{t("panel.interaction.module.songRequest.empty")}</Text>
+      )}
     </Stack>
   ) : interactionDialog === "warmup_hosting" ? (
     <Stack>
@@ -2264,6 +2462,7 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
         <ModuleRenderBoundary title={t("panel.interaction.module.danmakuResponse.title")} render={() => renderDanmakuResponseCard(interactionModuleById.danmaku_response)} t={t} />
         <ModuleRenderBoundary title={t("panel.interaction.module.followLike.title")} render={renderFollowLikeCard} t={t} />
         <ModuleRenderBoundary title={t("panel.interaction.module.liveSupportEvents.title")} render={() => renderLiveSupportEventsCard(interactionModuleById.live_support_events)} t={t} />
+        <ModuleRenderBoundary title={t("panel.interaction.module.songRequest.title")} render={() => renderSongRequestCard(interactionModuleById.song_request)} t={t} />
       </div>
       {renderInteractionGroupHeader(t("panel.interaction.group.hosting"), t("panel.interaction.group.hostingHint"))}
       <div style={interactionCardGridStyle}>
@@ -2279,7 +2478,7 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
         footer={<Button tone="default" onClick={() => { setInteractionDialog("") }}>{t("panel.actions.cancel")}</Button>}
       >
         <Stack gap={12}>
-          {interactionDialog !== "danmaku_filter" ? <Alert tone="info">{t("panel.interaction.autoSaveHint")}</Alert> : null}
+          {interactionDialog !== "danmaku_filter" && interactionDialog !== "song_request" ? <Alert tone="info">{t("panel.interaction.autoSaveHint")}</Alert> : null}
           {interactionDialogContent}
         </Stack>
       </Modal>

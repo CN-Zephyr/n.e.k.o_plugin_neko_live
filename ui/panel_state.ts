@@ -13,6 +13,10 @@ export type LiveConfig = {
   warmup_hosting_enabled?: boolean
   idle_hosting_enabled?: boolean
   active_engagement_enabled?: boolean
+  song_request_enabled?: boolean
+  song_request_triggers?: string
+  song_request_permission?: string
+  song_request_cooldown_seconds?: number
   developer_tools_enabled?: boolean
   live_mode?: string
   activity_level?: string
@@ -81,6 +85,10 @@ export const configDefaults = {
   warmup_hosting_enabled: true,
   idle_hosting_enabled: true,
   active_engagement_enabled: true,
+  song_request_enabled: false,
+  song_request_triggers: "点歌\n我想听\n来一首\n来首\n放一首\n放首\n求歌",
+  song_request_permission: "anyone",
+  song_request_cooldown_seconds: 30,
   developer_tools_enabled: false,
   live_mode: "co_stream",
   activity_level: "standard",

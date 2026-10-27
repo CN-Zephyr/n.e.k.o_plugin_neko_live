@@ -176,3 +176,32 @@ def skip_before_output(
         detail={"uid": identity.uid},
     )
     return result
+
+
+def skip_song_request_cooldown(
+    ctx: Any,
+    event: ViewerEvent,
+    identity: ViewerIdentity,
+    profile: ViewerProfile,
+    steps: list[PipelineStep],
+    reason: str,
+) -> InteractionResult:
+    """Skip a song request in cooldown without any output to avoid spam."""
+    steps.append(PipelineStep("song_request", "skipped", reason))
+    result = InteractionResult(
+        False,
+        "skipped",
+        event,
+        identity=identity,
+        profile=profile,
+        reason=reason,
+        steps=steps,
+    )
+    ctx.audit.record(
+        "song_request_cooldown",
+        reason,
+        level="info",
+        detail={"uid": identity.uid},
+    )
+    ctx.record_result(result)
+    return result

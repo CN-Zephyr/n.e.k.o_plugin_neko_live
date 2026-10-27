@@ -6,6 +6,7 @@ from typing import Any
 
 _KNOWN_ROUTE_STEPS = {
     "danmaku_response",
+    "song_request",
     "avatar_roast",
     "idle_hosting",
     "active_engagement",

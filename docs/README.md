@@ -42,6 +42,7 @@
 
 - [live_events](modules/live_events.md)：直播事件窗口择优、冷却期候选选择、弹幕低质过滤、主题凝练、回复技巧提示和运行期观众偏好提示。
 - [弹幕屏蔽](modules/danmaku_filter.md)：独立的自定义前缀屏蔽模块，包含开关、前缀编辑与保存；默认在回复、话题和记忆处理前跳过以 `!` / `！` 开头的普通弹幕。
+- [点歌](modules/song_request.md)：弹幕触发词点歌，经 `custom_music_list` 插件入队，含权限、按 UID 冷却、回复路由和面板“下一首播放”插队。
 - [提示词投送与预算](modules/prompt_delivery.md)：每条提示词的必要规则、可选上下文收束、分词降级、提交结果检查和预算失败边界。
 - [live_room_context](modules/live_room_context.md)：在 `live_events` 既有有界窗口上实现 RoomPulse、独播 SceneState、同播被动上下文、RitualMemory 与 RoomVerdict，并记录可靠 host-turn / playback backflow 的后续边界。
 - [live_support_events](modules/live_support_events.md)：Gift / SC / Guard 的可信证据、有界优先调度、原子派发所有权、短句致谢和“提交不等于播放完成”边界。
