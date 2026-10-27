@@ -13,6 +13,11 @@ jobs:
         with:
           repository: Project-N-E-K-O/N.E.K.O
           path: host
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # panel_compat.tsx is generated; fail when it drifts from the modular sources.
+      - run: python plugin/tools/build_panel_compat.py --check
       - uses: actions/setup-node@v4
         with:
           node-version: 22

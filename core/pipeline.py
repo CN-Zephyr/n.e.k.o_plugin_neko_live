@@ -57,6 +57,18 @@ class LivePipeline:
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
         self.session = PipelineSessionTracker()
+        self._reported_probe_failures: set[str] = set()
+
+    def _report_probe_failure(self, probe: str, exc: Exception) -> None:
+        # Probes degrade to a safe default, but an interface break would then
+        # look like "NEKO went quiet". Warn once per probe so it stays visible
+        # without flooding the hot path; only the exception type is logged.
+        if probe in self._reported_probe_failures:
+            return
+        self._reported_probe_failures.add(probe)
+        logger = getattr(getattr(self.ctx, "plugin", None), "logger", None)
+        if logger is not None:
+            logger.warning(f"[neko_live] pipeline probe failed probe={probe} error_type={type(exc).__name__}")
 
     def clear_dry_run_session_state(self) -> None:
         self.session.clear()
@@ -97,7 +109,8 @@ class LivePipeline:
         if callable(probe):
             try:
                 return bool(probe())
-            except Exception:
+            except Exception as exc:
+                self._report_probe_failure("new_viewer_burst_active", exc)
                 return False
         return False
 
@@ -107,7 +120,8 @@ class LivePipeline:
         if callable(probe):
             try:
                 return bool(probe())
-            except Exception:
+            except Exception as exc:
+                self._report_probe_failure("batch_welcome_available", exc)
                 return False
         return False
 
@@ -117,7 +131,8 @@ class LivePipeline:
         if callable(reserve):
             try:
                 reserve()
-            except Exception:
+            except Exception as exc:
+                self._report_probe_failure("reserve_batch_welcome", exc)
                 return
 
     def _live_speaker_burst_count(self) -> int:
@@ -126,7 +141,8 @@ class LivePipeline:
         if callable(count):
             try:
                 return max(0, int(count() or 0))
-            except Exception:
+            except Exception as exc:
+                self._report_probe_failure("new_viewer_burst_count", exc)
                 return 0
         return 0
 
@@ -150,7 +166,8 @@ class LivePipeline:
         if callable(listener_state):
             try:
                 state = listener_state()
-            except Exception:
+            except Exception as exc:
+                self._report_probe_failure("listener_state", exc)
                 state = {}
         value = state.get("viewer_count") if isinstance(state, dict) else 0
         try:
@@ -197,7 +214,8 @@ class LivePipeline:
             return None
         try:
             status = summary(snapshot())
-        except Exception:
+        except Exception as exc:
+            self._report_probe_failure("live_status_summary", exc)
             return self._live_status_unknown_decision(event)
         if not isinstance(status, dict):
             return self._live_status_unknown_decision(event)
