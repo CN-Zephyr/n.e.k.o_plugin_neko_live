@@ -148,6 +148,7 @@ available.
 - 安全与限流：`cooldown`、`safety_degraded`、`safety_tripped`；
 - ingest：`ingest.duplicate_support_event`、`ingest.invalid_twitch_projection`、`ingest.ignored_twitch_notification`；
 - input：`input.ignored_prefix`，普通弹幕以已启用的自定义前缀（默认 `!` / `！`）开头时，在 `input_filter` 阶段标记 `skipped`；正文和匹配前缀不进入日志，弹幕不进入上下文或输出链，规则归 [danmaku_filter](modules/danmaku_filter.md)；
+- song_request：`song_request.cooldown`，同一 UID 在点歌冷却期内再次发送触发词时，在 `song_request` 阶段标记 `skipped`，不回复也不入队，规则归 [song_request](modules/song_request.md)；
 - presence：`live_presence.disabled`，进场候选到达最终路由时已没有可用的进场欢迎/锐评动作，在 `module_gate` 标记 `skipped`；普通回复路由的 `avatar_roast_declined` 表示观众明确拒绝评价自己的头像，仍保留正常文本回复，不消耗一次锐评，分别见 [live_presence](modules/live_presence.md) 与 [output contract](modules/output_contract.md#current-viewer-evidence)；
 - presence 开关复查：`follow_greet.disabled` / `like_greet.disabled`，身份或历史查询后单独开关已关闭，在 `module_gate` 标记 `skipped`；
 - 队列清理：`queue.cleared`，已作废任务若吞掉取消继续执行，在 `safety_guard.before_output` 标记 `skipped`，不会交给 Dispatcher；正常取消直接退出任务，不记为输出失败；

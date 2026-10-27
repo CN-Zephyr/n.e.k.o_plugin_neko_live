@@ -37,6 +37,7 @@ def assemble_runtime_modules(runtime: Any) -> None:
     runtime.warmup_hosting = _create_module("warmup_hosting", "WarmupHostingModule", "Warmup hosting")
     runtime.developer_sandbox = _create_module("developer_sandbox", "DeveloperSandboxModule", "Developer sandbox")
     runtime.live_events = _create_module("live_events", "LiveEventsModule", "Live events")
+    runtime.song_request = _create_module("song_request", "SongRequestModule", "Song request")
     runtime.pipeline = LivePipeline(runtime)
     runtime.plugin_dir = Path(__file__).resolve().parents[1]
 
@@ -64,6 +65,7 @@ def registered_modules(runtime: Any) -> tuple[Any, ...]:
         runtime.warmup_hosting,
         runtime.developer_sandbox,
         runtime.live_events,
+        runtime.song_request,
     )
 
 

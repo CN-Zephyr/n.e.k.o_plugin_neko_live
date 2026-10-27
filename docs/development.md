@@ -558,6 +558,7 @@ uv run python -m plugin.neko_plugin_cli.cli check plugin/plugins/neko_live
 - `solo_test_readiness`: dashboard-only streamer readiness aggregation for solo-stream validation. It summarizes preflight, test isolation, warmup hosting, first-viewer roast, follow-up danmaku reply, active engagement, idle hosting, and pacing control; it does not add a new output path, bypass safety, or replace runtime status.
 - `developer_sandbox`：提供离线 UID / URL 调试入口。
 - `danmaku_filter`：默认启用的同步弹幕屏蔽模块，规则、入口和数据边界以 [模块文档](modules/danmaku_filter.md) 为准；不订阅事件，不创建后台任务或输出。
+- `song_request`：默认关闭的点歌模块，由 pipeline 在普通弹幕路由前同步匹配触发词，跨插件调用 `custom_music_list` 入队，回复仍走 request builder / Safety Guard / Dispatcher；规则、入口和数据边界以 [模块文档](modules/song_request.md) 为准；不订阅事件，不创建后台任务。
 - `live_events`：普通弹幕事件中枢（P2.5）。经 `event_bus` **只订阅 `"danmaku"`**，解包信封 `raw` 取 provider-neutral 富模型，冷却期缓冲候选弹幕、按 `get_score()` 打分，冷却结束择优（粉丝牌、用户等级、长文本优先）取分最高者投 `pipeline`；空闲态首条仍即时锐评。`modules/live_events/room_topic.py` 是中枢私有协作组件，只维护短期弹幕主题、低质过滤、回复技巧和运行期观众提示，供 `avatar_roast` / `danmaku_response` 的 prompt builder 读取；它不进 registry、不另开输出队列、不写长期档案。Gift / SC / Guard 由 `live_support_events` 独立订阅和有界调度，不与普通弹幕争用窗口。详见下文「直播事件中枢」。
 
 以下能力曾以空 `ReservedModule` 占位，现已从 runtime 和源码目录移除；它们只是远期产品候选，不是当前模块，也不得出现在 Dashboard：

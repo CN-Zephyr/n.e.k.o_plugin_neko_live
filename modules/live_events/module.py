@@ -877,6 +877,19 @@ class LiveEventsModule(BaseModule):
             self._last_candidate_count = 1
             self._last_skip_reason = "co_stream.output_policy_off"
             return
+        if self._is_song_request(text):
+            # 点歌是指令而非闲聊：不参与窗口择优，也不推进本地冷却，
+            # 否则冷却期内会被更高分弹幕挤掉、歌永远进不了队列。
+            self._spawn(
+                self._roast(
+                    event,
+                    count=1,
+                    candidates=[self._candidate_summary(event, selection_score, 1)],
+                    winner_order=1,
+                    recent_chat_seq=recent_chat_seq,
+                )
+            )
+            return
         skip_reason = self._reply_skip_reason(event, text=text, score=score)
         if skip_reason:
             self._record_reply_skip(
@@ -992,6 +1005,15 @@ class LiveEventsModule(BaseModule):
 
     def _mark_dispatch(self) -> None:
         self._last_dispatch_at = self._now()
+
+    def _is_song_request(self, text: str) -> bool:
+        match = getattr(getattr(self.ctx, "song_request", None), "match", None)
+        if not callable(match):
+            return False
+        try:
+            return match(text, event_type="danmaku", config=self.ctx.config) is not None
+        except Exception:
+            return False
 
     @staticmethod
     def _safe_score(event: Any) -> float:
