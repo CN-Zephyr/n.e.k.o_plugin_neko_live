@@ -6,12 +6,16 @@ from plugin.plugins.neko_live.core.live_status_director import live_director_sta
 from plugin.plugins.neko_live.core.live_status_idle import idle_hosting_status
 from plugin.plugins.neko_live.core.live_status_readiness import speech_explanation
 from plugin.plugins.neko_live.core.live_status_timing import (
+    active_engagement_after_danmaku_interval_seconds,
     recent_hosting_output_age_sec,
     recent_live_danmaku_event_age_sec,
 )
 from plugin.plugins.neko_live.core.recent_output_families import spent_output_families
 from plugin.plugins.neko_live.core.runtime_dashboard_api import (
     RuntimeDashboardApiMixin,
+)
+from plugin.plugins.neko_live.core.runtime_live_status_helpers import (
+    RuntimeLiveStatusHelperMixin,
 )
 from plugin.plugins.neko_live.core.runtime_recent_context_api import (
     RuntimeRecentContextApiMixin,
@@ -307,3 +311,104 @@ def test_count_recent_live_replies_filters_and_stops_at_window():
     assert count_recent_live_replies(rows, window_seconds=60.0, age_fn=age_fn, count_undated=True) == 3
     assert count_recent_live_replies(rows, window_seconds=60.0, age_fn=None, count_undated=False) == 0
     assert count_recent_live_replies(None, window_seconds=60.0, age_fn=age_fn, count_undated=True) == 0
+
+
+def _quiet_active_status(**overrides):
+    kwargs = dict(
+        config=SimpleNamespace(live_mode="solo_stream"),
+        live_status={"summary": "ready_to_stream", "cooldown_remaining": 0.0},
+        live_state={"state": "quiet"},
+        now=120.0,
+        last_attempt_at=0.0,
+        min_interval_seconds=60.0,
+        recent_danmaku_output_age=None,
+        recent_danmaku_wait_seconds=90.0,
+        idle_hosting_wait_remaining=None,
+        idle_grace_seconds=30.0,
+        idle_takeover_streak=0,
+    )
+    kwargs.update(overrides)
+    return active_engagement_status(**kwargs)
+
+
+def test_active_engagement_yields_to_pending_danmaku():
+    blocked = _quiet_active_status(danmaku_pending=True)
+    allowed = _quiet_active_status(danmaku_pending=False)
+
+    assert blocked["candidate"] is True
+    assert blocked["eligible"] is False
+    assert blocked["reason"] == "danmaku_pending"
+    assert blocked["danmaku_pending"] is True
+    assert allowed["eligible"] is True
+    assert allowed["reason"] == "eligible"
+
+
+def test_idle_takeover_active_engagement_yields_to_pending_danmaku():
+    status = _quiet_active_status(
+        live_state={"state": "idle", "mode": "solo_stream"},
+        idle_takeover_streak=3,
+        danmaku_pending=True,
+    )
+
+    assert status["eligible"] is False
+    assert status["reason"] == "danmaku_pending"
+
+
+def test_idle_hosting_yields_to_pending_danmaku():
+    kwargs = dict(
+        live_state={"idle_hosting_candidate": True},
+        now=120.0,
+        last_attempt_at=0.0,
+        min_interval_seconds=60.0,
+        consecutive_failures=0,
+        failure_limit=3,
+    )
+    blocked = idle_hosting_status(**kwargs, danmaku_pending=True)
+    allowed = idle_hosting_status(**kwargs)
+
+    assert blocked["eligible"] is False
+    assert blocked["reason"] == "danmaku_pending"
+    assert blocked["danmaku_pending"] is True
+    assert allowed["eligible"] is True
+    assert allowed["reason"] == "eligible"
+
+
+def test_active_engagement_after_danmaku_interval_per_activity_level():
+    def interval(level):
+        return active_engagement_after_danmaku_interval_seconds(
+            SimpleNamespace(activity_level=level)
+        )
+
+    assert interval("quiet") == 210.0
+    assert interval("standard") == 90.0
+    assert interval("active") == 60.0
+    assert interval("unknown") == 90.0
+
+
+class _LiveEventsRuntime(RuntimeLiveStatusHelperMixin):
+    def __init__(self, live_events):
+        self.live_events = live_events
+
+
+class _LiveEventsStub:
+    def __init__(self, status=None, error=False):
+        self._status = status
+        self._error = error
+
+    def status(self):
+        if self._error:
+            raise RuntimeError("boom")
+        return self._status
+
+
+def test_live_events_danmaku_pending_reads_window_and_buffer():
+    def pending(live_events):
+        return _LiveEventsRuntime(live_events)._live_events_danmaku_pending()
+
+    assert pending(_LiveEventsStub({"window_open": True, "buffered": 0})) is True
+    assert pending(_LiveEventsStub({"window_open": False, "buffered": 2})) is True
+    assert pending(_LiveEventsStub({"window_open": False, "buffered": 0})) is False
+    assert pending(_LiveEventsStub({"buffered": "bad"})) is False
+    assert pending(_LiveEventsStub(error=True)) is False
+    assert pending(_LiveEventsStub("not-a-dict")) is False
+    assert pending(None) is False

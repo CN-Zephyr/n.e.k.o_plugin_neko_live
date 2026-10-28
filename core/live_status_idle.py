@@ -15,6 +15,7 @@ def idle_hosting_status(
     failure_limit: int,
     recent_hosting_output_age: float | None = None,
     host_output_cooldown_seconds: float = 0.0,
+    danmaku_pending: bool = False,
 ) -> dict[str, Any]:
     normalized_last_attempt_at = float(last_attempt_at or 0.0)
     elapsed = max(0.0, float(now) - normalized_last_attempt_at)
@@ -35,12 +36,15 @@ def idle_hosting_status(
         and cooldown_remaining <= 0.0
         and host_output_cooldown_remaining <= 0.0
         and not auto_disabled
+        and not danmaku_pending
     )
     reason = "eligible"
     if auto_disabled:
         reason = "auto_disabled"
     elif not candidate:
         reason = "not_candidate"
+    elif danmaku_pending:
+        reason = "danmaku_pending"
     elif cooldown_remaining > 0.0:
         reason = "minimum_interval"
     elif host_output_cooldown_remaining > 0.0:
@@ -51,6 +55,7 @@ def idle_hosting_status(
         "eligible": eligible,
         "reason": reason,
         "candidate": candidate,
+        "danmaku_pending": bool(danmaku_pending),
         "cooldown_remaining": cooldown_remaining,
         "host_output_cooldown_remaining": host_output_cooldown_remaining,
         "min_interval_seconds": float(min_interval_seconds),

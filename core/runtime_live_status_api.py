@@ -57,6 +57,7 @@ class RuntimeLiveStatusApiMixin(RuntimeLiveStatusHelperMixin):
             failure_limit=self._IDLE_HOSTING_FAILURE_LIMIT,
             recent_hosting_output_age=self._recent_hosting_output_age_sec(),
             host_output_cooldown_seconds=self._hosting_output_cooldown_seconds(),
+            danmaku_pending=self._live_events_danmaku_pending(),
         )
 
     def active_engagement_status(
@@ -80,6 +81,7 @@ class RuntimeLiveStatusApiMixin(RuntimeLiveStatusHelperMixin):
             recent_danmaku_wait_seconds=self._active_engagement_after_danmaku_interval_seconds(),
             recent_hosting_output_age=self._recent_hosting_output_age_sec(),
             host_output_cooldown_seconds=self._hosting_output_cooldown_seconds(),
+            danmaku_pending=self._live_events_danmaku_pending(),
             idle_hosting_wait_remaining=self._idle_hosting_wait_remaining_for_quiet_state(
                 state
             ),
