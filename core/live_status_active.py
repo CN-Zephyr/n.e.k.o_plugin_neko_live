@@ -20,6 +20,7 @@ def active_engagement_status(
     idle_takeover_streak: int,
     recent_hosting_output_age: float | None = None,
     host_output_cooldown_seconds: float = 0.0,
+    danmaku_pending: bool = False,
 ) -> dict[str, Any]:
     state_name = str(live_state.get("state") or "")
     idle_takeover_candidate = (
@@ -62,6 +63,10 @@ def active_engagement_status(
         reason = "not_quiet"
     elif live_status.get("summary") not in {"ready_to_stream", "test_only"}:
         reason = str(live_status.get("reason") or "live_status_not_ready")
+    elif danmaku_pending:
+        # Danmaku is waiting in the selection window; hosting must not take the slot.
+        reason = "danmaku_pending"
+        eligible = False
     elif idle_takeover_candidate:
         reason = "idle_hosting_streak"
         live_status_cooldown = round(
@@ -110,6 +115,7 @@ def active_engagement_status(
         "recent_danmaku_cooldown_remaining": recent_danmaku_cooldown,
         "host_output_cooldown_remaining": host_output_cooldown,
         "idle_hosting_wait_remaining": idle_hosting_wait_remaining,
+        "danmaku_pending": bool(danmaku_pending),
         "minimum_interval_seconds": float(min_interval_seconds),
         "min_interval_seconds": float(min_interval_seconds),
     }

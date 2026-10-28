@@ -25,9 +25,9 @@ def active_engagement_min_interval_seconds(config: Any) -> float:
 def active_engagement_after_danmaku_interval_seconds(config: Any) -> float:
     return {
         "quiet": 210.0,
-        "active": 30.0,
-        "standard": 45.0,
-    }.get(activity_level(config), 45.0)
+        "active": 60.0,
+        "standard": 90.0,
+    }.get(activity_level(config), 90.0)
 
 
 def active_engagement_idle_grace_seconds(config: Any, default: float) -> float:

@@ -216,6 +216,7 @@ Initial skip reasons:
 - `selection.window_reset`
 - `selection.flush_failed`
 - `pipeline.identity_failed`
+- `active_engagement.danmaku_pending`
 - `pipeline.request_failed`
 - `dispatcher.dry_run`
 - `dispatcher.non_deliverable`

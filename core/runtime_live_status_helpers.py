@@ -66,6 +66,22 @@ class RuntimeLiveStatusHelperMixin:
     def _hosting_output_cooldown_seconds(self) -> float:
         return float(self._HOSTING_OUTPUT_COOLDOWN_SECONDS)
 
+    def _live_events_danmaku_pending(self) -> bool:
+        status = getattr(getattr(self, "live_events", None), "status", None)
+        if not callable(status):
+            return False
+        try:
+            data = status()
+        except Exception:
+            return False
+        if not isinstance(data, dict):
+            return False
+        try:
+            buffered = int(data.get("buffered") or 0)
+        except (TypeError, ValueError):
+            buffered = 0
+        return bool(data.get("window_open")) or buffered > 0
+
     def _last_viewer_activity_age_sec(self, rows: list[dict[str, Any]]) -> float | None:
         return live_status_rules.last_viewer_activity_age_sec(
             rows, self.recent_results, self._iso_age_sec
