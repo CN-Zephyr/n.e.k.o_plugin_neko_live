@@ -3,3 +3,6 @@ name = "neko_live"
 version = "0.3.5"
 # Runtime libraries are provided by the N.E.K.O. host.
 dependencies = []
+
+[tool.neko.build]
+exclude_files = ["vendor/douyin_bridge/windows-amd64/douyinLive.exe"]
