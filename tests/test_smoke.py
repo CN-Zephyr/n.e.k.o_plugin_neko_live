@@ -21,13 +21,18 @@ def test_neko_live_manifest_smoke():
     root = Path(__file__).resolve().parents[1]
     with (root / "plugin.toml").open("rb") as handle:
         manifest = tomllib.load(handle)
+    with (root / "config.example.toml").open("rb") as handle:
+        seed = tomllib.load(handle)
 
     assert manifest["plugin"]["id"] == "neko_live"
     assert manifest["plugin"]["entry"] == "plugin.plugins.neko_live:NekoLivePlugin"
-    assert manifest["neko_live"]["roast_strength"] == "normal"
-    assert manifest["neko_live"]["live_room_ref"] == ""
-    assert manifest["neko_live"]["live_room_id"] == 0
-    assert manifest["neko_live"]["live_mode"] == "co_stream"
+    assert "plugin_runtime" not in manifest
+    assert "neko_live" not in manifest
+    assert seed["plugin_runtime"] == {"enabled": True, "auto_start": False}
+    assert seed["neko_live"]["roast_strength"] == "normal"
+    assert seed["neko_live"]["live_room_ref"] == ""
+    assert seed["neko_live"]["live_room_id"] == 0
+    assert seed["neko_live"]["live_mode"] == "co_stream"
     panel_entry = manifest["plugin"]["ui"]["panel"][0]["entry"]
     assert manifest["plugin"]["ui"]["expose_legacy_static_panel"] is False
     assert not (root / "static" / "index.html").exists()
@@ -100,10 +105,10 @@ def test_hosted_ui_compat_entry_keeps_full_live_controls():
 
 def test_dry_run_defaults_off_and_is_hidden_from_normal_panel():
     root = Path(__file__).resolve().parents[1]
-    with (root / "plugin.toml").open("rb") as handle:
-        manifest = tomllib.load(handle)
+    with (root / "config.example.toml").open("rb") as handle:
+        seed = tomllib.load(handle)
 
-    assert manifest["neko_live"]["dry_run"] is False
+    assert seed["neko_live"]["dry_run"] is False
     assert "dry_run: false" in (root / "ui" / "panel_state.ts").read_text(encoding="utf-8")
 
     for name in ("panel.tsx", "panel_compat.tsx"):
@@ -113,20 +118,20 @@ def test_dry_run_defaults_off_and_is_hidden_from_normal_panel():
         assert "config.dry_run !== false" not in source
 
 
-def test_manifest_defaults_match_live_config_defaults():
+def test_config_example_defaults_match_live_config_defaults():
     from dataclasses import fields
 
     from plugin.plugins.neko_live.core.contracts import LiveConfig
 
     root = Path(__file__).resolve().parents[1]
-    with (root / "plugin.toml").open("rb") as handle:
-        manifest = tomllib.load(handle)
+    with (root / "config.example.toml").open("rb") as handle:
+        seed = tomllib.load(handle)
 
     defaults = LiveConfig()
     known = {field.name for field in fields(LiveConfig)}
     mismatches = {
         key: (value, getattr(defaults, key))
-        for key, value in manifest["neko_live"].items()
+        for key, value in seed["neko_live"].items()
         if key in known and value != getattr(defaults, key)
     }
     assert mismatches == {}
@@ -152,10 +157,10 @@ def test_console_readiness_blocks_tripped_paused_or_degraded_safety() -> None:
 
 def test_developer_tools_default_off_until_explicitly_enabled():
     root = Path(__file__).resolve().parents[1]
-    with (root / "plugin.toml").open("rb") as handle:
-        manifest = tomllib.load(handle)
+    with (root / "config.example.toml").open("rb") as handle:
+        seed = tomllib.load(handle)
 
-    assert manifest["neko_live"]["developer_tools_enabled"] is False
+    assert seed["neko_live"]["developer_tools_enabled"] is False
     assert "developer_tools_enabled: false" in (root / "ui" / "panel_state.ts").read_text(encoding="utf-8")
     assert "developer_tools_enabled: false" in (root / "ui" / "panel_compat.tsx").read_text(encoding="utf-8")
 

@@ -97,6 +97,8 @@ DouyinEmbeddedBridgeSupervisor.start()
 
 The bundled `douyinLive` binary lives under `vendor/douyin_bridge/windows-amd64/` with its MIT license, version metadata, and checksum. `bridge_backend.py` is the only place that should name the selected bundled executable, launch arguments, and same-path stale-process cleanup hook. The plugin starts and stops that process, and on Windows a new supervisor start may first terminate old `douyinLive.exe` processes whose executable path exactly matches the bundled backend path, so hot reloads do not accumulate orphan bridge processes. It still treats the binary as a replaceable bridge: no Go source is imported, no bridge raw payload is persisted, stdout/stderr are discarded, and plugin interaction logic only sees sanitized JSON-derived payloads.
 
+Starting with v0.3.5, the release build excludes the executable through the packaging rules in `pyproject.toml`. Source checkouts retain the verified bridge. Installations from the release package report the missing bridge and leave Douyin ingest unavailable.
+
 ## Current Verified Boundary
 
 The maintained integration path covers manual Cookie import, room lookup, bundled bridge startup, sanitized event forwarding, disconnect cleanup, and joint operation with the N.E.K.O backend and N.E.K.O.-PC Electron frontend. The plugin owns the `douyinLive.exe` child process and must remove it after `disconnect_live_room`; a transient local `TIME_WAIT` socket is not an orphan bridge process.

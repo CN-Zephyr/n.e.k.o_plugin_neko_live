@@ -407,13 +407,26 @@ async def test_author_tag_distinguishes_long_or_identical_names_and_survives_ren
     "测试观众喵喵喵喵喵喵喵喵喵喵", "鱼" * 20, "猫🐱" * 10,
     "龍龘靐齉齾爩鱻麤灪龖龗灩爨癵籲龘靐齉齾爩", "a" * 25, "鱼" * 30,
 ])
-@pytest.mark.parametrize("text", ["你好", "描述我的头像", "你还记得我们第一次认识是什么时候吗？"])
+@pytest.mark.parametrize(("text", "online_count"), [
+    ("你好", 18),
+    ("描述我的头像", 18),
+    ("你还记得我们第一次认识是什么时候吗？", 18),
+    ("天依现在直播间有多少人，你还记得我们第一次认识是什么时候吗？", 18),
+    ("天依现在直播间有多少人，你还记得我们第一次认识是什么时候吗？", None),
+])
 @pytest.mark.parametrize("room_status", ["live", "unknown"])
-async def test_first_roast_budget_with_chinese_emoji_and_history_requests(live_context, mode, name, text, room_status):
+async def test_first_roast_budget_with_chinese_emoji_and_history_requests(
+    live_context, mode, name, text, online_count, room_status,
+):
     ctx = live_context
     ctx.config.entry_roast_enabled = False
     ctx.dispatcher.runtime = SimpleNamespace(
-        live_provider=SimpleNamespace(platform="bilibili", configured_room_ref=lambda: "42"),
+        live_provider=SimpleNamespace(
+            platform="bilibili", configured_room_ref=lambda: "42", configured_room_id=lambda: 42,
+            listener_state=lambda: {
+                "state": "receiving", "requested_room_id": 42, "online_viewer_count": online_count,
+            },
+        ),
         live_room_context={"platform": "bilibili", "room_ref": "42", "live_status": room_status},
     )
 
@@ -428,8 +441,16 @@ async def test_first_roast_budget_with_chinese_emoji_and_history_requests(live_c
     assert response_module_hint(result.request) == "avatar_roast"
     delivered = ctx.messages[-1]["parts"][0]["text"]
     assert count_tokens(delivered) <= 1000
-    assert "never seek permission to broadcast/interact" in delivered
-    assert ("Broadcast live." in delivered) == (room_status == "live")
+    boundary = delivered.split("\n\n", 1)[0]
+    assert any(rule in boundary for rule in (
+        "never seek permission to broadcast/interact", "Answer viewers without asking permission",
+    ))
+    assert any(line in boundary for line in ("Broadcast live.", "- Live.")) == (room_status == "live")
+    if "直播间有多少人" in text:
+        if online_count is None:
+            assert "count unknown. Don't guess." in boundary
+        else:
+            assert "18 online now." in boundary or "Room online: 18 now." in boundary
     assert "danmaku_author:" in delivered and "never speak this ID" in delivered
     assert "Never reuse historical images" in delivered
     assert "公开示众, 劳改, 审判, 处刑, 惩罚" in delivered

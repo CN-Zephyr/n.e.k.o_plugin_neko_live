@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 import io
 import os
+import re
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,6 +13,7 @@ from ..core.contracts import InteractionRequest
 from ..core.contracts_public import public_text
 from ..core.live_output_contract_prompt import render_contract_instruction
 from ..core.live_output_quality import UNVERIFIED_SUPPORT_CLAIM_FALLBACK_REPLIES, choose_fallback_reply
+from ..core.live_text_guards import dense_text
 from ..core.prompt_delivery import (
     PromptBudgetExceeded,
     prepare_live_delivery_text,
@@ -30,6 +32,95 @@ _NEKO_LIVE_HOSTING_SOURCES = {"warmup_hosting", "idle_hosting", "active_engageme
 _NEKO_LIVE_LIVE_SOURCES = _NEKO_LIVE_AUDIENCE_SOURCES | _NEKO_LIVE_HOSTING_SOURCES | {
     "live_support_events",
 }
+_AUDIENCE_COUNT_CUE = re.compile(
+    r"(?:多少|[几幾])[个個]?(?:人|[观觀][众眾])"
+    r"|[没沒]人|[没沒]有(?:人|[观觀][众眾])|有人(?:在看|[吗嗎])"
+    r"|(?:在线|在線|[观觀][众眾])人[数數]|人[多少][吗嗎]"
+    r"|(?:howmany(?:people|viewers)|nobodywatching|viewercount)"
+)
+_NONCURRENT_TIME_PATTERN = (
+    r"昨[天日晚]|前天|明天|去年|前年|[刚剛]才|之前|以前|[当當][时時]|那[天時时]"
+    r"|上[次回]|上[周週][一二三四五六日天]?|上[个個]月|第一次"
+    r"|(?:[0-9]{4}年)?[0-9]{1,2}月[0-9]{1,2}[日号號]"
+    r"|yesterday|last(?:night|stream|time|week|year)"
+)
+_OTHER_ROOM_PATTERN = (
+    r"隔壁(?:(?:主播|up主)?的?直播[间間])?"
+    r"|(?:其他|[别別]的|另一[个個位])(?:(?:主播|up主)的?)?直播[间間]"
+    r"|(?:other|another)stream"
+)
+_RECORDED_VIEWING_PATTERN = (
+    r"(?:[这這那][个個段条條部]?)?(?:直播)?(?:回放|[录錄]播|重播|[视視][频頻])"
+    r"|replay|vod|(?:this|that)video"
+)
+_GAME_REFERENCE_PATTERN = r"[游遊][戏戲]|[这這那]局|[队隊]伍|howmanypeople.*(?:game|team)"
+_OTHER_AUDIENCE_SCOPE = re.compile(
+    rf"{_NONCURRENT_TIME_PATTERN}|{_OTHER_ROOM_PATTERN}|{_RECORDED_VIEWING_PATTERN}"
+)
+_GAME_AUDIENCE_REFERENCE = re.compile(_GAME_REFERENCE_PATTERN)
+# Full-match the lead before a comma, leaving complete asides such as “昨天没来看” alone.
+_NONCURRENT_TIME_QUALIFIER = re.compile(
+    rf"(?:{_NONCURRENT_TIME_PATTERN})(?:凌晨|早上|上午|中午|下午|晚上)?"
+    r"(?:[0-9零〇一二三四五六七八九十两兩]{1,3}[点點时時]"
+    r"(?:半|[0-9零〇一二三四五六七八九十]{1,3}分?)?|[0-9]{3,4})?"
+    r"(?:的?(?:(?:那|上一|前一)[场場](?:直播)?|直播[间間]?))?"
+)
+_OTHER_SUBJECT_QUALIFIER = re.compile(
+    rf"(?:{_OTHER_ROOM_PATTERN}|{_GAME_REFERENCE_PATTERN}|{_RECORDED_VIEWING_PATTERN})"
+    r"(?:[里內内]|的?直播[间間]?)?"
+)
+_ROOM_VIEWERS_WATCHING = re.compile(
+    r"(?:直播[间間]|(?:本|[这這][个個])房[间間])(?:[里內内])?"
+    r"(?:[现現]在|[当當]前|目前|此刻)?(?:[还還]?有)?"
+    r"(?:多少|[几幾])[个個]?(?:人|[观觀][众眾])正?在看"
+)
+_AUDIENCE_CLAUSE_BREAK = re.compile(r"([,，。!?！？;；\r\n]+)")
+_CURRENT_AUDIENCE_TIME = re.compile(r"[现現]在|[当當]前|目前|此刻|rightnow|currently")
+_OWN_ROOM_REFERENCE = re.compile(
+    r"(?:本|[我咱][们們](?:的|[这這][个個])?)(?:直播|房)[间間]|our(?:stream|room)"
+)
+_ROOM_AUDIENCE_REFERENCE = re.compile(
+    r"直播[间間]|(?:本|[这這][个個])房[间間]|在[线線]|[观觀][众眾]"
+    r"|viewers|viewercount|this(?:stream|room)"
+)
+_BARE_AUDIENCE_QUERY = re.compile(
+    r"(?:[现現]在|[当當]前|目前|此刻)?(?:[还還]?有)?"
+    r"(?:(?:多少|[几幾])[个個]?(?:人|[观觀][众眾])(?:正?在看(?:直播)?|在[线線])?"
+    r"|(?:怎么|怎麼)?[没沒]有?人(?:正?在看)?|有人(?:正?在看(?:直播)?|[吗嗎])|人[多少][吗嗎])[了呢啊呀吗嗎]*"
+    r"|howmanypeople(?:are)?watching(?:rightnow)?|nobodywatching"
+)
+
+
+def _asks_about_current_room_count(text: str, *, target_name: str = "") -> bool:
+    address = dense_text(target_name)
+    # Three-character Chinese names are often addressed by their last two
+    # characters. Require a current-time cue after that shorter address.
+    short_address = address[1:] if re.fullmatch(r"[\u4e00-\u9fff]{3}", address) else ""
+    parts = _AUDIENCE_CLAUSE_BREAK.split(text or "")
+    for index in range(0, len(parts), 2):
+        dense = dense_text(parts[index])
+        if _OTHER_AUDIENCE_SCOPE.search(dense):
+            continue
+        if _GAME_AUDIENCE_REFERENCE.search(dense) and not _ROOM_VIEWERS_WATCHING.search(dense):
+            continue
+        # A standalone qualifier can carry across a comma, as in “昨天，多少人？”.
+        # A complete aside or a previous sentence does not set the next question's scope.
+        if index >= 2 and not parts[index - 1].strip(",，"):
+            lead = dense_text(parts[index - 2])
+            if _NONCURRENT_TIME_QUALIFIER.fullmatch(lead) and not _CURRENT_AUDIENCE_TIME.search(dense):
+                continue
+            if _OTHER_SUBJECT_QUALIFIER.fullmatch(lead) and not _OWN_ROOM_REFERENCE.search(dense):
+                continue
+        bare_query = dense.removeprefix(address)
+        if bare_query == dense and short_address and dense.startswith(short_address):
+            suffix = dense[len(short_address):]
+            if _CURRENT_AUDIENCE_TIME.match(suffix):
+                bare_query = suffix
+        if _BARE_AUDIENCE_QUERY.fullmatch(bare_query) or (
+            _ROOM_AUDIENCE_REFERENCE.search(dense) and _AUDIENCE_COUNT_CUE.search(dense)
+        ):
+            return True
+    return False
 
 
 async def _await_push_submission(result: Any) -> None:
@@ -250,8 +341,26 @@ def _current_room_live_status(runtime: Any) -> str:
     return status if status in ("live", "offline") else "unknown"
 
 
+def _current_room_online_viewer_count(runtime: Any) -> int | None:
+    provider = getattr(runtime, "live_provider", None)
+    if getattr(provider, "platform", None) != "bilibili":
+        return None
+    try:
+        room_id = provider.configured_room_id()
+        state = provider.listener_state()
+    except Exception:
+        return None
+    if not isinstance(state, dict) or not room_id or state.get("requested_room_id") != room_id:
+        return None
+    count = state.get("online_viewer_count")
+    if state.get("state") == "receiving" and type(count) is int and 0 <= count <= 2**31 - 1:
+        return count
+    return None
+
+
 def _prepend_live_delivery_boundary(
     text: str, request: InteractionRequest, *, room_status: str = "unknown",
+    audience_count_context: str = "", compact: bool = False,
 ) -> str:
     source = str(request.event.source or "").strip()
     if source not in _NEKO_LIVE_LIVE_SOURCES:
@@ -260,6 +369,7 @@ def _prepend_live_delivery_boundary(
     if str(text or "").lstrip().startswith("NEKO Live delivery boundary:"):
         return text
     mode = str(request.live_mode or request.event.live_mode or "").strip() or "co_stream"
+    status = room_status if room_status in ("live", "offline") else "unknown"
     boundary_lines = [
         "NEKO Live delivery boundary:",
         "- not a private chat with {MASTER_NAME}.",
@@ -272,17 +382,27 @@ def _prepend_live_delivery_boundary(
         boundary_lines.append(
             "- co_stream: low-interrupt partner."
         )
-    if source == "manual_live_simulation":
+    if compact and source == "live_danmaku":
+        # This shorter scene retains the role, broadcast evidence and audience boundary.
+        boundary_lines[1:] = [
+            "- Public solo_stream. Sole on-stage host." if mode == "solo_stream"
+            else "- Public co_stream with {MASTER_NAME}. Avoid interrupts.",
+            f"- {status.capitalize() if status != 'unknown' else 'Live unconfirmed'}. "
+            "Answer viewers without asking permission.",
+            audience_count_context,
+        ]
+    elif source == "manual_live_simulation":
         boundary_lines.append(
             "- Simulation only; no real broadcast is confirmed. Respond in this test without asking permission to start."
         )
     else:
         turn = "Host now" if source in _NEKO_LIVE_HOSTING_SOURCES else "Answer viewers"
-        status = room_status if room_status in ("live", "offline") else "unknown"
         evidence = f"Broadcast {status}." if status != "unknown" else "Broadcast unconfirmed."
         boundary_lines.append(
             f"- {turn}; never seek permission to broadcast/interact. {evidence}"
         )
+        if audience_count_context:
+            boundary_lines.append(audience_count_context)
     boundary = "\n".join(boundary_lines)
     # Keep the boundary at the head: the host truncates long callback text from the tail.
     base = str(text or "").strip()
@@ -679,14 +799,33 @@ class NekoDispatcher:
             request,
             has_avatar_image=image_part_bytes > 0,
         )
-        prepared = _prepend_live_delivery_boundary(
-            str(parts[0].get("text") or ""),
-            request,
-            room_status=_current_room_live_status(self.runtime or getattr(self.plugin, "runtime", None)),
-        )
-        try:
-            parts[0]["text"] = prepare_live_delivery_text(prepared, kind="speech")
-        except PromptBudgetExceeded:
+        runtime = self.runtime or getattr(self.plugin, "runtime", None)
+        room_status = _current_room_live_status(runtime)
+        audience_contexts = [("", False)]
+        if (
+            request.event.source == "live_danmaku"
+            and _asks_about_current_room_count(request.event.danmaku_text, target_name=target_lanlan)
+        ):
+            count = None if room_status == "offline" else _current_room_online_viewer_count(runtime)
+            if count is None:
+                audience_count_context = "- Current room count unknown. Don't guess."
+                compact_count_context = "- Room count unknown. Don't guess."
+            else:
+                audience_count_context = f"- Current room only: Bilibili reports {count} online now."
+                compact_count_context = f"- Room online: {count} now."
+            audience_contexts[:0] = [(audience_count_context, False), (compact_count_context, True)]
+        # Audience context must not turn an otherwise deliverable reply into a skip.
+        base_text = str(parts[0].get("text") or "")
+        for context, compact in audience_contexts:
+            prepared = _prepend_live_delivery_boundary(
+                base_text, request, room_status=room_status, audience_count_context=context, compact=compact,
+            )
+            try:
+                parts[0]["text"] = prepare_live_delivery_text(prepared, kind="speech")
+                break
+            except PromptBudgetExceeded:
+                continue
+        else:
             request.should_push = False
             request.reason = "dispatcher.prompt_budget_exceeded"
             return f"skipped_to_neko(reason={request.reason})"

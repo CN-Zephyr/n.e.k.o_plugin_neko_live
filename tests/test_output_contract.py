@@ -276,6 +276,22 @@ def test_generic_chinese_roast_targets_are_rejected():
 
 
 @pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("天依现在直播间有多少人", True),
+        ("现在多少人在线", True),
+        ("直播多久了", True),
+        ("直播多长时间了", True),
+        ("直播間有多少個觀眾", True),
+        ("直播间没多少人在看", False),
+        ("直播没多久了", False),
+    ],
+)
+def test_danmaku_profile_quantity_and_duration_questions_without_question_mark(text, expected):
+    assert (DanmakuResponseModule._danmaku_profile(text)["kind"] == "question") is expected
+
+
+@pytest.mark.parametrize(
     "suffix",
     (
         "表现",

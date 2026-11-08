@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -50,18 +51,22 @@ def test_neko_live_runtime_lock_is_not_tracked():
     assert completed.stdout.strip() == ""
 
 
-def test_distribution_copy_contains_verified_bridge_and_license(tmp_path):
+def test_distribution_excludes_douyin_executable_and_preserves_package_files(tmp_path):
     import hashlib
 
     from plugin.neko_plugin_cli.core.build import PluginBuilder
     from plugin.neko_plugin_cli.core.build_rules import load_build_rules
 
     destination = tmp_path / "payload"
-    copied = PluginBuilder().copy_plugin_runtime_files(REPO_ROOT, destination, rules=load_build_rules(None))
-    vendor = destination / "vendor" / "douyin_bridge" / "windows-amd64"
-    binary = vendor / "douyinLive.exe"
-    assert binary.resolve() in copied
-    assert hashlib.sha256(binary.read_bytes()).hexdigest() == (vendor / "CHECKSUMS.txt").read_text().split()[0]
-    assert list((destination / "vendor" / "douyin_bridge").rglob("*LICENSE*"))
-    for name in ("LICENSE", "NOTICE"):
+    with (REPO_ROOT / "pyproject.toml").open("rb") as handle:
+        rules = load_build_rules(tomllib.load(handle))
+    copied = PluginBuilder().copy_plugin_runtime_files(REPO_ROOT, destination, rules=rules)
+    bridge_path = Path("vendor/douyin_bridge/windows-amd64")
+    source_bridge = REPO_ROOT / bridge_path
+    source_binary = source_bridge / "douyinLive.exe"
+    expected = (source_bridge / "CHECKSUMS.txt").read_text().split()[0]
+    assert hashlib.sha256(source_binary.read_bytes()).hexdigest() == expected
+    assert not (destination / bridge_path / "douyinLive.exe").exists()
+    assert (destination / bridge_path / "LICENSE.douyinLive").resolve() in copied
+    for name in ("LICENSE", "NOTICE", "config.example.toml", "pyproject.toml"):
         assert (destination / name).resolve() in copied
