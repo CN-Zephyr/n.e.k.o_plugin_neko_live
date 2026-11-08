@@ -1,0 +1,5 @@
+[project]
+name = "neko_live"
+version = "0.3.5"
+# Runtime libraries are provided by the N.E.K.O. host.
+dependencies = []

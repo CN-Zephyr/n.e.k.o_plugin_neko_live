@@ -644,6 +644,8 @@ ViewerEvent
 
 ## 配置持久化与写竞争
 
+`plugin.toml` 声明插件身份与入口，`config.example.toml` 保存可变的默认配置。宿主在首次初始化时从示例文件创建用户配置，已有用户配置继续优先。发行包须包含这两个文件及 `pyproject.toml`，后者记录包元数据，运行依赖由宿主提供。
+
 `runtime.update_config` 的契约：**内存即时生效、持久化尽力而为**。
 
 host 的 `update_own_config`（把配置写回 `plugin.toml`）在「只重后端不重前端」等场景会被前端的并发配置访问卡满写竞争，偶发（实测下甚至稳定）挂满，触发 host 的 10s entry 超时把整个 action 杀成 500。早期实现先 `await` 持久化再 apply 内存，被这一杀连内存兜底都来不及跑——表现为 `update_config` / `connect_live_room`（其 `set_live_room` 走 `update_config` 持久化 `live_room_id`）/ 开发者模式切换全部点不动。
@@ -1253,6 +1255,11 @@ uv run python -m plugin.neko_plugin_cli.cli check plugin/plugins/neko_live
 开发者模式是独立的调试上下文；退出开发者模式只发送 `NEKO_ROAST_DEVELOPER_RESTORE_INSTRUCTIONS`，不要误发完整插件关闭恢复语境。
 
 维护时不要只给字段说明。需要保留“猫猫是直播间同播伙伴，不是后台系统或插件播报员”的场景，让模型把弹幕当作直播现场互动来接话。即时事件提示词可以包含 UID、昵称、弹幕、强度、直播模式等结构化字段，但输出要求必须强调自然短句、不要复述字段、不要解释流程。
+
+B 站在线人数随涉及观众人数的单次弹幕回复发送。`bili_live_ingest` 从当前连接的 `ONLINE_RANK_COUNT.data.online_count` 提供最多 120 秒内收到的计数，收到 0 仍是有效值。dispatcher 校验监听房间与配置一致，在通过既有 pipeline 和 Safety Guard 的发言中加入一条人数说明。断开、重连、房间下播、计数过期或缺失时提示“人数未知”，模拟发言不引用真实人数。兼容门控计数仍可回退到 `data.count`，该值不进入人数提示词。人数只作为平台报告值，在被问及时回答，不能从弹幕推断，也不进存储、审计或被动房间快照。`danmaku_response` 识别“多少人”“多久”“多长时间”等不带问号的弹幕问句。
+
+人数提示仅用于当前直播间。具体时间、场次或其他观看对象可以限定逗号后的人数问题，完整的前句或插话不继承该范围。已经指向其他对象时，「这个直播间」延续前文指代，「本直播间」等明确说法才切回当前房间。紧贴问句的当前角色名可作为称呼处理。其他房间、回放和点播视频的观看人数不使用本房间在线数。游戏作为直播间观众正在观看的内容时，仍可提供当前在线数，游戏内玩家数量不使用这个值。高能榜包只更新兼容计数，不覆盖仍有效的在线样本。每次实际发言最多增加一行，仍受 1000 token 回调预算约束。取不到可靠值时提示未知。超预算时先压缩直播场景说明并保留在线数或未知约束，精简后仍无法容纳才省略额外人数说明。不增加请求、轮询或模型调用。回归检查见 `tests/test_live_scene_boundary.py`、`tests/test_viewer_evidence.py` 和 `tests/test_output_contract.py`。
+
 ## Douyin Live Bridge
 
 The Douyin live input path is a read-only provider bridge owned by `modules/douyin_live_ingest`. `modules/live_bridge` owns the provider-neutral localhost WebSocket transport and bundled-process lifecycle, while `core/runtime_douyin_auth.py` owns encrypted cookie import, validation, status, and deletion through the `douyin` credential namespace. `modules/douyin_identity` projects only sanitized stable identity fields.

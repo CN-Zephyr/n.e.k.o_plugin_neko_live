@@ -31,6 +31,14 @@ from .._prompt_context import (
 )
 from .avatar_request import requests_own_avatar
 
+# Recognize common room questions without punctuation. Negated statements
+# such as “没多少人在看” and “没过多久” remain ordinary messages.
+_QUANTITY_OR_DURATION_QUESTION = re.compile(
+    r"(?<!没)(?<!沒)(?<!没有)(?<!沒有)(?<!没过)(?<!沒過)(?<!不管)(?<!无论)(?<!無論)"
+    r"(?:多少[个個]?(?:人|[观觀][众眾])(?:在线|在線|在看(?:直播)?)?|多久|多[长長][时時][间間])"
+    r"[了啊呀啦诶欸]*$"
+)
+
 
 class DanmakuResponseModule(BaseModule):
     id = "danmaku_response"
@@ -893,7 +901,7 @@ class DanmakuResponseModule(BaseModule):
 
     @staticmethod
     def _looks_like_question(text: str, dense: str) -> bool:
-        if any(marker in text for marker in ("?", "\uff1f")):
+        if "?" in text or "\uff1f" in text or _QUANTITY_OR_DURATION_QUESTION.search(dense):
             return True
         question_markers = (
             "\u600e\u4e48",

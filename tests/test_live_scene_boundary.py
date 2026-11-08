@@ -6,6 +6,7 @@ import pytest
 from plugin.plugins.neko_live.adapters.neko_dispatcher import NekoDispatcher
 from plugin.plugins.neko_live.core.contracts import LiveConfig, ViewerEvent, ViewerIdentity, ViewerProfile
 from plugin.plugins.neko_live.core.pipeline import LivePipeline
+from plugin.plugins.neko_live.modules.bili_live_ingest import danmaku_core
 from plugin.plugins.neko_live.modules.danmaku_response import DanmakuResponseModule
 from utils.tokenize import count_tokens
 
@@ -18,12 +19,12 @@ def scene_context(platform="bilibili", status="unknown", mode="solo_stream"):
     )
 
 
-def scene_request(ctx, *, source="live_danmaku", kind="danmaku"):
+def scene_request(ctx, *, source="live_danmaku", kind="danmaku", danmaku="你好"):
     module = DanmakuResponseModule()
     module.ctx = ctx
     event = ViewerEvent(
         uid="42", nickname="小鱼", source=source, live_mode=ctx.config.live_mode,
-        danmaku_text="" if kind == "entry" else "你好",
+        danmaku_text="" if kind == "entry" else danmaku,
         # An input payload is not authoritative broadcast evidence.
         raw={"event_type": kind, "presence_action": "greet" if kind == "entry" else "", "live_status": "live"},
     )
@@ -72,13 +73,18 @@ async def test_viewer_scene_survives_long_prompt_fitting(platform, mode, status,
 @pytest.mark.parametrize("source", ["manual_live_simulation", "developer_sandbox"])
 async def test_simulation_does_not_claim_a_real_broadcast_even_with_live_room_cache(source):
     ctx = scene_context(status="live")
+    ctx.live_provider.configured_room_id = lambda: 42
+    ctx.live_provider.listener_state = lambda: {
+        "state": "receiving", "requested_room_id": 42, "online_viewer_count": 18,
+    }
     dispatcher, messages = dispatcher_for(ctx)
-    request = scene_request(ctx, source=source)
+    request = scene_request(ctx, source=source, danmaku="现在直播间有多少人")
 
     await dispatcher.push_roast(request)
 
     text = messages[-1]["parts"][0]["text"]
     assert "Broadcast live." not in text
+    assert "18 online" not in text
     assert "live_room_status:" not in text
     if source == "manual_live_simulation":
         assert "Simulation only; no real broadcast is confirmed." in text
@@ -128,6 +134,92 @@ async def test_room_state_is_read_again_for_each_submission():
     assert "Broadcast live." in boundaries[0]
     assert "Broadcast unconfirmed." in boundaries[1]
     assert "Broadcast offline." in boundaries[2]
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_only_delivers_fresh_online_counts_for_the_current_room(monkeypatch):
+    now = 100.0
+    monkeypatch.setattr(danmaku_core, "time", SimpleNamespace(monotonic=lambda: now))
+    listener = danmaku_core.DanmakuListener(room_id=42)
+    listener.real_room_id = 12345  # The configured short ID can differ from the protocol ID.
+    await listener._process_packet(danmaku_core._pack(danmaku_core.OPERATION_AUTH_REPLY, b'{"code":0}'))
+    ctx = scene_context(status="live")
+    ctx.live_provider.configured_room_id = lambda: 42
+    ctx.live_provider.listener_state = listener.get_connection_state
+    ctx.live_target_lanlan = "洛天依"
+    dispatcher, messages = dispatcher_for(ctx)
+    request = scene_request(ctx, danmaku="天依现在直播间有多少人")
+
+    async def boundary(request=request):
+        assert (await dispatcher.push_roast(request)).startswith("queued_to_neko")
+        return messages[-1]["parts"][0]["text"].split("\n\n", 1)[0]
+
+    async def receive_count(**data):
+        await listener._dispatch_message("ONLINE_RANK_COUNT", {"data": data})
+
+    assert "Current room count unknown" in await boundary()
+    assert "Current room count unknown" in await boundary(scene_request(ctx, danmaku="怎么没人？"))
+    await receive_count(count=17)
+    assert listener.get_connection_state()["viewer_count"] == 17
+    assert "Current room count unknown" in await boundary()
+
+    await receive_count(online_count=0, count=17)
+    assert "Bilibili reports 0 online" in await boundary()
+    await receive_count(online_count=18)
+    assert "Bilibili reports 18 online" in await boundary()
+    assert "18 online" not in await boundary(scene_request(ctx))
+    for text in (
+        "昨天直播间有多少人", "昨天，直播间有多少人", "去年直播间有多少人", "去年直播，多少人？",
+        "昨天晚上八点，直播间有多少人？", "昨晚8:30，直播间有多少人？", "上周那场，直播间有多少人？",
+        "这局游戏有多少人", "游戏里，多少人？", "直播间这局游戏里有多少人？",
+        "群里有多少人", "隔壁直播间有多少人",
+        "隔壁主播的直播间，有多少人？", "另一个主播的直播间，有多少人？",
+        "另一个主播的直播间，现在有多少人？",
+        "隔壁主播的直播间，这个直播间现在有多少人？", "另一个主播的直播间，这个直播间有多少人？",
+        "隔壁主播的直播间，天依现在有多少人在看？",
+        "有多少人在看回放？", "这个视频有多少人正在看？", "这段视频，现在有多少人正在看？",
+        "天依现在有多少人在看回放？", "别的主播现在有多少人在看？",
+        "有多少人在看电影？",
+    ):
+        assert "Bilibili reports" not in await boundary(scene_request(ctx, danmaku=text))
+    for text in (
+        "昨天直播间有多少人？现在直播间有多少人？",
+        "昨天没来看。直播间有多少人？",
+        "昨天晚上八点没来看，直播间有多少人？",
+        "第一次来，直播间有多少人？",
+        "刚才在打游戏。直播间有多少人？",
+        "现在直播间有多少人在看游戏？",
+        "直播间现在有几个人正在看这局游戏？",
+        "现在有多少人在看？",
+        "洛天依现在有多少人在看？",
+        "天依现在有多少人在看？",
+        "天依，现在有多少人在看？",
+        "这个直播间现在有多少人？",
+        "隔壁主播的直播间，咱们这个直播间现在有多少人？",
+        "隔壁主播的直播间，本直播间现在有多少人？",
+        "刚看了回放。现在有多少人在看？",
+    ):
+        assert "Current room only: Bilibili reports 18 online now." in await boundary(
+            scene_request(ctx, danmaku=text),
+        )
+    now += 119.0
+    await receive_count(count=3)
+    assert listener.get_connection_state()["viewer_count"] == 3
+    assert "Bilibili reports 18 online" in await boundary()
+
+    ctx.live_room_context["live_status"] = "offline"
+    assert "Current room count unknown" in await boundary()
+    ctx.live_room_context["live_status"] = "live"
+
+    ctx.live_provider.configured_room_id = lambda: 99
+    assert "Current room count unknown" in await boundary()
+    ctx.live_provider.configured_room_id = lambda: 42
+    now += 2.0
+    assert "Current room count unknown" in await boundary()
+
+    await receive_count(online_count=19)
+    await listener.stop()
+    assert "Current room count unknown" in await boundary()
 
 
 @pytest.mark.asyncio

@@ -61,6 +61,9 @@ def _wbi_sign(params: dict, mixin_key: str) -> dict:
     return params
 
 
+_ONLINE_VIEWER_COUNT_MAX_AGE = 120.0  # Seconds since the last explicit online_count.
+
+
 # ── 连接状态枚举 ─────────────────────────────────────────────────
 class ConnectionState:
     DISCONNECTED = "disconnected"      # 未连接
@@ -177,7 +180,8 @@ class DanmakuListener:
         # 直播结束标记：收到 PREPARING 后置位，阻止重连循环
         self._live_ended: bool = False
         self._current_server: str = ""  # 当前连接的服务器地址
-        self._viewer_count: int = 0  # 当前在线人数，来自 ONLINE_RANK_COUNT；0 表示尚未收到
+        self._viewer_count: int = 0  # 兼容门控和状态展示，允许回退到高能榜计数。
+        self._online_viewer_sample: tuple[int, float] | None = None
         # GUARD_BUY 与 USER_TOAST_MSG_V2 会描述同一次上舰，按 uid+等级在 30s 内去重。
         self._recent_guard_keys: dict[str, float] = {}
         self._guard_dedupe_seconds: float = 30.0
@@ -217,13 +221,26 @@ class DanmakuListener:
             dict: 包含连接状态的字典
                 - state: 连接状态字符串
                 - server: 当前服务器地址
-                - viewer_count: 当前观看人数
-                - room_id: 房间号
+                - viewer_count: 用于门控的兼容计数
+                - online_viewer_count: 当前连接近期收到的 online_count，未知为 None
+                - requested_room_id: 开始监听时配置的房间号
+                - room_id: 已解析的真实房间号，断开时回退到配置房间号
         """
+        sample = self._online_viewer_sample
+        online_viewer_count = None
+        if (
+            self._connection_state == ConnectionState.RECEIVING
+            and not self._live_ended
+            and sample is not None
+            and time.monotonic() - sample[1] <= _ONLINE_VIEWER_COUNT_MAX_AGE
+        ):
+            online_viewer_count = sample[0]
         return {
             "state": self._connection_state,
             "server": self._current_server,
             "viewer_count": self._viewer_count,
+            "online_viewer_count": online_viewer_count,
+            "requested_room_id": self.room_id,
             "room_id": self.real_room_id if self._connection_state != ConnectionState.DISCONNECTED else self.room_id,
             "reconnect_count": self._reconnect_count,
             "last_packet_at": self._last_packet_at,
@@ -777,6 +794,8 @@ class DanmakuListener:
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 continue
             self._viewer_count = value
+            if name == "online_count":
+                self._online_viewer_sample = (value, time.monotonic())
             return
 
     @staticmethod
@@ -1147,6 +1166,7 @@ class DanmakuListener:
         self._live_ended = False
         self._reconnect_count = 0
         self._last_packet_at = 0.0
+        self._online_viewer_sample = None
         self.running = True
         self._connection_state = ConnectionState.CONNECTING
 
@@ -1317,6 +1337,7 @@ class DanmakuListener:
                 continue
 
             finally:
+                self._online_viewer_sample = None
                 if self._heartbeat_task and not self._heartbeat_task.done():
                     self._heartbeat_task.cancel()
                 self._ws = None
@@ -1337,6 +1358,7 @@ class DanmakuListener:
         self._connection_state = ConnectionState.DISCONNECTED
         self._current_server = ""
         self._viewer_count = 0
+        self._online_viewer_sample = None
         self._stop_event.set()  # 唤醒所有等待此事件的协程
         if self._heartbeat_task and not self._heartbeat_task.done():
             self._heartbeat_task.cancel()
