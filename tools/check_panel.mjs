@@ -1,6 +1,6 @@
 // Run against the same UI kit, compiler and declarations used by the host.
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -28,13 +28,19 @@ const window = new Window({ url: 'https://host.example' })
 try {
   window.__NEKO_PAYLOAD = { locale: 'en', host: { origin: 'https://host.example' }, i18n: { locale: 'en', messages: {} } }
   const NativeText = window.Text
-  window.eval(readFileSync(resolve(host, 'frontend/plugin-manager/src/components/plugin/hosted/ui-kit/runtime.js'), 'utf8'))
+  const runtime = readFileSync(resolve(host, 'frontend/plugin-manager/src/components/plugin/hosted/ui-kit/runtime.js'), 'utf8')
+  // The host prepends the shared display factory before evaluating its UI kit.
+  const displayClient = resolve(host, 'static/plugin-ui-sdk/display.js')
+  const displayFactory = existsSync(displayClient)
+    ? `const createPluginDisplayClient = ${requireHost(displayClient).toString()};\n`
+    : ''
+  window.eval(displayFactory + runtime)
   // happy-dom constructs text nodes via window.Text. The host kit exposes its
   // Text component there too; preserve DOM construction and bind kit locals.
   window.Text = NativeText
   const original = readFileSync(resolve(root, 'ui/panel_compat.tsx'), 'utf8')
   const names = original.match(/^import \{ (.*) \} from "@neko\/plugin-ui"/m)[1]
-  const source = original.replace(/^import .* from "@neko\/plugin-ui"\n/m, '').replace('export default function ', 'function ')
+  const source = original.replace(/^import .* from "@neko\/plugin-ui"\r?\n/m, '').replace('export default function ', 'function ')
   const compiled = transform(source, { transforms: ['typescript', 'jsx'], jsxPragma: 'h', jsxFragmentPragma: 'Fragment', production: true }).code
   window.eval('(function(){ const { h, Fragment, ' + names + ' } = window.NekoUiKit;\n' + compiled + '\nwindow.__ProfileTable = ViewerProfilesTable; window.__Panel = NekoLivePanel; })()')
   const kit = window.NekoUiKit
