@@ -130,6 +130,15 @@ def event_guard_level(event: Any) -> int:
     return _optional_non_negative_int(_field(event, "guard_level")) or 0
 
 
+def event_medal_level(event: Any) -> int:
+    value = (
+        _field(event, "medal_level")
+        or _field(event, "fans_medal_level")
+        or _field(_field(event, "medal"), "level")
+    )
+    return _optional_non_negative_int(value) or 0
+
+
 def event_score(event: Any) -> float:
     scorer = getattr(event, "get_score", None)
     if callable(scorer):

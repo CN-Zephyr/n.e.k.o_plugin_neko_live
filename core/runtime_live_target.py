@@ -5,12 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 
-def capture_live_target(runtime: Any) -> str:
+def capture_live_target(runtime: Any, *, target_lanlan: str = "") -> str:
     """Bind live output to the character selected when this session starts."""
 
     current = str(getattr(runtime, "live_target_lanlan", "") or "").strip()
     if current:
         return current
+    if isinstance(target_lanlan, str) and target_lanlan.strip():
+        runtime.live_target_lanlan = target_lanlan.strip()[:120]
+        return runtime.live_target_lanlan
     resolver = getattr(getattr(runtime, "dispatcher", None), "current_target_lanlan", None)
     if not callable(resolver):
         return ""

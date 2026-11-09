@@ -28,6 +28,7 @@ _TWITCH_SUPPORT_EVENT_TYPES = {
     "TWITCH_SUB_GIFT",
     "TWITCH_COMMUNITY_SUB_GIFT",
 }
+_TEMPORARY_REFRESH_TIMEOUT_SECONDS = 2.0
 
 
 class TwitchLiveIngestModule(BaseModule):
@@ -284,28 +285,67 @@ class TwitchLiveIngestModule(BaseModule):
         refresh_token = _safe_secret(credential.get("refresh_token"))
         if not all((client_id, access_token, refresh_token, _safe_numeric_id(token_for))):
             return LiveRoomStatus(room_id=0, ok=False, message="twitch authorization is required")
+        auth = getattr(self.ctx, "twitch_auth", None)
+        credential_generation = getattr(auth, "credential_generation", -1)
+        lookup_task = asyncio.current_task()
+        refresh_tasks: set[asyncio.Task[Any]] = set()
+
+        async def on_token_refreshed(payload: Any) -> None:
+            nonlocal credential, credential_generation
+            task = asyncio.current_task()
+            if task is not None and task is not lookup_task:
+                refresh_tasks.add(task)
+            updated = await self._save_refreshed_token(
+                payload,
+                stop_on_failure=False,
+                expected_credential=credential,
+                expected_credential_generation=credential_generation,
+            )
+            if updated is not None:
+                credential = updated
+                credential_generation = getattr(auth, "credential_generation", -1)
+
         client: Any = None
         try:
             client = self._create_client(
                 client_id=client_id,
                 on_message=_ignore_event,
                 on_chat_notification=_ignore_event,
-                on_token_refreshed=self._on_temporary_token_refreshed,
+                on_token_refreshed=on_token_refreshed,
             )
             await client.login(token=access_token, load_tokens=False, save_tokens=False)
             await client.add_token(access_token, refresh_token)
-            return await lookup_channel_status(client, parsed.room_ref, token_for=token_for)
+            result = await lookup_channel_status(client, parsed.room_ref, token_for=token_for)
         except Exception as exc:
-            return LiveRoomStatus(
+            result = LiveRoomStatus(
                 room_id=0,
                 ok=False,
                 live_status="unknown",
                 message=_safe_error(exc),
             )
         finally:
-            if client is not None:
-                with suppress(Exception):
-                    await client.close()
+            try:
+                # TwitchIO dispatches refresh callbacks in separate tasks. Let
+                # already-scheduled callbacks enter before closing their client.
+                await asyncio.sleep(0)
+                if refresh_tasks:
+                    done, pending = await asyncio.wait(
+                        refresh_tasks,
+                        timeout=_TEMPORARY_REFRESH_TIMEOUT_SECONDS,
+                    )
+                    for task in done:
+                        if not task.cancelled():
+                            task.exception()
+                    if pending:
+                        # Do not cancel a credential write: its filesystem work
+                        # may outlive cancellation and still owns the auth lock.
+                        self._last_error = "twitch refreshed credential save timed out"
+                        result = LiveRoomStatus(room_id=0, ok=False, message=self._last_error)
+            finally:
+                if client is not None:
+                    with suppress(Exception):
+                        await client.close()
+        return result
 
     def _create_client(self, **kwargs: Any) -> Any:
         factory = self._client_factory
@@ -380,17 +420,20 @@ class TwitchLiveIngestModule(BaseModule):
             return
         await self._save_refreshed_token(payload, stop_on_failure=True, generation=generation)
 
-    async def _on_temporary_token_refreshed(self, payload: Any) -> None:
-        await self._save_refreshed_token(payload, stop_on_failure=False)
-
     async def _save_refreshed_token(
         self,
         payload: Any,
         *,
         stop_on_failure: bool,
         generation: int | None = None,
-    ) -> None:
-        current = dict(getattr(self, "_listener_credential", {}) or self._credential())
+        expected_credential: dict[str, Any] | None = None,
+        expected_credential_generation: int | None = None,
+    ) -> dict[str, Any] | None:
+        current = dict(
+            expected_credential
+            if expected_credential is not None
+            else getattr(self, "_listener_credential", {}) or self._credential()
+        )
         user_id = _safe_numeric_id(getattr(payload, "user_id", None))
         access_token = _safe_secret(getattr(payload, "token", None))
         refresh_token = _safe_secret(getattr(payload, "refresh_token", None))
@@ -406,11 +449,18 @@ class TwitchLiveIngestModule(BaseModule):
             "expires_at": str(int(time.time() + expires_in)) if expires_in else "",
         }
         commit = getattr(getattr(self.ctx, "twitch_auth", None), "commit_refreshed_credential", None)
-        result = await commit(updated, current, expected_generation=self._credential_generation) if callable(commit) else "failed"
+        credential_generation = (
+            expected_credential_generation
+            if expected_credential_generation is not None
+            else self._credential_generation
+        )
+        result = await commit(updated, current, expected_generation=credential_generation) if callable(commit) else "failed"
         if result == "saved":
-            self._listener_credential = updated
-            self._credential_generation = self.ctx.twitch_auth.credential_generation
-        if result in {"saved", "superseded"}:
+            if stop_on_failure:
+                self._listener_credential = updated
+                self._credential_generation = self.ctx.twitch_auth.credential_generation
+            return updated
+        if result == "superseded":
             return
         save_error = "twitch refreshed credential could not be saved"
         if stop_on_failure:

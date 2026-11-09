@@ -188,7 +188,9 @@ async def reconcile_live_listener_after_config(
     )
 
 
-async def start_live_listener(runtime: Any, room_ref: Any, *, operation_id: int | None = None) -> bool:
+async def start_live_listener(
+    runtime: Any, room_ref: Any, *, operation_id: int | None = None, target_lanlan: str = "",
+) -> bool:
     if operation_id is None:
         operation_id = begin_live_listener_operation(runtime)
     if not is_current_live_listener_operation(runtime, operation_id):
@@ -210,7 +212,6 @@ async def start_live_listener(runtime: Any, room_ref: Any, *, operation_id: int 
                 f"pending passive context clear retry failed: {type(exc).__name__}",
                 level="warning",
             )
-    capture_live_target(runtime)
     runtime._accepting_live_events = False
     # Tool calls can hold the realtime voice turn open after the plugin has
     # already returned. Passive next-turn snapshots provide the same facts
@@ -248,6 +249,9 @@ async def start_live_listener(runtime: Any, room_ref: Any, *, operation_id: int 
             and getattr(runtime, "live_connection_state", "") == "connected"
         )
     if started:
+        # Only a successful current operation may claim the character. Earlier
+        # awaits can be superseded by another character's connection request.
+        capture_live_target(runtime, target_lanlan=target_lanlan)
         begin_live_session(runtime)
         runtime._live_listener_started_at = float(runtime._live_state_now())
     runtime.live_connection_state = "connected" if started else "disconnected"

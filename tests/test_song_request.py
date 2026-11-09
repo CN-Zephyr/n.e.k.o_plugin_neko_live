@@ -173,6 +173,40 @@ async def test_permission(permission, raw, allowed):
     assert outcome.status == ("queued" if allowed else "denied")
 
 
+@pytest.mark.parametrize("permission, guard, medal, allowed", [
+    ("anyone", 0, 0, True),
+    ("fans", 0, 10, True),
+    ("guard", 3, 0, True),
+    ("guard", 0, 10, False),
+    ("fans", 0, 0, False),
+])
+async def test_song_permission_survives_real_event_bus_selection(permission, guard, medal, allowed):
+    from plugin.plugins.neko_live.modules.bili_live_ingest import BiliLiveIngestModule
+    from plugin.plugins.neko_live.modules.bili_live_ingest.livedanmaku import LiveDanmaku
+    from plugin.plugins.neko_live.tests.test_live_events import _drain, _FakeCtx, _make_hub
+
+    music = FakePlugins()
+    ctx = _FakeCtx(rate_limit=0)
+    ctx.config.song_request_enabled = True
+    ctx.config.song_request_permission = permission
+    ctx.plugin = SimpleNamespace(plugins=music)
+    ctx.song_request = _module(ctx)
+    hub = await _make_hub(ctx)
+    ingest = BiliLiveIngestModule()
+    raw = LiveDanmaku(uid=42, nickname="viewer", text="点歌 晴天", room_id=1,
+                      guard_level=guard, fans_medal_level=medal)
+    try:
+        ctx.event_bus.publish("danmaku", ingest._to_live_event("DANMU_MSG", raw))
+        await _drain(hub)
+        [payload] = ctx.payloads
+        event = ingest.normalize(payload)
+        outcome = await ctx.song_request.handle(ctx, event, "晴天")
+        assert outcome.status == ("queued" if allowed else "denied")
+        assert len(music.songs) == int(allowed)
+    finally:
+        await hub.teardown()
+
+
 async def test_restricted_permission_denied_off_bilibili():
     ctx = _ctx(FakePlugins(), song_request_permission="fans", live_platform="twitch")
     assert (await _module(ctx).handle(ctx, _event(medal_level=5), "晴天")).status == "denied"

@@ -308,6 +308,75 @@ async def test_connect_live_room_refreshes_room_title_context(runtime: LiveRunti
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("entry_context, expected", [
+    ({"lanlan_name": "SelectedCat"}, "SelectedCat"),
+    ({"run_id": "panel-run"}, "DefaultCat"),
+    ({"lanlan_name": 123}, "DefaultCat"),
+])
+async def test_connect_entry_captures_target_with_real_sdk_context(
+    runtime, tmp_path, monkeypatch, entry_context, expected,
+):
+    from plugin.core.context import PluginContext
+    from plugin.plugins.neko_live import NekoLivePlugin
+
+    monkeypatch.setenv("NEKO_TARGET_LANLAN", "DefaultCat")
+    host = PluginContext("neko_live", tmp_path / "plugin.toml", None, None)
+    plugin = NekoLivePlugin(host)
+    plugin.runtime = runtime
+    runtime.plugin.ctx = plugin.ctx
+    assert not hasattr(plugin.ctx, "_current_lanlan")
+    with host._lanlan_scope("SelectedCat"):
+        result = await plugin.connect_live_room(room_id="123", _ctx=entry_context)
+    assert result.is_ok()
+    assert runtime.live_target_lanlan == expected
+    assert runtime.dispatcher.live_target_lanlan() == expected
+
+    # A second action must not retarget an already active session.
+    await plugin.connect_live_room(room_id="123", _ctx={"lanlan_name": "OtherCat"})
+    assert runtime.live_target_lanlan == expected
+    await runtime.disconnect_live_room()
+    await plugin.connect_live_room(room_id="123", _ctx={"lanlan_name": "OtherCat"})
+    assert runtime.live_target_lanlan == "OtherCat"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wait_stage", ["cleanup", "provider"])
+async def test_superseded_connect_cannot_claim_new_session_target(runtime, monkeypatch, wait_stage):
+    from plugin.plugins.neko_live.core import runtime_live_listener
+
+    await runtime.set_live_room("123")
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def wait_for_first(*_args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            await release.wait()
+        if wait_stage == "provider":
+            runtime.bili_live_ingest.room_id = 123
+        return True
+
+    if wait_stage == "cleanup":
+        monkeypatch.setattr(runtime_live_listener, "_await_pending_live_listener_cleanup", wait_for_first)
+    else:
+        monkeypatch.setattr(runtime.bili_live_ingest, "start_listening", wait_for_first)
+    first = asyncio.create_task(runtime.connect_live_room("123", target_lanlan="FirstCat"))
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        assert runtime.live_target_lanlan == ""
+        second = await runtime.connect_live_room("123", target_lanlan="SecondCat")
+        assert second["connected"] is True
+        assert runtime.live_target_lanlan == "SecondCat"
+    finally:
+        release.set()
+        await first
+    assert runtime.live_target_lanlan == "SecondCat"
+
+
+@pytest.mark.asyncio
 async def test_connect_live_room_requires_login(
     runtime: LiveRuntime,
 ) -> None:

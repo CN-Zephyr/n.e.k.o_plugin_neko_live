@@ -337,9 +337,12 @@ class NekoLivePlugin(NekoPluginBase):
             },
         },
     )
-    async def connect_live_room(self, room_id="", **_):
+    async def connect_live_room(self, room_id="", _ctx=None, **_):
         try:
-            connection = await self._runtime().connect_live_room(room_id)
+            target = _ctx.get("lanlan_name", "") if isinstance(_ctx, dict) else ""
+            connection = await self._runtime().connect_live_room(
+                room_id, target_lanlan=target if isinstance(target, str) else "",
+            )
             return Ok({"connection": connection})
         except (TypeError, ValueError) as exc:
             return Err(SdkError(str(exc)))
@@ -699,6 +702,7 @@ class NekoLivePlugin(NekoPluginBase):
             return Err(SdkError(str(exc)))
         return Ok({"profiles": profiles})
 
+    @ui.action(id="song_request_status", label=tr("entries.song_request_status.name"), group="song_request", order=10, refresh_context=False)
     @plugin_entry(
         id="song_request_status",
         name=tr("entries.song_request_status.name", default="点歌记录"),
@@ -714,6 +718,7 @@ class NekoLivePlugin(NekoPluginBase):
             "music_plugin": await state(runtime) if callable(state) else "unknown",
         })
 
+    @ui.action(id="song_request_jump", label=tr("entries.song_request_jump.name"), group="song_request", order=20, refresh_context=True)
     @plugin_entry(
         id="song_request_jump",
         name=tr("entries.song_request_jump.name", default="点歌插队"),

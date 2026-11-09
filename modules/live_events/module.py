@@ -41,6 +41,7 @@ from .provider_event import (
     event_avatar_url,
     event_guard_level,
     event_is_current_session,
+    event_medal_level,
     event_nickname,
     event_provider_event_id,
     event_room_id,
@@ -1245,6 +1246,8 @@ class LiveEventsModule(BaseModule):
             "avatar_url": event_avatar_url(event),
             "room_id": event_room_id(event),
             "event_type": event_type,
+            "guard_level": event_guard_level(event),
+            "medal_level": event_medal_level(event),
         }
         session_generation = event_session_generation(event)
         if session_generation:

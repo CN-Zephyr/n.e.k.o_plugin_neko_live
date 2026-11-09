@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
 import pytest
 from plugin.plugins.neko_live.core.contracts import ViewerIdentity
+from plugin.plugins.neko_live.core.runtime_config import apply_host_config
 from plugin.plugins.neko_live.stores.viewer_store import ViewerStore
 
 
@@ -106,6 +108,100 @@ async def test_custom_dir_is_used(tmp_path):
     assert status["using_custom"] is True
     assert status["writable"] is True
     assert status["path"] == str(custom / "viewer_profiles.json")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("config_entry", ["update", "host"])
+@pytest.mark.parametrize("use_fallback", [False, True])
+async def test_directory_switch_keeps_inflight_write_and_fallback_with_its_source(
+    runtime, tmp_path, monkeypatch, config_entry, use_fallback,
+):
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    store = runtime.viewer_store
+    await runtime.update_config({"viewer_store_dir": str(source)})
+    original_write = store._write_json
+
+    def write_json(file, profiles):
+        if use_fallback and file.parent == source:
+            return False
+        return original_write(file, profiles)
+
+    monkeypatch.setattr(store, "_write_json", write_json)
+    await store.upsert_identity(ViewerIdentity(uid="source-viewer", nickname="source"))
+    source_file = Path(store.storage_status()["path"])
+    other_store = ViewerStore(_FakePlugin(destination), audit=None)
+    await other_store.upsert_identity(ViewerIdentity(uid="destination-viewer", nickname="destination"))
+    destination_file = destination / "viewer_profiles.json"
+    original_destination = destination_file.read_bytes()
+
+    entered = asyncio.Event()
+    resume = asyncio.Event()
+    original_to_thread = asyncio.to_thread
+
+    async def pause_source_read(func, *args, **kwargs):
+        if getattr(func, "__self__", None) == source_file and getattr(func, "__name__", "") == "read_bytes":
+            entered.set()
+            await resume.wait()
+        return await original_to_thread(func, *args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "to_thread", pause_source_read)
+    pending = asyncio.create_task(
+        store.record_live_danmaku(ViewerIdentity(uid="source-viewer", nickname="source"), "hello")
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        update = {"viewer_store_dir": str(destination)}
+        if config_entry == "host":
+            assert await apply_host_config(runtime, {"neko_live": update}) is True
+        else:
+            await runtime.update_config(update)
+        # Dashboard reads resolve the new directory while the old writer waits.
+        assert store.storage_status()["path"] == str(destination_file)
+    finally:
+        resume.set()
+        await pending
+
+    assert json.loads(source_file.read_text(encoding="utf-8"))["source-viewer"]["danmaku_count"] == 1
+    assert destination_file.read_bytes() == original_destination
+    assert store.storage_status()["path"] == str(destination_file)
+    assert {row["uid"] for row in await store.recent_profiles()} == {"destination-viewer"}
+    await store.record_live_danmaku(ViewerIdentity(uid="next-viewer", nickname="next"), "hello")
+    assert set(json.loads(destination_file.read_text(encoding="utf-8"))) == {"destination-viewer", "next-viewer"}
+    assert set(json.loads(source_file.read_text(encoding="utf-8"))) == {"source-viewer"}
+
+
+@pytest.mark.asyncio
+async def test_directory_switch_during_projection_read_does_not_label_old_cache_as_new(
+    runtime, tmp_path, monkeypatch,
+):
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    for directory, uid in ((source, "source-viewer"), (destination, "destination-viewer")):
+        await ViewerStore(_FakePlugin(directory), audit=None).upsert_identity(ViewerIdentity(uid=uid, nickname=uid))
+    await runtime.update_config({"viewer_store_dir": str(source)})
+    store = runtime.viewer_store
+    entered = asyncio.Event()
+    resume = asyncio.Event()
+    original_to_thread = asyncio.to_thread
+
+    async def pause_source_read(func, *args, **kwargs):
+        if getattr(func, "__self__", None) == source / "viewer_profiles.json" and getattr(func, "__name__", "") == "read_bytes":
+            entered.set()
+            await resume.wait()
+        return await original_to_thread(func, *args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "to_thread", pause_source_read)
+    pending = asyncio.create_task(store.recent_profiles())
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        await runtime.update_config({"viewer_store_dir": str(destination)})
+    finally:
+        resume.set()
+        old_projection = await pending
+
+    assert {row["uid"] for row in old_projection} == {"source-viewer"}
+    assert {row["uid"] for row in await store.recent_profiles()} == {"destination-viewer"}
 
 
 @pytest.mark.asyncio

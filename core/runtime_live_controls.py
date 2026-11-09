@@ -263,6 +263,8 @@ async def set_live_room(runtime: Any, room_id: Any, *, operation_id: int | None 
 async def connect_live_room(
     runtime: Any,
     room_id: Any = 0,
+    *,
+    target_lanlan: str = "",
 ) -> dict[str, Any]:
     normalized = runtime.live_provider.normalize_room_ref(room_id)
     if not normalized.get("ok"):
@@ -298,7 +300,9 @@ async def connect_live_room(
     if not is_current_live_listener_operation(runtime, operation_id) or getattr(runtime, "_stopping", False):
         return runtime.live_connection_snapshot()
     runtime.config.live_enabled = True
-    started = await runtime._start_live_listener(target_room_ref, operation_id=operation_id)
+    started = await runtime._start_live_listener(
+        target_room_ref, operation_id=operation_id, target_lanlan=target_lanlan,
+    )
     if not is_current_live_listener_operation(runtime, operation_id):
         return runtime.live_connection_snapshot()
     if not started:

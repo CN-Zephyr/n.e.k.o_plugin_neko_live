@@ -28,6 +28,10 @@ Cross-plugin calls use `ctx.plugin.plugins.call_entry_json()` with timeouts (15 
 
 ### Panel entries
 
+Both entries are registered with `@ui.action` as well as `@plugin_entry`, and
+listed in the compatibility dashboard action projection. The current host
+authorizes the decorator metadata; a dashboard state entry alone is insufficient.
+
 - `song_request_status`: read-only; returns up to 50 recent requests, newest first, with `can_jump`, plus `music_plugin_state` (`ready` / `not_installed` / `not_running` / `unknown`, from one `plugins.list()` call). The panel calls it silently once when it opens. On `not_installed` the Song Request card is grayed out, its toggle is locked, and hovering or keyboard focus shows a centered `role="tooltip"` overlay (styled with the panel's `--surface` / `--border` / `--text` tokens) asking the user to install `custom_music_list`. Every other state keeps the card usable, and runtime failures still surface as `music_plugin_unavailable`.
 - `song_request_jump(request_id)`: moves a queued song to the slot right after the song now playing, via `playlist_autoplay_status.current_index` and `playlist_move`. It refuses with a stable reason when the request is not queued (`request_not_queued`), the music plugin is unreachable (`music_plugin_unavailable`), the song left the playlist (`song_left_playlist`), the current song is unknown because autoplay is not running (`current_song_unknown`), the song is playing or already played (`already_played`), or the move fails (`move_failed`). A successful jump marks the row `jumped` and cannot be repeated.
 
@@ -54,5 +58,11 @@ uv run python -m plugin.neko_plugin_cli.cli check plugin/plugins/neko_live
 ```
 
 Tests use a fake cross-plugin accessor and cover trigger matching, permission tiers, cooldown, music-plugin errors, `dry_run` skipping the add call, item location under concurrency, jump refusals, the pipeline route, and the `live_events` window bypass (`tests/test_live_events.py`). They do not exercise a real `custom_music_list` process or audible playback.
+
+The permission integration test publishes a real Bilibili `LiveDanmaku` through
+EventBus and selection before normalization and permission checking. Selection
+must carry validated `guard_level` and `medal_level` scalars into the normalized
+event. `test_song_request_ui_contracts.py` also checks the actual host action
+resolver against the plugin's decorator metadata; it does not mock authorization.
 
 Known limits: the song is queued before output, so when the Safety Guard output cooldown is still active the song is added but the spoken reply is skipped as `rate limited`. the jump needs the music plugin's autoplay to be running, since that is the only place it reports the current index. If a viewer requests a song identical to an untracked one already at the end of the playlist, the locator may pick that one; the jump then moves an identical song.

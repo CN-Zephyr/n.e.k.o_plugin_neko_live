@@ -42,6 +42,41 @@ uv run python -m plugin.neko_plugin_cli.cli check plugin/plugins/neko_live
 
 Tests cover JSON persistence and fallback, disabled-memory behavior, 90-day retention, profile reset/delete/clear behavior, prompt gating, encrypted namespace isolation, and redaction of secrets in text and nested structured audit detail.
 
+## Storage And Retry Ownership
+
+- Every profile read/modify/write pins its configured path and fallback ownership
+  before the first await. A concurrent `viewer_store_dir` update affects only the
+  next operation; an in-flight update and its cache projection retain the old path.
+  The ordinary panel still does not expose directory changes. Tests cover both
+  runtime updates and host config callbacks, including an existing fallback.
+- Scoped-memory retries retain the complete original message batch, speaker
+  metadata, idempotency key and captured subject epoch. New chat is buffered
+  separately; a lost receipt must not turn old chat into a new request or bypass
+  the host's forget fence. This does not change local-profile deletion into a host
+  memory deletion. `test_live_memory_retry.py` uses fake HTTP acknowledgements to
+  cover response loss, new arrivals, changed epochs, discard and flush.
+
+### Repair Decision Points (2026-11-09)
+
+The user requested repair of the reviewed retry and directory races. The chosen
+implementation keeps the existing submission triggers and storage format:
+
+- **Memory budget:** 8 concurrent submissions, 256 pending scopes plus the
+  existing in-flight scopes, and at most 12 retained messages per scope including
+  its frozen retry. A whole retry takes precedence over fresh chat; overflow
+  drops the oldest fresh messages. No timer, polling, dependency or prompt growth.
+- **Ordering:** serialize submissions for one scope and try a failed batch only
+  once per flush, followed by its fresh tail after success. Merging old and new
+  chat would save bookkeeping but breaks request identity, so it is rejected.
+- **Storage budget:** reuse the existing store lock with one operation-local path
+  snapshot. No additional file reads/writes or config lock are needed; changing
+  directories remains available without interrupting an old write.
+- **Failure/rollback:** retain the existing bounded retry and unavailable audit
+  paths; disable personalized memory to stop new memory submissions. Directory
+  changes can be reverted after in-flight operations settle. No on-disk migration
+  is introduced. Regression tests must preserve both directories and compare the
+  complete retry payload, not only final profile counts.
+
 ## Limitations And Rollback
 
 - Viewer profiles are local plugin data and do not provide cross-device synchronization.
