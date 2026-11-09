@@ -261,8 +261,9 @@ async def test_context_and_announcement_rejections_are_not_reported_as_submitted
 
 @pytest.mark.asyncio
 async def test_essential_prompt_overflow_skips_without_pushing(monkeypatch):
-    def reject_budget(text, *, kind):
+    def reject_budget(text, *, kind, allow_current_input_excerpt):
         assert kind == "speech"
+        assert allow_current_input_excerpt
         raise PromptBudgetExceeded()
 
     monkeypatch.setattr(dispatcher_module, "prepare_live_delivery_text", reject_budget)

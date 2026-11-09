@@ -6,6 +6,8 @@ import inspect
 import io
 import os
 import re
+import uuid
+from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
@@ -19,6 +21,8 @@ from ..core.prompt_delivery import (
     prepare_live_delivery_text,
 )
 from ..core.recent_output_families import spent_output_text
+from ..core.runtime_live_session import is_current_live_session_event
+from .host_reply_reader import HostReplyReader, ReplyScope
 from .output_contract_bridge import (
     max_reply_chars_for_request,
     metadata_for_request,
@@ -307,15 +311,26 @@ def _append_plugin_output_contract(
     *,
     metadata: dict[str, Any],
     plugin: Any,
+    recent_host_replies: tuple[str, ...] = (),
 ) -> str:
     if any(line.startswith("NEKO Live short output contract:") for line in text.splitlines()):
         return text
+    local_replies = _recent_live_reply_values(plugin)
     contract = render_contract_instruction(
         [{"metadata": metadata}],
-        recent_live_replies=_recent_live_reply_values(plugin),
+        recent_live_replies=None if recent_host_replies else local_replies,
     ).strip()
     if not contract:
         return text
+    if recent_host_replies:
+        from ..core.live_output_memory import render_recent_reply_avoidance
+
+        # Keep the shared six-example window on optional lines. Appending the
+        # compact renderer's inline suffix would make it part of a required
+        # contract line and could reject an otherwise deliverable request.
+        avoidance = render_recent_reply_avoidance([*local_replies, *recent_host_replies])
+        if avoidance:
+            contract = "\n".join((contract, *avoidance))
     base = text.rstrip()
     return f"{base}\n\n{contract}" if base else contract
 
@@ -524,10 +539,64 @@ def _force_exact_live_reply_prompt(reply: str, request: InteractionRequest) -> s
     return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class ReplyPreparation:
+    scope: ReplyScope
+    epoch: int
+    replies: tuple[str, ...]
+
+
 class NekoDispatcher:
     def __init__(self, plugin: Any, *, runtime: Any = None) -> None:
         self.plugin = plugin
         self.runtime = runtime
+        self._reply_reader = HostReplyReader(plugin)
+        self._reply_reader_epoch = 0
+
+    def reset_reply_reader(self) -> None:
+        self._reply_reader_epoch += 1
+        self._reply_reader.reset()
+
+    def close_reply_reader(self) -> None:
+        self._reply_reader_epoch += 1
+        self._reply_reader.close()
+
+    def reopen_reply_reader(self) -> None:
+        self._reply_reader_epoch += 1
+        self._reply_reader.reopen()
+
+    def _reply_scope(self, request: InteractionRequest) -> ReplyScope | None:
+        runtime = self.runtime or getattr(self.plugin, "runtime", None)
+        if (
+            runtime is None or not request.should_push or request.dry_run
+            or request.event.source not in _NEKO_LIVE_LIVE_SOURCES
+            or getattr(runtime, "_stopping", False)
+            or not getattr(runtime, "_accepting_live_events", False)
+            or getattr(getattr(runtime, "config", None), "dry_run", False)
+            or not is_current_live_session_event(runtime, request.event)
+        ):
+            return None
+        target = _resolve_target_lanlan(
+            self.plugin, request, live_target_lanlan=self.live_target_lanlan(),
+        )
+        if not target:
+            return None
+        return ReplyScope(
+            target=target,
+            session_generation=int(getattr(runtime, "_live_session_generation", 0) or 0),
+            operation_id=int(getattr(runtime, "_live_listener_operation_id", 0) or 0),
+        )
+
+    async def prepare_recent_replies(self, request: InteractionRequest) -> ReplyPreparation | None:
+        scope = self._reply_scope(request)
+        if scope is None:
+            return None
+        epoch = self._reply_reader_epoch
+        replies = await self._reply_reader.prepare(scope)
+        return ReplyPreparation(scope, epoch, tuple(replies))
+
+    def reply_preparation_current(self, prepared: ReplyPreparation, request: InteractionRequest) -> bool:
+        return prepared.epoch == self._reply_reader_epoch and prepared.scope == self._reply_scope(request)
 
     def current_target_lanlan(self) -> str:
         """Resolve the character selected by the action that starts a session."""
@@ -727,7 +796,12 @@ class NekoDispatcher:
         await _await_push_submission(result)
         return f"developer_mode_announced(target={target_lanlan or 'default'})"
 
-    async def push_roast(self, request: InteractionRequest) -> str:
+    async def push_roast(
+        self, request: InteractionRequest, *, prepared_replies: ReplyPreparation | None = None,
+    ) -> str:
+        if prepared_replies is not None and not self.reply_preparation_current(prepared_replies, request):
+            request.should_push = False
+            request.reason = "live_session.stale"
         if not request.should_push:
             reason = request.reason or "request marked as non-deliverable"
             return f"skipped_to_neko(reason={reason})"
@@ -783,22 +857,6 @@ class NekoDispatcher:
         if forced_reply:
             metadata["forced_reply_reason"] = "unverified_support_claim"
             parts[0]["text"] = _force_exact_live_reply_prompt(forced_reply, request)
-        parts[0]["text"] = _append_plugin_output_contract(
-            str(parts[0].get("text") or ""),
-            metadata=metadata,
-            plugin=self.plugin,
-        )
-        parts[0]["text"] = _prepend_danmaku_visible_target_lock(
-            str(parts[0].get("text") or ""),
-            metadata,
-            request,
-        )
-        parts[0]["text"] = _prepend_live_audience_speaker_lock(
-            str(parts[0].get("text") or ""),
-            metadata,
-            request,
-            has_avatar_image=image_part_bytes > 0,
-        )
         runtime = self.runtime or getattr(self.plugin, "runtime", None)
         room_status = _current_room_live_status(runtime)
         audience_contexts = [("", False)]
@@ -814,23 +872,45 @@ class NekoDispatcher:
                 audience_count_context = f"- Current room only: Bilibili reports {count} online now."
                 compact_count_context = f"- Room online: {count} now."
             audience_contexts[:0] = [(audience_count_context, False), (compact_count_context, True)]
-        # Audience context must not turn an otherwise deliverable reply into a skip.
+        # Drop host observations before excerpting the current input, even
+        # when the builder has no repeat rule that lets the fitter trim them.
         base_text = str(parts[0].get("text") or "")
-        for context, compact in audience_contexts:
-            prepared = _prepend_live_delivery_boundary(
-                base_text, request, room_status=room_status, audience_count_context=context, compact=compact,
+        reply_windows = [prepared_replies.replies if prepared_replies is not None else ()]
+        if reply_windows[0]:
+            reply_windows.append(())
+        for recent_host_replies in reply_windows:
+            contracted = _append_plugin_output_contract(
+                base_text, metadata=metadata, plugin=self.plugin,
+                recent_host_replies=recent_host_replies,
             )
-            try:
-                parts[0]["text"] = prepare_live_delivery_text(prepared, kind="speech")
-                break
-            except PromptBudgetExceeded:
+            contracted = _prepend_danmaku_visible_target_lock(contracted, metadata, request)
+            contracted = _prepend_live_audience_speaker_lock(
+                contracted, metadata, request, has_avatar_image=image_part_bytes > 0,
+            )
+            for context, compact in audience_contexts:
+                prepared = _prepend_live_delivery_boundary(
+                    contracted, request, room_status=room_status, audience_count_context=context, compact=compact,
+                )
+                try:
+                    parts[0]["text"] = prepare_live_delivery_text(
+                        prepared, kind="speech", allow_current_input_excerpt=not recent_host_replies,
+                    )
+                    break
+                except PromptBudgetExceeded:
+                    continue
+            else:
                 continue
+            break
         else:
             request.should_push = False
             request.reason = "dispatcher.prompt_budget_exceeded"
             return f"skipped_to_neko(reason={request.reason})"
         ai_behavior = "respond"
         coalesce_key = _coalesce_key_for_request(request, demo=is_demo_event)
+        # Keep provenance handles out of the request/result metadata stored by the plugin.
+        request_id = uuid.uuid4().hex if prepared_replies is not None else ""
+        if request_id:
+            metadata["task_id"] = request_id
         result = self.plugin.push_message(
             source="neko_live",
             visibility=[],
@@ -842,6 +922,8 @@ class NekoDispatcher:
             target_lanlan=target_lanlan or None,
         )
         await _await_push_submission(result)
+        if request_id and self.reply_preparation_current(prepared_replies, request):
+            self._reply_reader.submitted(prepared_replies.scope, request_id)
         return (
             f"queued_to_neko(target={target_lanlan}, ai_behavior=respond, "
             f"visibility=none, image_part_bytes={image_part_bytes})"

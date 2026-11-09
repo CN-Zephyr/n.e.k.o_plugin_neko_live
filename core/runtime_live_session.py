@@ -55,6 +55,9 @@ def is_current_live_session_event(runtime: Any, event: Any) -> bool:
 def begin_live_session(runtime: Any) -> int:
     """Start a fresh live session without carrying room-local state forward."""
 
+    reset_reply_reader = getattr(getattr(runtime, "dispatcher", None), "reset_reply_reader", None)
+    if callable(reset_reply_reader):
+        reset_reply_reader()
     runtime._live_session_generation = int(runtime._live_session_generation or 0) + 1
     runtime.recent_results.clear()
     runtime.runtime_timeline.clear()
@@ -98,6 +101,9 @@ def begin_live_session(runtime: Any) -> int:
 def invalidate_live_session(runtime: Any) -> int:
     """Make all work bound to the current live session immediately stale."""
 
+    reset_reply_reader = getattr(getattr(runtime, "dispatcher", None), "reset_reply_reader", None)
+    if callable(reset_reply_reader):
+        reset_reply_reader()
     runtime._live_session_generation = int(
         getattr(runtime, "_live_session_generation", 0) or 0
     ) + 1

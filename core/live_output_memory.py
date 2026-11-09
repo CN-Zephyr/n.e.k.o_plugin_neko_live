@@ -41,10 +41,10 @@ def compact_recent_reply_values(
     recent: list[str] = []
     seen: set[str] = set()
     for reply in reversed(values):
-        text = str(reply or "").strip().replace("\n", " ")
-        if not text:
-            continue
-        normalized = " ".join(text.casefold().split())
+        # Keep each example on one line, including Unicode line separators
+        # that the prompt budget fitter recognizes through splitlines().
+        text = " ".join(reply.split())
+        normalized = text.casefold()
         if normalized in seen:
             continue
         seen.add(normalized)
@@ -71,12 +71,6 @@ def render_recent_reply_avoidance(recent_live_replies: list[str] | None) -> list
     lines = [
         "- Recent NEKO Live outputs below are negative examples; do not continue or paraphrase them.",
     ]
-    for reply in recent_reply_values:
-        text = str(reply or "").strip().replace("\n", " ")
-        if not text:
-            continue
-        lines.append(f"  - Avoid repeating: {text}")
-    if len(lines) == 1:
-        return []
+    lines.extend(f"  - Avoid repeating: {reply}" for reply in recent_reply_values)
     lines.append("- Answer the current live event from a fresh angle even if the topic is similar.")
     return lines

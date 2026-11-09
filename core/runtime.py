@@ -96,6 +96,9 @@ class LiveRuntime(
 
     async def start(self) -> None:
         self._stopping = False
+        reopen_reply_reader = getattr(getattr(self, "dispatcher", None), "reopen_reply_reader", None)
+        if callable(reopen_reply_reader):
+            reopen_reply_reader()
         self._shutdown_complete = False
         if getattr(getattr(self, "live_memory", None), "_closed", False):
             self.live_memory = None
@@ -120,6 +123,9 @@ class LiveRuntime(
 
     async def _stop_once(self) -> None:
         self._stopping = True
+        close_reply_reader = getattr(getattr(self, "dispatcher", None), "close_reply_reader", None)
+        if callable(close_reply_reader):
+            close_reply_reader()
         from .runtime_live_listener import begin_live_listener_operation
 
         begin_live_listener_operation(self)

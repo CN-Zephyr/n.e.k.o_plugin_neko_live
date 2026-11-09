@@ -47,6 +47,7 @@
 - [弹幕屏蔽](modules/danmaku_filter.md)：独立的自定义前缀屏蔽模块，包含开关、前缀编辑与保存；默认在回复、话题和记忆处理前跳过以 `!` / `！` 开头的普通弹幕。
 - [点歌](modules/song_request.md)：弹幕触发词点歌，经 `custom_music_list` 插件入队，含权限、按 UID 冷却、回复路由和面板“下一首播放”插队。
 - [提示词投送与预算](modules/prompt_delivery.md)：每条提示词的必要规则、可选上下文收束、分词降级、提交结果检查和预算失败边界。
+- [宿主实际回复读取](modules/host_reply_reader.md)：按需读取具备完整请求来源证明的宿主文本、当前会话归属校验、内存防复读窗口与旧宿主降级边界。
 - [live_room_context](modules/live_room_context.md)：在 `live_events` 既有有界窗口上实现 RoomPulse、独播 SceneState、同播被动上下文、RitualMemory 与 RoomVerdict，并记录可靠 host-turn / playback backflow 的后续边界。
 - [live_support_events](modules/live_support_events.md)：Gift / SC / Guard 的可信证据、有界优先调度、原子派发所有权、短句致谢和“提交不等于播放完成”边界。
 - [douyin_live_ingest](modules/douyin_live_ingest.md)：抖音只读 live provider、公开投影脱敏、内置托管 douyinLive bridge、事件归一化、bridge-only 可替换后端边界，以及未纳入 v1 的自动登录/签名边界。
@@ -76,6 +77,7 @@
 | 架构边界、模块边界、数据边界 | `development.md` | roadmap / guide 只写摘要并链接 |
 | 运行态观测语言、Skip Reason、Monitor Signal | `runtime-observability.md` | development / AGENTS 只写入口和必查项 |
 | 单条提示词预算、规则保留、分词降级和投送成本决策 | `modules/prompt_delivery.md` | development 只保留模块边界与入口；运行态 reason 仍以 runtime-observability 为准 |
+| 宿主实际回复读取、来源证明与有界内存防复读 | `modules/host_reply_reader.md` | development 只保留输出边界入口，不复制查询契约或成本决策 |
 | 协作规范、PR 规则、测试门禁、文档要求 | `development.md` | `AGENTS.md` 保留可执行硬规则摘要 |
 | Agent 硬规则和 Reviewer Checklist | `../AGENTS.md` | `development.md` 解释背景和理由 |
 | UI 架构、模块 UI 贡献、Hosted UI 限制、`panel_compat.tsx` 兼容入口策略 | `ui-architecture.md` | `development.md` 只保留测试门禁和短约束 |

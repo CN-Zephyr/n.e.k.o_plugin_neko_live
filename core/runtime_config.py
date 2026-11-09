@@ -120,6 +120,7 @@ async def _commit_loaded_config(runtime: Any, loaded: LiveConfig) -> LiveConfig:
             begin_live_listener_operation(runtime) if live_diff
             else int(getattr(runtime, "_live_listener_operation_id", 0) or 0)
         )
+        _reset_reply_reader_for_mode_change(runtime, loaded)
         activate_config(runtime, loaded)
         _reconcile_live_mode(runtime, old_live_mode, runtime.config.live_mode)
         runtime._config_revision += 1
@@ -134,6 +135,13 @@ async def _commit_loaded_config(runtime: Any, loaded: LiveConfig) -> LiveConfig:
         }
     await reconcile_live_listener_after_config(runtime, **pending)
     return runtime.config
+
+
+def _reset_reply_reader_for_mode_change(runtime: Any, candidate: LiveConfig) -> None:
+    if bool(runtime.config.dry_run) != bool(candidate.dry_run):
+        reset = getattr(getattr(runtime, "dispatcher", None), "reset_reply_reader", None)
+        if callable(reset):
+            reset()
 
 
 def get_config_lock(runtime: Any) -> asyncio.Lock:
@@ -173,6 +181,7 @@ async def update_config(runtime: Any, updates: dict[str, Any], *, operation_id: 
             )
         if was_listening and live_diff:
             runtime._accepting_live_events = False
+        _reset_reply_reader_for_mode_change(runtime, candidate)
         activate_config(runtime, candidate)
         _reconcile_live_mode(runtime, old_live_mode, runtime.config.live_mode)
         runtime._config_revision += 1

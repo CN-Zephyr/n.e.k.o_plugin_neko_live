@@ -39,7 +39,16 @@ async def dispatch_routed_request(
     should_mark_roasted: bool,
     mark_avatar_roast_sent: Callable[[], None],
 ) -> InteractionResult:
-    if not is_current_live_session_event(ctx, event):
+    # Read optional host observations before the final safety gate consumes its
+    # cooldown. No await is introduced between that gate and host submission.
+    prepared_replies = None
+    prepare_replies = getattr(ctx.dispatcher, "prepare_recent_replies", None)
+    if callable(prepare_replies):
+        prepared_replies = await prepare_replies(request)
+    if not is_current_live_session_event(ctx, event) or (
+        prepared_replies is not None
+        and not ctx.dispatcher.reply_preparation_current(prepared_replies, request)
+    ):
         record_timeline(
             ctx,
             event,
@@ -91,7 +100,10 @@ async def dispatch_routed_request(
     dispatcher_start = time.perf_counter()
     dispatcher_latency_ms: int | None = None
     try:
-        output = await ctx.dispatcher.push_roast(request)
+        if prepared_replies is None:
+            output = await ctx.dispatcher.push_roast(request)
+        else:
+            output = await ctx.dispatcher.push_roast(request, prepared_replies=prepared_replies)
     except Exception as exc:
         dispatcher_latency_ms = int(round((time.perf_counter() - dispatcher_start) * 1000))
         if not is_current_live_session_event(ctx, event):

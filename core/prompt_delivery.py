@@ -81,15 +81,23 @@ def prepare_live_delivery_text(
     *,
     kind: str = "speech",
     budget: int = HOST_CALLBACK_TOKEN_BUDGET,
+    allow_current_input_excerpt: bool = True,
 ) -> str:
     """Fit one outgoing live message before it is handed to the host."""
 
     if kind == "context":
         return _fit_passive_context(text, budget=budget)
-    return fit_live_callback_prompt(text, budget=budget)
+    return fit_live_callback_prompt(
+        text, budget=budget, allow_current_input_excerpt=allow_current_input_excerpt,
+    )
 
 
-def fit_live_callback_prompt(text: str, *, budget: int = HOST_CALLBACK_TOKEN_BUDGET) -> str:
+def fit_live_callback_prompt(
+    text: str,
+    *,
+    budget: int = HOST_CALLBACK_TOKEN_BUDGET,
+    allow_current_input_excerpt: bool = True,
+) -> str:
     """Return a speech prompt that stays within ``budget`` tokens."""
 
     raw = str(text or "").strip()
@@ -112,7 +120,7 @@ def fit_live_callback_prompt(text: str, *, budget: int = HOST_CALLBACK_TOKEN_BUD
         selected["topic_material"] = _compact_topic_material(selected["topic_material"])
     if _over_budget(_render(selected), budget):
         selected = _compact_speaker_references(selected)
-    selected = _fit_current_input(selected, budget)
+    selected = _fit_current_input(selected, budget, allow_excerpt=allow_current_input_excerpt)
     terms = _focus_terms(chunks.get("header") or "")
     if not terms:
         terms = _focus_terms(chunks.get("target") or "")
@@ -185,11 +193,15 @@ def _compact_topic_material(block: str) -> str:
     )
 
 
-def _fit_current_input(selected: dict[str, str], budget: int) -> dict[str, str]:
+def _fit_current_input(
+    selected: dict[str, str], budget: int, *, allow_excerpt: bool,
+) -> dict[str, str]:
     """Shorten only current-input values, keeping all other required text intact."""
 
     if not _over_budget(_render(selected), budget):
         return selected
+    if not allow_excerpt:
+        raise PromptBudgetExceeded()
     input_blocks = ("header", "target", "lead")
     sizes = [
         len(match["value"])
