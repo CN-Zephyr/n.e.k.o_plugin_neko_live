@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -37,6 +38,19 @@ _RECENT_PROFILE_CACHE_LIMIT = 200
 
 class ViewerStoreUnavailableError(OSError):
     """档案文件存在但暂时读不了；变更操作必须放弃写回，避免覆盖真实档案。"""
+
+
+@dataclass
+class _StoreLocation:
+    """Storage ownership pinned for one read/modify/write operation."""
+
+    file: Path
+    custom: bool
+    fallback_file: Path | None
+
+    @property
+    def active_file(self) -> Path:
+        return self.fallback_file or self.file
 
 
 class ViewerStore:
@@ -140,6 +154,17 @@ class ViewerStore:
                 )
         return file, bool(configured)
 
+    def _store_location(self) -> _StoreLocation:
+        file, custom = self._resolve_file()
+        return _StoreLocation(file, custom, self._active_fallback_file)
+
+    def _activate_fallback(self, location: _StoreLocation, fallback: Path) -> None:
+        location.fallback_file = fallback
+        # A concurrent dashboard read may already have selected a new config.
+        # Do not attach the old operation's fallback to that other directory.
+        if self._fallback_source == location.file:
+            self._active_fallback_file = fallback
+
     @staticmethod
     def _file_signature(file: Path) -> tuple[int, int, int] | None:
         try:
@@ -237,6 +262,7 @@ class ViewerStore:
         self,
         *,
         include_expired: bool = False,
+        location: _StoreLocation | None = None,
     ) -> tuple[dict[str, dict[str, Any]], bool]:
         """返回 (档案, 是否可安全写回)。
 
@@ -244,13 +270,14 @@ class ViewerStore:
         调用方不得把这份空结果写回，否则会覆盖掉整份真实档案。
         内容损坏（非 JSON / 顶层非对象）时先改名隔离成 ``.corrupt-*`` 备份，再按空库继续。
         """
-        file, custom = self._resolve_file()
+        location = location or self._store_location()
+        file = location.file
         candidates: list[Path] = []
-        if self._active_fallback_file is not None:
-            if self._fallback_marker(file).exists() and not self._active_fallback_file.exists():
+        if location.fallback_file is not None:
+            if self._fallback_marker(file).exists() and not location.fallback_file.exists():
                 self._audit_load_failure("active fallback store is missing")
                 return {}, False
-            candidates.append(self._active_fallback_file)
+            candidates.append(location.fallback_file)
         else:
             # The ordinary default database is not an unclaimed custom path's
             # fallback: it may belong to a different configuration/source.
@@ -275,7 +302,6 @@ class ViewerStore:
                 continue
             if not unreadable:
                 self._load_failure_warned = False
-            self._active_fallback_file = candidate if candidate != file else None
             profiles: dict[str, dict[str, Any]] = {}
             for key, value in data.items():
                 if not isinstance(value, dict):
@@ -314,9 +340,12 @@ class ViewerStore:
         self,
         *,
         include_expired: bool = False,
+        location: _StoreLocation | None = None,
     ) -> dict[str, dict[str, Any]]:
         """变更路径专用：档案读不了时抛错，绝不拿空结果覆盖真实档案。"""
-        profiles, writable = await self._load_profiles(include_expired=include_expired)
+        profiles, writable = await self._load_profiles(
+            include_expired=include_expired, location=location,
+        )
         if not writable:
             raise ViewerStoreUnavailableError("viewer profile store is temporarily unreadable")
         return profiles
@@ -326,7 +355,8 @@ class ViewerStore:
 
         async with self._lock:
             try:
-                profiles = await self._load_for_write(include_expired=True)
+                location = self._store_location()
+                profiles = await self._load_for_write(include_expired=True, location=location)
             except ViewerStoreUnavailableError:
                 return {
                     "pruned": 0,
@@ -341,7 +371,7 @@ class ViewerStore:
             pruned = len(profiles) - len(active)
             applied = True
             if pruned:
-                applied = await self._save_all(active, allow_fallback=False)
+                applied = await self._save_all(active, allow_fallback=False, location=location)
                 if applied:
                     self._audit(
                         "viewer_profiles_retention_prune",
@@ -359,10 +389,12 @@ class ViewerStore:
         profiles: dict[str, dict[str, Any]],
         *,
         allow_fallback: bool = True,
+        location: _StoreLocation | None = None,
     ) -> bool:
-        file, custom = self._resolve_file()
-        write_target = self._active_fallback_file or file
-        if custom and self._active_fallback_file is not None and write_target != self._fallback_file(file):
+        location = location or self._store_location()
+        file, custom = location.file, location.custom
+        write_target = location.active_file
+        if custom and location.fallback_file is not None and write_target != self._fallback_file(file):
             # Migrate the earlier marker format without overwriting its shared
             # default file. The marker switches only after the scoped copy exists.
             write_target = self._fallback_file(file)
@@ -370,7 +402,7 @@ class ViewerStore:
                 return False
             if not await asyncio.to_thread(self._write_json, self._fallback_marker(file), self._fallback_ownership(file)):
                 return False
-            self._active_fallback_file = write_target
+            self._activate_fallback(location, write_target)
             self._update_recent_cache(profiles, file=write_target)
             return True
         if await asyncio.to_thread(self._write_json, write_target, profiles):
@@ -382,7 +414,7 @@ class ViewerStore:
             marker = self._fallback_marker(file)
             ownership = self._fallback_ownership(file)
             if await asyncio.to_thread(self._write_json, fallback, profiles) and await asyncio.to_thread(self._write_json, marker, ownership):
-                self._active_fallback_file = fallback
+                self._activate_fallback(location, fallback)
                 self._update_recent_cache(profiles, file=fallback)
                 if not self._fallback_warned:
                     self._audit("viewer_store_fallback", f"自定义目录不可写，已回退默认目录：{fallback.parent}")
@@ -405,7 +437,8 @@ class ViewerStore:
         if not uid:
             return ViewerProfile(uid="", nickname=nickname, avatar_url=avatar_url)
         try:
-            profiles = await self._load_for_write()
+            location = self._store_location()
+            profiles = await self._load_for_write(location=location)
         except ViewerStoreUnavailableError:
             # 读不到真实档案时只给本次事件一个临时画像，不写盘。
             return ViewerProfile(
@@ -446,7 +479,7 @@ class ViewerStore:
                 last_seen_at=now,
             )
         profiles[uid] = profile.to_dict()
-        await self._save_all(profiles)
+        await self._save_all(profiles, location=location)
         return profile
 
     async def record_live_danmaku(
@@ -463,7 +496,8 @@ class ViewerStore:
             avatar_url = _safe_profile_text(identity.avatar_url)
             if not uid:
                 return ViewerProfile(uid="", nickname=nickname, avatar_url=avatar_url)
-            profiles = await self._load_for_write()
+            location = self._store_location()
+            profiles = await self._load_for_write(location=location)
             item = _safe_profile_item(profiles.get(uid) or {"uid": uid}, fallback_uid=uid)
             memory_enabled = (
                 self._memory_enabled()
@@ -527,7 +561,7 @@ class ViewerStore:
                 last_interaction_at=now,
             )
             profiles[uid] = profile.to_dict()
-            await self._save_all(profiles)
+            await self._save_all(profiles, location=location)
             return profile
 
     async def mark_roasted(self, uid: str, output: str) -> bool:
@@ -539,7 +573,8 @@ class ViewerStore:
         if not safe_uid:
             return False
         try:
-            profiles = await self._load_for_write()
+            location = self._store_location()
+            profiles = await self._load_for_write(location=location)
         except ViewerStoreUnavailableError:
             return False
         item = _safe_profile_item(profiles.get(safe_uid) or {"uid": safe_uid}, fallback_uid=safe_uid)
@@ -547,7 +582,7 @@ class ViewerStore:
         item["last_roast_at"] = utc_now_iso()
         item["last_result"] = _safe_profile_text(output)
         profiles[safe_uid] = _safe_profile_item(item, fallback_uid=safe_uid)
-        return await self._save_all(profiles)
+        return await self._save_all(profiles, location=location)
 
     async def has_roasted(self, uid: str) -> bool:
         profiles = await self._load_all()
@@ -579,30 +614,29 @@ class ViewerStore:
         async with self._lock:
             if requested <= _RECENT_PROFILE_CACHE_LIMIT and self._recent_cache_matches_store():
                 return copy.deepcopy(self._recent_cache[:requested])
-            profiles, readable = await self._load_profiles()
+            location = self._store_location()
+            profiles, readable = await self._load_profiles(location=location)
             if not readable:
                 return _recent_profile_projection(profiles, requested)
-            self._update_recent_cache(profiles)
+            self._update_recent_cache(profiles, file=location.active_file)
             if requested <= _RECENT_PROFILE_CACHE_LIMIT:
                 return copy.deepcopy(self._recent_cache[:requested])
             return _recent_profile_projection(profiles, requested)
 
     async def clear_profiles(self) -> dict[str, Any]:
         async with self._lock:
+            location = self._store_location()
             try:
-                profiles = await self._load_for_write()
+                profiles = await self._load_for_write(location=location)
             except ViewerStoreUnavailableError:
                 profiles, persisted = {}, False
             else:
-                persisted = await self._save_all({}, allow_fallback=False)
+                persisted = await self._save_all({}, allow_fallback=False, location=location)
             cleared = len(profiles)
-            file, _custom = self._resolve_file()
-            if self._active_fallback_file is not None:
-                file = self._active_fallback_file
             return {
                 "cleared": cleared if persisted else 0,
                 "applied": persisted,
-                "path": str(file),
+                "path": str(location.active_file),
             }
 
     async def delete_profile(self, uid: str) -> dict[str, Any]:
@@ -610,23 +644,21 @@ class ViewerStore:
         if not key:
             raise ValueError("uid is required")
         async with self._lock:
+            location = self._store_location()
             try:
-                profiles = await self._load_for_write()
+                profiles = await self._load_for_write(location=location)
             except ViewerStoreUnavailableError:
                 profiles, persisted = {}, False
                 found = False
             else:
                 found = key in profiles
                 profiles.pop(key, None)
-                persisted = await self._save_all(profiles, allow_fallback=False)
-            file, _custom = self._resolve_file()
-            if self._active_fallback_file is not None:
-                file = self._active_fallback_file
+                persisted = await self._save_all(profiles, allow_fallback=False, location=location)
             return {
                 "uid": key,
                 "deleted": bool(found and persisted),
                 "applied": persisted,
-                "path": str(file),
+                "path": str(location.active_file),
             }
 
     async def reset_profile_impression(self, uid: str) -> dict[str, Any]:
@@ -646,7 +678,8 @@ class ViewerStore:
         )
         async with self._lock:
             # 读不了时直接抛 OSError，避免被上层误报成“档案不存在”。
-            profiles = await self._load_for_write()
+            location = self._store_location()
+            profiles = await self._load_for_write(location=location)
             item = profiles.get(key)
             found = isinstance(item, dict)
             persisted = False
@@ -657,16 +690,13 @@ class ViewerStore:
                     else:
                         item[field] = ""
                 profiles[key] = item
-                persisted = await self._save_all(profiles, allow_fallback=False)
-            file, _custom = self._resolve_file()
-            if self._active_fallback_file is not None:
-                file = self._active_fallback_file
+                persisted = await self._save_all(profiles, allow_fallback=False, location=location)
             return {
                 "uid": key,
                 "found": found,
                 "reset": bool(found and persisted),
                 "applied": persisted,
-                "path": str(file),
+                "path": str(location.active_file),
                 "preserved_first_appearance": bool(
                     found
                     and persisted

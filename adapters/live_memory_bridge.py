@@ -31,6 +31,17 @@ class MemoryScope:
     uid: str
 
 
+@dataclass(frozen=True)
+class MemoryBatch:
+    """A submitted batch keeps its message and speaker identity on every retry."""
+
+    messages: tuple[str, ...]
+    metadata: tuple[str, int, int]
+
+    def history(self) -> list[dict[str, str]]:
+        return [{"role": "user", "content": text} for text in self.messages]
+
+
 def _subject_id(platform: str, uid: str) -> str:
     prefix = platform + ":"
     return uid if uid.startswith(prefix) else prefix + uid
@@ -106,11 +117,16 @@ class LiveMemoryBridge:
         self.runtime = runtime
         self._buckets: OrderedDict[MemoryScope, list[dict[str, str]]] = OrderedDict()
         self._metadata: dict[MemoryScope, tuple[str, int, int]] = {}
+        self._batches: dict[MemoryScope, MemoryBatch] = {}
         self._tasks: dict[asyncio.Task, MemoryScope] = {}
         self._posted_keys: OrderedDict[str, None] = OrderedDict()
+        # Retained batches own their epoch until success, rejection or discard.
+        # At most 256 pending scopes + 8 active scopes stay below this cache's cap.
         self._epoch_cache: OrderedDict[str, int] = OrderedDict()
         self._unavailable_reason = ""
         self._closed = False
+        self._closing = False
+        self._flushing = 0
 
     def _enabled(self) -> bool:
         return not self._closed and getattr(getattr(self.runtime, "config", None), "viewer_memory_enabled", False) is True
@@ -120,12 +136,28 @@ class LiveMemoryBridge:
             if uid is None or scope.uid == uid:
                 self._buckets.pop(scope, None)
                 self._metadata.pop(scope, None)
+        for scope in list(self._batches):
+            if uid is None or scope.uid == uid:
+                self._drop_batch(scope)
         for task, scope in list(self._tasks.items()):
             if uid is None or scope.uid == uid:
                 task.cancel()
         if uid is None:
             self._posted_keys.clear()
             self._epoch_cache.clear()
+
+    def _drop_batch(self, scope: MemoryScope) -> None:
+        batch = self._batches.pop(scope, None)
+        if batch is not None:
+            scope_key = json.dumps([scope.target, scope.platform, scope.session, scope.uid])
+            self._epoch_cache.pop(_batch_key(scope_key, batch.history()), None)
+
+    def _trim_fresh_messages(self, scope: MemoryScope) -> None:
+        batch = self._batches.get(scope)
+        room = _MAX_PENDING_MESSAGES - (len(batch.messages) if batch else 0)
+        bucket = self._buckets.get(scope)
+        if bucket is not None:
+            del bucket[: max(0, len(bucket) - room)]
 
     def note_exchange(
         self, *, uid: str, nickname: str, user_text: str, assistant_text: str = "",
@@ -146,57 +178,106 @@ class LiveMemoryBridge:
         if scope not in self._buckets and len(self._buckets) >= _MAX_BUCKETS:
             old, _ = self._buckets.popitem(last=False)
             self._metadata.pop(old, None)
+            if old not in self._tasks.values():
+                self._drop_batch(old)
         bucket = self._buckets.setdefault(scope, [])
         bucket.append({"role": "user", "content": user_line[:500]})
-        del bucket[:-_MAX_PENDING_MESSAGES]
+        self._trim_fresh_messages(scope)
         previous = self._metadata.get(scope, (safe_uid, 0, 0))
         self._metadata[scope] = (
             " ".join(str(nickname or previous[0]).split())[:64],
             max(previous[1], int(guard_level)), max(previous[2], int(medal_level)),
         )
         # Submission receipts are not generated assistant speech.
-        if len(bucket) >= _BATCH_MESSAGES:
+        if len(bucket) >= _BATCH_MESSAGES or scope in self._batches:
             self._schedule(scope)
 
-    def _schedule(self, scope: MemoryScope) -> None:
-        if len(self._tasks) >= _MAX_TASKS or not self._buckets.get(scope):
+    def _schedule(self, scope: MemoryScope) -> MemoryBatch | None:
+        if len(self._tasks) >= _MAX_TASKS or scope in self._tasks.values():
+            return None
+        if not self._buckets.get(scope) and scope not in self._batches:
             return
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
-        messages = self._buckets.pop(scope)
-        metadata = self._metadata.pop(scope, (scope.uid, 0, 0))
-        task = loop.create_task(self._submit(scope, messages, metadata))
+        batch = self._batches.get(scope)
+        if batch is None:
+            messages = self._buckets.pop(scope)
+            metadata = self._metadata.pop(scope, (scope.uid, 0, 0))
+            batch = MemoryBatch(tuple(message["content"] for message in messages), metadata)
+            self._batches[scope] = batch
+        elif not self._buckets.get(scope):
+            self._buckets.pop(scope, None)
+            self._metadata.pop(scope, None)
+        task = loop.create_task(self._submit(scope, batch))
         self._tasks[task] = scope
-        task.add_done_callback(self._tasks.pop)
+        task.add_done_callback(self._task_done)
+        return batch
 
-    async def _submit(self, scope: MemoryScope, messages: list[dict[str, str]], metadata: tuple[str, int, int]) -> None:
+    def _task_done(self, task: asyncio.Task) -> None:
+        scope = self._tasks.pop(task)
+        if (
+            not self._flushing and not self._closing and self._enabled() and scope not in self._batches
+            and len(self._buckets.get(scope, [])) >= _BATCH_MESSAGES
+        ):
+            self._schedule(scope)
+
+    async def _submit(self, scope: MemoryScope, batch: MemoryBatch) -> None:
+        metadata = batch.metadata
         try:
-            saved = await self.post_viewer(scope.uid, metadata[0], messages, scope=scope, guard_level=metadata[1], medal_level=metadata[2])
+            saved = await self.post_viewer(scope.uid, metadata[0], batch.history(), scope=scope, guard_level=metadata[1], medal_level=metadata[2])
         except asyncio.CancelledError:
+            if self._batches.get(scope) is batch:
+                self._drop_batch(scope)
             raise
         except Exception as exc:
             self._remember_unavailable(type(exc).__name__)
             saved = False
+        if self._batches.get(scope) is not batch:
+            return
         if saved is False and self._enabled():
             if scope in self._buckets or len(self._buckets) < _MAX_BUCKETS:
-                self._buckets[scope] = (messages + self._buckets.get(scope, []))[-_MAX_PENDING_MESSAGES:]
-                self._metadata[scope] = metadata
+                # Reserve capacity for the complete retry; never re-key old
+                # messages by merging them with newly arrived chat.
+                self._buckets.setdefault(scope, [])
+                self._trim_fresh_messages(scope)
+                return
+        self._drop_batch(scope)
+        if not self._buckets.get(scope):
+            self._buckets.pop(scope, None)
+            self._metadata.pop(scope, None)
 
     async def flush(self) -> None:
         if not self._enabled():
             self.discard()
-        else:
-            pending = list(self._buckets)
-            for scope in pending:
-                if len(self._tasks) >= _MAX_TASKS:
+        self._flushing += 1
+        try:
+            pending = list(dict.fromkeys([*self._buckets, *self._tasks.values()]))
+            attempted = {id(self._batches[scope]) for scope in self._tasks.values() if scope in self._batches}
+            # One existing retry and one fresh batch per scope. Failed batches
+            # wait for another event/flush; this must never become a retry loop.
+            for _ in range(2):
+                for scope in pending:
+                    batch = self._batches.get(scope)
+                    if batch is not None and id(batch) in attempted:
+                        continue
+                    if len(self._tasks) >= _MAX_TASKS:
+                        await asyncio.gather(*list(self._tasks), return_exceptions=True)
+                    scheduled = self._schedule(scope)
+                    if scheduled is not None:
+                        attempted.add(id(scheduled))
+                if self._tasks:
                     await asyncio.gather(*list(self._tasks), return_exceptions=True)
-                self._schedule(scope)
-        if self._tasks:
-            await asyncio.gather(*list(self._tasks), return_exceptions=True)
+        finally:
+            self._flushing -= 1
+        if not self._flushing and not self._closing and self._enabled():
+            for scope in list(self._buckets):
+                if scope not in self._batches and len(self._buckets[scope]) >= _BATCH_MESSAGES:
+                    self._schedule(scope)
 
     async def close(self) -> None:
+        self._closing = True
         try:
             await asyncio.wait_for(self.flush(), timeout=2.0)
         finally:

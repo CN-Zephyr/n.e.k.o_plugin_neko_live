@@ -39,8 +39,10 @@ class RuntimeControlApiMixin:
     async def connect_live_room(
         self,
         room_id: Any = 0,
+        *,
+        target_lanlan: str = "",
     ) -> dict[str, Any]:
-        return await runtime_live_controls.connect_live_room(self, room_id)
+        return await runtime_live_controls.connect_live_room(self, room_id, target_lanlan=target_lanlan)
 
     async def disconnect_live_room(self) -> dict[str, Any]:
         return await runtime_live_controls.disconnect_live_room(self)

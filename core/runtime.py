@@ -133,8 +133,8 @@ class LiveRuntime(
             ("event_bus", self.event_bus.close),
             ("modules", lambda: self.registry.teardown_all(self, timeout=self._SHUTDOWN_STEP_TIMEOUT_SECONDS)),
             ("live_memory", live_memory.close if live_memory is not None else self._empty_cleanup),
-            ("developer_instructions", self.restore_developer_instructions),
-            ("live_instructions", self.restore_instructions),
+            ("developer_instructions", lambda: self._restore_shutdown_instructions(developer=True)),
+            ("live_instructions", self._restore_shutdown_instructions),
         )
         for step, operation in steps:
             try:
@@ -162,12 +162,11 @@ class LiveRuntime(
                     level="warning",
                     detail={"step": step},
                 )
-        # Restore calls use replaceable no-response overlays. Clear local
-        # markers even if host delivery was unavailable during shutdown.
-        self.developer_instructions_injected = False
-        self.instructions_injected = False
-        self.instructions_signature = ""
-        self.live_target_lanlan = ""
+        # Restore helpers clear their own markers only after submission succeeds.
+        # Keep failed cleanup bound to its original scene for an explicit retry.
+        if not self.instructions_injected:
+            self.instructions_signature = ""
+            self.live_target_lanlan = ""
         self._shutdown_complete = not (failures or cancelled)
         self.audit.record(
             "runtime_stop",
@@ -177,6 +176,22 @@ class LiveRuntime(
         )
         if cancelled:
             raise asyncio.CancelledError
+
+    async def _restore_shutdown_instructions(self, *, developer: bool = False) -> None:
+        restore = self.restore_developer_instructions if developer else self.restore_instructions
+        pending_flag = "developer_instructions_injected" if developer else "instructions_injected"
+        # Both attempts share the caller's existing shutdown-step deadline.
+        # The public restore API reports submission errors as strings and leaves
+        # this flag set; that pending state must not count as completed cleanup.
+        for attempt in range(2):
+            if attempt:
+                # A synchronous rejection may not yield inside restore(). Give
+                # the existing transport loop a chance to clear backpressure.
+                await asyncio.sleep(0)
+            await restore()
+            if not getattr(self, pending_flag):
+                return
+        raise RuntimeError("instruction restore submission failed")
 
     async def _empty_cleanup(self) -> None:
         pass

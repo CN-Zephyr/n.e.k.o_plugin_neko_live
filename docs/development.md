@@ -1249,7 +1249,7 @@ uv run python -m plugin.neko_plugin_cli.cli check plugin/plugins/neko_live
 
 人工恢复正在接收事件的直播会话时，会请求现有 `live_events` 一秒 debounce 刷新本场权威快照；内容未变时由既有文本闸门抑制，变化时最多提交一个可合并的 `read` 替换项。它不新增 worker、队列、provider 请求或说话轮次；没有活动会话或总开关关闭时不触发。
 
-直播目标角色由 `core/runtime_live_target.py` 在开始监听时从 `ctx._current_lanlan` 解析并保存在 runtime 会话状态中。直播场景覆盖层、主动 `respond`、同播被动 `read` 及其过期清理都必须使用这个冻结目标；后续其他角色触发面板 action 不得接管正在运行的直播。显式断开、异常停止、启动失败收口或 runtime teardown 在完成对应场景恢复后释放目标；如果场景恢复提交失败，必须保留原目标供下一次显式停止重试，不能把清理转发给当前操作的其他角色。目标名不得写入 audit 或公开状态。直播中从 `co_stream` 切到 `solo_stream` 时，`live_events` 复用已有同键过期提交清除旧快照；反向切换复用已有一秒 debounce 发布权威空状态或当前事实。被动清理提交异常时只保留一条内存 owner 记录，不做后台重试；下一次显式开始、结束或模式切换先按原目标重试，成功前不向另一目标发布新的被动快照。不得为模式切换新增第二个上下文队列、worker、轮询或 provider 请求。
+直播目标角色由 `core/runtime_live_target.py` 由入口显式传入宿主 `_ctx.lanlan_name`，仅在连接成功且操作仍拥有当前会话时冻结到 runtime；普通面板未提供角色时沿用全局当前角色回退。直播场景覆盖层、主动 `respond`、同播被动 `read` 及其过期清理都必须使用这个冻结目标；后续其他角色触发面板 action 不得接管正在运行的直播。显式断开、异常停止、启动失败收口或 runtime teardown 在完成对应场景恢复后释放目标；如果场景恢复提交失败，必须保留原目标供下一次显式停止重试，不能把清理转发给当前操作的其他角色。目标名不得写入 audit 或公开状态。直播中从 `co_stream` 切到 `solo_stream` 时，`live_events` 复用已有同键过期提交清除旧快照；反向切换复用已有一秒 debounce 发布权威空状态或当前事实。被动清理提交异常时只保留一条内存 owner 记录，不做后台重试；下一次显式开始、结束或模式切换先按原目标重试，成功前不向另一目标发布新的被动快照。不得为模式切换新增第二个上下文队列、worker、轮询或 provider 请求。
 
 关闭插件时不能假设模型会自动忘掉历史版本注入过的常驻场景；必须发送 `NEKO_ROAST_RESTORE_INSTRUCTIONS`，用新的 `read` 上下文覆盖直播状态。恢复消息同样只走 `NekoDispatcher`，不要在 runtime、module 或 UI action 中直接调用 `plugin.push_message()`。
 开发者模式是独立的调试上下文；退出开发者模式只发送 `NEKO_ROAST_DEVELOPER_RESTORE_INSTRUCTIONS`，不要误发完整插件关闭恢复语境。
@@ -1259,6 +1259,27 @@ uv run python -m plugin.neko_plugin_cli.cli check plugin/plugins/neko_live
 B 站在线人数随涉及观众人数的单次弹幕回复发送。`bili_live_ingest` 从当前连接的 `ONLINE_RANK_COUNT.data.online_count` 提供最多 120 秒内收到的计数，收到 0 仍是有效值。dispatcher 校验监听房间与配置一致，在通过既有 pipeline 和 Safety Guard 的发言中加入一条人数说明。断开、重连、房间下播、计数过期或缺失时提示“人数未知”，模拟发言不引用真实人数。兼容门控计数仍可回退到 `data.count`，该值不进入人数提示词。人数只作为平台报告值，在被问及时回答，不能从弹幕推断，也不进存储、审计或被动房间快照。`danmaku_response` 识别“多少人”“多久”“多长时间”等不带问号的弹幕问句。
 
 人数提示仅用于当前直播间。具体时间、场次或其他观看对象可以限定逗号后的人数问题，完整的前句或插话不继承该范围。已经指向其他对象时，「这个直播间」延续前文指代，「本直播间」等明确说法才切回当前房间。紧贴问句的当前角色名可作为称呼处理。其他房间、回放和点播视频的观看人数不使用本房间在线数。游戏作为直播间观众正在观看的内容时，仍可提供当前在线数，游戏内玩家数量不使用这个值。高能榜包只更新兼容计数，不覆盖仍有效的在线样本。每次实际发言最多增加一行，仍受 1000 token 回调预算约束。取不到可靠值时提示未知。超预算时先压缩直播场景说明并保留在线数或未知约束，精简后仍无法容纳才省略额外人数说明。不增加请求、轮询或模型调用。回归检查见 `tests/test_live_scene_boundary.py`、`tests/test_viewer_evidence.py` 和 `tests/test_output_contract.py`。
+
+### Shutdown restoration and verification (2026-11-09)
+
+Runtime shutdown inspects the pending instruction flags after each restore call;
+an error string is not a successful restoration. It makes at most two attempts
+within the existing 0.25-second step deadline, yielding once between attempts.
+Failure retains the live scene owner and pending flag, records the existing
+`runtime_stop_step_failed` audit, and leaves shutdown incomplete. This is a
+bounded cleanup retry, not a retry of spoken output or a background worker.
+Accepted submission only means the SDK accepted the tombstone; it does not
+prove that the host has consumed it. Successful shutdown remains idempotent.
+
+Decision Points for the user-requested repair: preserve the existing shutdown
+deadline and API shape; prefer one bounded retry over unconditional success or
+unbounded retries; preserve recovery state on failure. No ongoing CPU, storage,
+network polling or dependency cost is added. Tests in
+`test_plugin_shutdown_safety.py` cover rejection/recovery, permanent rejection,
+timeout and repeated stop. Role tests in `test_runtime_live_controls.py` use the
+actual SDK facade and verify that superseded connects cannot claim another
+operation's target. The corresponding song, Twitch and storage repair contracts
+are maintained in their module documents, not duplicated here.
 
 ## Douyin Live Bridge
 

@@ -176,6 +176,34 @@ class _Client:
         self.closed.set()
 
 
+class _RefreshingLookupClient(_Client):
+    def __init__(self, **callbacks: Any) -> None:
+        super().__init__(**callbacks)
+        self.refresh_task: asyncio.Task[None] | None = None
+
+    async def login(self, **_kwargs: Any) -> None:
+        return None
+
+    async def add_token(self, access_token: str, refresh_token: str) -> None:
+        await super().add_token(access_token, refresh_token)
+        # TwitchIO dispatches token_refreshed separately from add_token().
+        self.refresh_task = asyncio.create_task(
+            self.callbacks["on_token_refreshed"](
+                SimpleNamespace(
+                    user_id="42",
+                    token="lookup-access",
+                    refresh_token="lookup-refresh",
+                    scopes=Scopes(["user:read:chat"]),
+                    expires_in=3600,
+                )
+            )
+        )
+
+    async def fetch_users(self, **kwargs: Any) -> list[Any]:
+        await asyncio.sleep(0)
+        return await super().fetch_users(**kwargs)
+
+
 def _context(module: TwitchLiveIngestModule, store: _Store) -> SimpleNamespace:
     credential = {
         "access_token": "secret-access",
@@ -245,6 +273,222 @@ def _context(module: TwitchLiveIngestModule, store: _Store) -> SimpleNamespace:
     context.restore_instructions = restore_instructions
     context.restore_calls = restore_calls
     return context
+
+
+@pytest.mark.asyncio
+async def test_temporary_room_lookup_persists_refreshed_credentials_before_first_connection() -> None:
+    clients: list[_RefreshingLookupClient] = []
+
+    def factory(**callbacks: Any) -> _RefreshingLookupClient:
+        client = _RefreshingLookupClient(**callbacks)
+        clients.append(client)
+        return client
+
+    store = _Store()
+    module = TwitchLiveIngestModule(client_factory=factory)
+    module.ctx = _context(module, store)
+
+    status = await module.lookup_room_status("target_channel")
+    assert clients[0].refresh_task is not None
+    await asyncio.wait_for(clients[0].refresh_task, timeout=1)
+
+    assert status.ok is True
+    assert len(store.saved) == 1
+    assert store.saved[0]["access_token"] == "lookup-access"
+    assert store.saved[0]["refresh_token"] == "lookup-refresh"
+    assert module.ctx.twitch_credential == store.saved[0]
+    assert module.ctx.twitch_auth.credential_generation == 1
+    assert clients[0].closed.is_set()
+    assert module.is_listening() is False
+
+
+@pytest.mark.asyncio
+async def test_temporary_room_lookup_refresh_uses_reauthorization_after_listener_stops() -> None:
+    clients: list[_Client] = []
+
+    def factory(**callbacks: Any) -> _Client:
+        client = _Client(**callbacks) if not clients else _RefreshingLookupClient(**callbacks)
+        clients.append(client)
+        return client
+
+    store = _Store()
+    module = TwitchLiveIngestModule(client_factory=factory)
+    module.ctx = _context(module, store)
+    assert await module.start_listening("target_channel") is True
+    await module.stop_listening()
+    auth = module.ctx.twitch_auth
+    replacement = {
+        **module.ctx.twitch_credential,
+        "access_token": "replacement-access",
+        "refresh_token": "replacement-refresh",
+    }
+    assert await auth._commit_credential(replacement, auth.credential_generation) == "saved"
+
+    status = await module.lookup_room_status("target_channel")
+    lookup_client = clients[1]
+    assert isinstance(lookup_client, _RefreshingLookupClient)
+    assert lookup_client.refresh_task is not None
+    await asyncio.wait_for(lookup_client.refresh_task, timeout=1)
+
+    assert status.ok is True
+    assert lookup_client.tokens == [("replacement-access", "replacement-refresh")]
+    assert len(store.saved) == 2
+    assert store.saved[-1]["access_token"] == "lookup-access"
+    assert store.saved[-1]["refresh_token"] == "lookup-refresh"
+    assert module.ctx.twitch_credential == store.saved[-1]
+    assert auth.credential_generation == 2
+    assert all(client.closed.is_set() for client in clients)
+
+
+@pytest.mark.asyncio
+async def test_temporary_room_lookup_waits_for_async_refresh_persistence_before_close() -> None:
+    save_started = asyncio.Event()
+    resume_save = asyncio.Event()
+    clients: list[_RefreshingLookupClient] = []
+
+    class _BlockingStore(_Store):
+        async def save(self, payload: dict[str, Any]) -> bool:
+            save_started.set()
+            await resume_save.wait()
+            return await super().save(payload)
+
+    def factory(**callbacks: Any) -> _RefreshingLookupClient:
+        client = _RefreshingLookupClient(**callbacks)
+        clients.append(client)
+        return client
+
+    store = _BlockingStore()
+    module = TwitchLiveIngestModule(client_factory=factory)
+    module.ctx = _context(module, store)
+    lookup_task = asyncio.create_task(module.lookup_room_status("target_channel"))
+    try:
+        await asyncio.wait_for(save_started.wait(), timeout=1)
+        assert not lookup_task.done()
+        assert not clients[0].closed.is_set()
+    finally:
+        resume_save.set()
+        status = await asyncio.wait_for(lookup_task, timeout=1)
+        if clients and clients[0].refresh_task is not None:
+            await asyncio.wait_for(clients[0].refresh_task, timeout=1)
+
+    assert status.ok is True
+    assert len(store.saved) == 1
+    assert store.saved[0]["access_token"] == "lookup-access"
+    assert clients[0].closed.is_set()
+
+
+@pytest.mark.asyncio
+async def test_temporary_room_lookup_timeout_keeps_refresh_serialized_with_logout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "plugin.plugins.neko_live.modules.twitch_live_ingest._TEMPORARY_REFRESH_TIMEOUT_SECONDS",
+        0.01,
+    )
+    save_started = asyncio.Event()
+    resume_save = asyncio.Event()
+    clients: list[_RefreshingLookupClient] = []
+
+    class _DelayedStore(_Store):
+        async def save(self, payload: dict[str, Any]) -> bool:
+            save_started.set()
+            await resume_save.wait()
+            return await super().save(payload)
+
+    def factory(**callbacks: Any) -> _RefreshingLookupClient:
+        client = _RefreshingLookupClient(**callbacks)
+        clients.append(client)
+        return client
+
+    store = _DelayedStore()
+    module = TwitchLiveIngestModule(client_factory=factory)
+    module.ctx = _context(module, store)
+    logout_task: asyncio.Task[list[str]] | None = None
+
+    try:
+        status = await asyncio.wait_for(module.lookup_room_status("target_channel"), timeout=1)
+        assert status.ok is False
+        assert status.message == "twitch refreshed credential save timed out"
+        assert save_started.is_set()
+        assert clients[0].refresh_task is not None
+        assert not clients[0].refresh_task.done()
+        assert clients[0].closed.is_set()
+        assert store.saved == []
+        logout_task = asyncio.create_task(module.ctx.twitch_auth.delete_credential())
+        await asyncio.sleep(0)
+        assert not logout_task.done()
+        assert module.ctx.twitch_credential["access_token"] == "secret-access"
+    finally:
+        resume_save.set()
+        if clients and clients[0].refresh_task is not None:
+            await asyncio.wait_for(clients[0].refresh_task, timeout=1)
+        if logout_task is not None:
+            await asyncio.wait_for(logout_task, timeout=1)
+
+    assert clients[0].refresh_task.done()
+    assert not clients[0].refresh_task.cancelled()
+    assert len(store.saved) == 1
+    assert module.ctx.twitch_credential is None
+    assert module.ctx.twitch_auth.credential_generation == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("credential_change", ["logout", "reauthorize", "switch_account"])
+async def test_temporary_room_lookup_does_not_restore_superseded_credentials(
+    credential_change: str,
+) -> None:
+    lookup_started = asyncio.Event()
+    resume_lookup = asyncio.Event()
+    clients: list[_RefreshingLookupClient] = []
+
+    class _DeferredLookupClient(_RefreshingLookupClient):
+        async def fetch_users(self, **kwargs: Any) -> list[Any]:
+            lookup_started.set()
+            await resume_lookup.wait()
+            return await super().fetch_users(**kwargs)
+
+    def factory(**callbacks: Any) -> _RefreshingLookupClient:
+        original_refresh = callbacks["on_token_refreshed"]
+
+        async def deferred_refresh(payload: Any) -> None:
+            await resume_lookup.wait()
+            await original_refresh(payload)
+
+        callbacks["on_token_refreshed"] = deferred_refresh
+        client = _DeferredLookupClient(**callbacks)
+        clients.append(client)
+        return client
+
+    store = _Store()
+    module = TwitchLiveIngestModule(client_factory=factory)
+    module.ctx = _context(module, store)
+    lookup_task = asyncio.create_task(module.lookup_room_status("target_channel"))
+    try:
+        await asyncio.wait_for(lookup_started.wait(), timeout=1)
+        auth = module.ctx.twitch_auth
+        if credential_change == "logout":
+            await auth.delete_credential()
+            expected_credential = None
+        else:
+            expected_credential = {
+                **module.ctx.twitch_credential,
+                "user_id": "84" if credential_change == "switch_account" else "42",
+                "access_token": "replacement-access",
+                "refresh_token": "replacement-refresh",
+            }
+            assert await auth._commit_credential(expected_credential, auth.credential_generation) == "saved"
+        saved_count = len(store.saved)
+        generation = auth.credential_generation
+    finally:
+        resume_lookup.set()
+        await asyncio.wait_for(lookup_task, timeout=1)
+        if clients and clients[0].refresh_task is not None:
+            await asyncio.wait_for(clients[0].refresh_task, timeout=1)
+
+    assert module.ctx.twitch_credential == expected_credential
+    assert len(store.saved) == saved_count
+    assert auth.credential_generation == generation
+    assert clients[0].closed.is_set()
 
 
 @pytest.mark.asyncio

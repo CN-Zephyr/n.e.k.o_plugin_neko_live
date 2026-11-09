@@ -1,7 +1,8 @@
 # twitch_live_ingest
 
 `twitch_live_ingest` is NEKO Live's read-only Twitch provider. It uses
-`twitchio==3.2.2` for Helix and EventSub WebSocket delivery, while NEKO owns the
+the host-provided TwitchIO library (validated here with `3.3.2`) for Helix and
+EventSub WebSocket delivery, while NEKO owns the
 client-secret-free Device Code Flow and encrypted token persistence.
 
 The provider module keeps TwitchIO and its concrete client implementation lazy.
@@ -29,6 +30,20 @@ codes remain in memory. TwitchIO is always started with
 creates `.tio.tokens.json` or starts its OAuth web adapter. A TwitchIO token
 refresh callback must replace both rotated tokens through the encrypted store;
 if that save fails, the listener stops in `auth_required` state.
+
+Temporary room lookups capture their own credential snapshot and auth generation;
+they never reuse an earlier listener's token state. The refresh callback commits
+against that snapshot, so a concurrent logout or reauthorization supersedes it.
+TwitchIO dispatches this callback asynchronously: lookup waits up to 2 seconds for
+already-dispatched saves before closing its client. A timeout returns a failed
+lookup without canceling an in-flight guarded filesystem write, allowing logout
+to wait for that write and then delete safely. There is no new poller or worker.
+
+**Repair decision (2026-11-09):** keep token persistence in the existing auth/store
+boundary, with the bounded 2-second drain above, rather than simply initializing
+the listener generation or canceling an active write. The regression suite covers
+fresh lookup, old-listener reauthorization, logout/account-switch races, save before
+close, and timeout ownership. No scope, dependency or credential format changes.
 
 Credential validation and Device Flow completion use an in-memory credential
 generation. Logout advances that generation and deletes the encrypted files as
