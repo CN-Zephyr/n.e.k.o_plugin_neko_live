@@ -117,6 +117,19 @@ def test_audit_store_redacts_assignment_style_authorization_values() -> None:
     assert "PROXY-SECRET" not in repr(event)
 
 
+def test_audit_store_redacts_oauth_authorization_values() -> None:
+    store = AuditStore()
+    store.record(
+        "provider_failure",
+        "request failed: Authorization: OAuth synthetic-credential; retry later",
+        detail={"reason": """'proxy_authorization': 'oAuTh synthetic-proxy'"""},
+    )
+
+    event = store.recent(1)[0]
+    assert event["message"] == "request failed: [redacted]; retry later"
+    assert event["detail"]["reason"] == "[redacted]"
+
+
 def test_audit_store_redacts_python_mapping_style_secret_text() -> None:
     store = AuditStore()
 

@@ -227,6 +227,9 @@ class FakeBiliAuth:
         self.error = error
         self.checks = 0
 
+    async def delete_credential(self, delete):
+        return await delete()
+
     async def check_credential(self) -> dict[str, object]:
         self.checks += 1
         if self.error is not None:
@@ -1276,6 +1279,41 @@ async def test_handle_manual_event_requires_developer_mode(runtime: LiveRuntime)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["handle_sandbox_target", "handle_manual_event"])
+async def test_disabling_developer_mode_blocks_inflight_speech(
+    runtime: LiveRuntime, monkeypatch: pytest.MonkeyPatch, action: str,
+) -> None:
+    await runtime.set_live_room(123)
+    runtime.viewer_profile.ctx = runtime
+    assert await runtime._start_live_listener(123)
+    await runtime.update_config({"developer_tools_enabled": True, "dry_run": False})
+    resolving, release = asyncio.Event(), asyncio.Event()
+
+    async def resolve(event: ViewerEvent) -> ViewerIdentity:
+        resolving.set()
+        await release.wait()
+        return ViewerIdentity(uid=event.uid, nickname=event.nickname)
+
+    monkeypatch.setattr(runtime.bili_identity, "resolve", resolve)
+    submit = getattr(runtime, action)
+    pending = asyncio.create_task(submit(uid="42", nickname="viewer", danmaku_text="hello"))
+    try:
+        await asyncio.wait_for(resolving.wait(), timeout=1)
+        await runtime.update_config({"developer_tools_enabled": False})
+        submissions = len(runtime.plugin.pushed_messages)
+    finally:
+        release.set()
+        result = await asyncio.wait_for(pending, timeout=1)
+
+    assert result.status == "skipped"
+    assert result.reason == "permission.developer_tools_disabled"
+    assert len(runtime.plugin.pushed_messages) == submissions
+    assert runtime.safety_guard.queue_size == 0
+    assert runtime.runtime_timeline[-1]["stage"] == "safety_guard.before_output"
+    assert runtime.runtime_timeline[-1]["reason"] == "permission.developer_tools_disabled"
+
+
+@pytest.mark.asyncio
 async def test_handle_manual_event_uses_selected_live_provider_identity(runtime: LiveRuntime) -> None:
     runtime.config.developer_tools_enabled = True
     runtime.config.live_enabled = True
@@ -1995,7 +2033,7 @@ def test_runtime_health_rows_do_not_stringify_public_projection_objects(runtime:
             "last_selected_type": value,
         }
     )
-    runtime.recent_results.append(
+    runtime.recent_diagnostics.append(
         {
             "status": value,
             "reason": value,
@@ -2899,6 +2937,7 @@ async def test_idle_and_warmup_hosting_controls_block_manual_and_automatic_trigg
 async def test_auto_idle_hosting_skips_when_previous_idle_has_no_viewer_reply(
     runtime: LiveRuntime,
 ) -> None:
+    runtime._idle_hosting_now = lambda: 50.0
     runtime.config.live_room_id = 123
     runtime.config.live_enabled = True
     runtime.config.dry_run = True
@@ -2934,6 +2973,7 @@ async def test_auto_idle_hosting_skips_when_previous_idle_has_no_viewer_reply(
 async def test_auto_idle_hosting_runs_after_viewer_replies_to_previous_idle(
     runtime: LiveRuntime,
 ) -> None:
+    runtime._idle_hosting_now = lambda: 50.0
     runtime.config.live_room_id = 123
     runtime.config.live_enabled = True
     runtime.config.dry_run = True
@@ -2968,6 +3008,7 @@ async def test_auto_idle_hosting_runs_after_viewer_replies_to_previous_idle(
 async def test_auto_idle_hosting_skips_after_two_hosting_outputs_without_viewer_reply(
     runtime: LiveRuntime,
 ) -> None:
+    runtime._idle_hosting_now = lambda: 50.0
     runtime.config.live_room_id = 123
     runtime.config.live_enabled = True
     runtime.config.dry_run = True
@@ -2990,6 +3031,14 @@ async def test_auto_idle_hosting_skips_after_two_hosting_outputs_without_viewer_
             )
         )
 
+    result = await runtime.maybe_trigger_idle_hosting()
+
+    assert result is not None
+    assert result.status == "skipped"
+    assert result.reason == "idle_hosting.no_viewer_response"
+
+    assert runtime.clear_recent_diagnostics()
+    runtime._idle_hosting_now = lambda: 50.0 + runtime._idle_hosting_min_interval_seconds() + 1.0
     result = await runtime.maybe_trigger_idle_hosting()
 
     assert result is not None
@@ -3214,6 +3263,7 @@ async def test_trigger_idle_hosting_skips_when_live_state_is_not_idle(runtime: L
 
 @pytest.mark.asyncio
 async def test_auto_idle_hosting_triggers_when_solo_stream_is_idle(runtime: LiveRuntime) -> None:
+    runtime._idle_hosting_now = lambda: 50.0
     runtime.config.live_room_id = 123
     runtime.config.live_enabled = True
     runtime.config.dry_run = True
@@ -3228,6 +3278,7 @@ async def test_auto_idle_hosting_triggers_when_solo_stream_is_idle(runtime: Live
     assert result.status == "dry_run"
     assert result.event.source == "idle_hosting"
     assert runtime.recent_results[-1]["event"]["source"] == "idle_hosting"
+    assert await runtime.maybe_trigger_idle_hosting() is None
 
 
 @pytest.mark.asyncio
@@ -3704,6 +3755,7 @@ async def test_disconnect_live_room_exits_cached_live_prompt_context(runtime: Li
 def test_safety_guard_blocks_live_like_output_when_disconnected(
     runtime: LiveRuntime,
 ) -> None:
+    runtime.config.developer_tools_enabled = True
     runtime.safety_guard.set_connected(False)
 
     for source in (

@@ -21,9 +21,6 @@ class ViewerProfileModule(BaseModule):
         return await self.ctx.viewer_store.record_live_danmaku(
             identity,
             danmaku_text,
-            remember_preferences=bool(
-                getattr(self.ctx.config, "viewer_memory_enabled", True)
-            ),
         )
 
     async def has_roasted(self, uid: str) -> bool:

@@ -68,12 +68,15 @@ async def dispatch_routed_request(
 
     output_decision = ctx.safety_guard.before_output(event)
     if not output_decision.allowed:
+        reason = output_decision.reason
+        if reason not in {"queue.cleared", "permission.developer_tools_disabled"}:
+            reason = output_decision.status
         record_timeline(
             ctx,
             event,
             stage="safety_guard.before_output",
             status="skipped",
-            reason=output_decision.reason if output_decision.reason == "queue.cleared" else output_decision.status,
+            reason=reason,
             route=response_module_id,
         )
         return skip_before_output(

@@ -11,7 +11,7 @@ def runtime_health_rows(runtime: Any) -> list[dict[str, Any]]:
     ingest = _module_status(getattr(runtime, "live_provider", None))
     event_bus = _module_status(runtime.event_bus)
     selection = _module_status(runtime.live_events)
-    latest = runtime.recent_results[-1] if runtime.recent_results else {}
+    latest = runtime.recent_diagnostics[-1] if runtime.recent_diagnostics else {}
     latest_status = _public_text(latest.get("status")) if isinstance(latest, dict) else ""
     latest_reason = _public_text(latest.get("reason")) if isinstance(latest, dict) else ""
     latest_age = (

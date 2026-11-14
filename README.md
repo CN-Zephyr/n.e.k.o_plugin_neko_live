@@ -7,7 +7,7 @@
 历史上的“新观众头像锐评”现在只是一个互动模块。当前产品还包含：
 
 - B 站登录、直播间查询/确认和实时弹幕接入；
-- 实验性抖音只读 bridge 接入；
+- 实验性抖音只读接入，仅带桥接程序的 Windows x64 源码版可用。正式安装包不含 `douyinLive.exe`，无法监听抖音。详见[抖音接入说明](docs/modules/douyin_live_ingest.md)；
 - Twitch 首阶段只读接入，包含 Device Code 授权、频道状态查询、EventSub 聊天与可见支持事件；
 - 首次出场锐评与后续普通弹幕接话；
 - Gift / SC / Guard 可信支持事件的短句致谢；
@@ -32,7 +32,7 @@
 - 直播间配置支持房号或直播链接，并要求“查询直播间 → 核对结果 → 确认直播间”两步完成；底部主按钮只有在账号与直播间准备完成后才可使用。
 - B 站扫码登录凭据加密存本机，并用于头像抓取、弹幕连接和直播间查询；开始 B 站监听必须已经登录。抖音仍要求导入并校验 cookie。注销只删除本地凭据，暂不做发弹幕 / 私信等写能力。
 - 开始直播后，真实观众事件统一经过 EventBus、选择窗口、pipeline、安全门和 `NekoDispatcher`；爆量房间在冷却窗口内按价值（舰长 / SC / 粉丝牌 / 等级 / 长文本）择优。
-- 观众档案本地 JSON 持久化：落本机插件默认目录下的 `viewer_profiles.json`。个性化记忆默认开启，只学习安全派生偏好、不保存原始弹幕，90 天未互动会惰性清理；关闭个性化不会破坏基础档案、首次出场判断或本场防复读。普通用户可清空全部档案，或对单 UID 重置印象 / 删除档案。自定义存储位置当前仍不向主播开放。
+- 观众档案默认保存到本机插件数据目录的 `viewer_profiles.json`。个性化记忆默认开启，可保留筛选后的话语片段和偏好，并向 N.E.K.O. 宿主提交记忆。本地档案在 90 天未互动后清理，面板支持重置印象、删除或清空档案。面板只展示实际存储位置，维护者可在插件配置中手动设置 `viewer_store_dir`。详见[观众数据与隐私](docs/quickstart.md#观众数据与隐私)。
 - B 站 UID / 昵称 / 头像解析，含头像形态 META（默认头像 / 动图 / 挂件装扮）。
 - 弹幕锐评请求构造：自适应焦点（昵称与头像哪个更有料就主打哪个，看不到的头像不脑补），并通过 NEKO 当前人设输出。
 - 安全测试态（`dry_run`）：产品默认关闭，避免普通用户在不了解该概念时误以为插件已经真实输出。开发者或试播人员需要无声验链时应主动开启；开启后整条 pipeline 照常跑（身份解析、头像抓取、锐评 prompt 构造），但不真的让猫猫开口。
@@ -63,4 +63,4 @@
 
 ## 许可证
 
-本插件按 [GNU AGPL-3.0-or-later](LICENSE) 提供。修改后分发本插件，或通过网络向他人提供修改后的版本，都须按同一许可证公开对应源码。N.E.K.O. 主程序仍是 Apache-2.0，不受影响。第三方组件、参考来源与历史版本说明见 [NOTICE](NOTICE)：`modules/bili_live_ingest/livedanmaku.py` 按 GPL-3.0 提供，内置 `douyinLive` bridge 保留其 [MIT 许可证](vendor/douyin_bridge/windows-amd64/LICENSE.douyinLive)。
+本插件按 [GNU AGPL-3.0-or-later](LICENSE) 提供。第三方组件、参考来源、历史版本和贡献署名见 [NOTICE](NOTICE)。`modules/bili_live_ingest/livedanmaku.py` 按 GPL-3.0 提供，源码仓库中的 `douyinLive` 桥接保留其 [MIT 许可证](vendor/douyin_bridge/windows-amd64/LICENSE.douyinLive)。

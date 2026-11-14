@@ -70,7 +70,7 @@ def test_hosted_ui_manifest_entry_is_main_branch_compatible():
     assert "import type" not in source
     assert "window.NekoUiKit" not in source
     assert "__modules" not in source
-    assert "panel.platform.incompleteSuffix" in source
+    assert "panel.platform.douyinSourceOnly" in source
 
 
 def test_hosted_ui_compat_entry_keeps_full_live_controls():
@@ -389,7 +389,7 @@ def test_console_keeps_live_control_inline_with_priority_readiness_hint() -> Non
         assert 't("panel.pacing.standard")' in source
         assert 't("panel.pacing.slow")' in source
         assert "void connectRoom()" in source
-        assert 'const canStart = roomConfigured' in source
+        assert 'const canStart = !douyinUnavailable && roomConfigured' in source
         assert "primaryStatusLabel" in toolbar_source
         assert "primaryStatusTone" in toolbar_source
         assert "showSafetyStatus" in toolbar_source
@@ -526,14 +526,8 @@ def test_co_stream_pause_fill_has_no_manual_operator_surface() -> None:
 
 def test_live_room_entries_are_platform_neutral():
     root = Path(__file__).resolve().parents[1]
-    with (root / "plugin.toml").open("rb") as handle:
-        manifest = tomllib.load(handle)
-
-    checked_values = {
-        "plugin.toml:plugin.description": manifest["plugin"]["description"],
-    }
+    checked_values = {}
     room_entry_keys = {
-        "plugin.description",
         "entries.set_live_room.description",
         "entries.lookup_live_room.description",
     }
@@ -1482,7 +1476,8 @@ def test_panel_live_session_controls_are_transition_safe_and_refresh_aware() -> 
         assert 'const connectionTransitioning = ["connecting", "authenticating", "reconnecting"]' in source
         assert "const sessionInProgress = started || !!config.live_enabled || sessionStartAccepted" in source
         assert "if (startAccepted) setSessionStartAccepted(true)" in source
-        assert '(dialog === "account" || dialog === "room") && sessionInProgress' in source
+        assert 'dialog === "room" && sessionInProgress' in source
+        assert "disabled={sessionInProgress || consoleSaving || !!authPending}" in source
         assert 'const [authPending, setAuthPending] = useState("")' in source
         assert "const [developerPending, setDeveloperPending] = useState(false)" in source
         assert "const [refreshFailureCount, setRefreshFailureCount] = useState(0)" in source

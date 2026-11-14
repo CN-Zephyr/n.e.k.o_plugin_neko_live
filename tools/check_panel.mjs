@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const root = process.argv[3] ? resolve(process.argv[3]) : resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const host = resolve(process.argv[2] || process.env.NEKO_UI_HOST_ROOT || '../neko')
 const requireHost = createRequire(resolve(host, 'frontend/plugin-manager/package.json'))
 const { transform } = requireHost('sucrase')
@@ -75,11 +75,12 @@ try {
   await new Promise(resolve => setTimeout(resolve, 100))
   assert.equal(calls, 2)
   assert.match(container.textContent, /viewer/)
-  const clickButton = (label, last = false) => {
+  const findButton = (label, last = false) => {
     const buttons = [...window.document.querySelectorAll('button')].filter(button => button.textContent.trim() === label)
     assert.ok(buttons.length, `missing button ${label}`)
-    buttons[last ? buttons.length - 1 : 0].click()
+    return buttons[last ? buttons.length - 1 : 0]
   }
+  const clickButton = (label, last = false) => findButton(label, last).click()
   clickButton('viewer')
   await new Promise(resolve => setTimeout(resolve, 20))
   clickButton('panel.actions.resetViewerImpression')
@@ -112,6 +113,61 @@ try {
   } } })
   assert.deepEqual(await kit.api.call('new_action_after_startup', {}), { accepted: true })
   assert.equal(sent[0].payload.actionId, 'new_action_after_startup')
+
+  const douyinContainer = window.document.createElement('main')
+  window.document.body.append(douyinContainer)
+  const douyinActions = []
+  let failLogout = true
+  const renderDouyinPanel = (bridgeAvailable, listening = false) => kit.render(kit.h(window.__Panel, {
+    state: {
+      store_enabled: true,
+      config: { live_platform: 'douyin', live_room_ref: '1234' },
+      modules: [{ id: 'douyin_live_ingest', status: { bridge_available: bridgeAvailable } }],
+      live_connection: listening ? { state: 'connected', connected: true } : {},
+    },
+    t: key => key,
+    api: { refresh: async () => {}, call: async action => {
+      douyinActions.push(action)
+      if (action === 'douyin_cookie_status') return { logged_in: true }
+      if (action === 'douyin_cookie_delete') {
+        return failLogout ? { logged_out: false, logout_error: 'credential_removal_failed' } : { logged_out: true }
+      }
+      return {}
+    } },
+  }), douyinContainer)
+  renderDouyinPanel(false)
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.match(window.document.body.textContent, /panel\.onboarding\.privacyBody/)
+  assert.match(window.document.body.textContent, /panel\.onboarding\.privacyAction/)
+  clickButton('panel.actions.cancel')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(findButton('panel.console.preparation.notReady').disabled, true)
+  clickButton('panel.console.manage')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.match(window.document.body.textContent, /panel\.platform\.douyinSourceOnly/)
+  assert.match(window.document.body.textContent, /panel\.douyinAuth\.bridgeUnavailable/)
+  assert.equal(findButton('panel.actions.douyinCookieImport').disabled, true)
+  assert.equal(findButton('panel.actions.douyinCookieValidate').disabled, true)
+  renderDouyinPanel(true, true)
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(findButton('panel.actions.douyinCookieDelete').disabled, false, 'logout is available while listening')
+  clickButton('panel.actions.douyinCookieDelete')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.ok(douyinActions.includes('douyin_cookie_delete'), 'existing credentials remain removable')
+  const accountDialog = window.document.querySelector('[role="dialog"]')
+  assert.ok(accountDialog.textContent.includes('panel.auth.logoutFailed'))
+  failLogout = false
+  clickButton('panel.actions.douyinCookieDelete')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(douyinActions.filter(action => action === 'douyin_cookie_delete').length, 2)
+  assert.doesNotMatch(accountDialog.textContent, /panel\.auth\.logoutFailed/)
+  renderDouyinPanel(true)
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.match(window.document.body.textContent, /panel\.douyinAuth\.bridgeNetworkHint/)
+  assert.doesNotMatch(window.document.body.textContent, /panel\.douyinAuth\.bridgeUnavailable/)
+  assert.equal(findButton('panel.actions.douyinCookieImport').disabled, false)
+  kit.render(null, douyinContainer)
+
   window.localStorage.setItem('neko-live:onboarding:v2', 'done')
   const panelContainer = window.document.createElement('main')
   window.document.body.append(panelContainer)
@@ -121,6 +177,10 @@ try {
   kit.render(kit.h(window.__Panel, {
     state: panelState, t: key => key,
     api: { refresh: async () => {}, call: async (action, payload) => {
+      if (action === 'clear_recent_diagnostics') {
+        settingsCalls.push(action)
+        return { cleared: true }
+      }
       assert.equal(action, 'update_config')
       if (rejectSettings) throw new Error('test save failure')
       settingsCalls.push(JSON.parse(JSON.stringify(payload)))
@@ -201,7 +261,19 @@ try {
   getAnalysisToggle().click()
   await new Promise(resolve => setTimeout(resolve, 30))
   assert.deepEqual(settingsCalls.pop(), { avatar_analysis_enabled: true })
-  console.log('UI typecheck, compilation, profile actions, custom filter settings and action forwarding passed')
+  clickButton('panel.actions.cancel', true)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  clickButton('panel.tabs.settings')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  clickButton('panel.settings.privacyTab')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  clickButton('panel.actions.clearRecentDiagnostics')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(settingsCalls.length, 0, 'opening the dialog does not clear diagnostics')
+  clickButton('panel.actions.clearRecentDiagnostics', true)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(settingsCalls, ['clear_recent_diagnostics'])
+  console.log('UI typecheck, compilation, onboarding, bridge availability, logout, profile actions, settings and action forwarding passed')
 } finally {
   await window.happyDOM.close()
 }

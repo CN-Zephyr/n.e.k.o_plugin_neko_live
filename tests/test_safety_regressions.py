@@ -220,6 +220,48 @@ async def test_bili_login_check_clears_session_when_credential_save_fails():
     assert cleanup_calls == 1
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["waiting-for-platform", "saving"])
+async def test_bili_logout_supersedes_in_flight_qr_login(runtime, tmp_path, monkeypatch, phase):
+    entered, release = asyncio.Event(), asyncio.Event()
+    states = SimpleNamespace(SCAN=object(), CONF=object(), TIMEOUT=object(), DONE=object())
+
+    class Session:
+        async def check_state(self):
+            if phase == "waiting-for-platform":
+                entered.set()
+                await release.wait()
+            return states.DONE
+
+        def get_credential(self):
+            return SimpleNamespace(sessdata="synthetic-qr", dedeuserid="")
+
+    original_save = runtime.credential_store.save
+
+    async def save(payload):
+        entered.set()
+        await release.wait()
+        return await original_save(payload)
+
+    if phase == "saving":
+        monkeypatch.setattr(runtime.bili_auth, "_credential_saver", save)
+    monkeypatch.setattr(runtime.bili_auth, "_login_session", Session())
+    monkeypatch.setattr(runtime.bili_auth, "_require_login_sdk", lambda: (object, states))
+    checking = asyncio.create_task(runtime.bili_login_check())
+    await asyncio.wait_for(entered.wait(), timeout=5)
+    logging_out = asyncio.create_task(runtime.bili_logout())
+    try:
+        await asyncio.sleep(0)
+        assert runtime.bili_auth._login_session is None
+    finally:
+        release.set()
+    result, logout = await asyncio.gather(checking, logging_out)
+    assert logout["logged_out"] is True
+    assert result["status"] == "no_session"
+    assert runtime.bili_credential is None
+    assert not (tmp_path / "bili_credential.enc").exists()
+
+
 class _CredentialCheckStub:
     def __init__(self, *, valid: bool = True, uid: str = "42") -> None:
         self.valid = valid

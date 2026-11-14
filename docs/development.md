@@ -618,6 +618,7 @@ ViewerEvent
 
 - Hosted UI 的 UID 查询、模拟弹幕、内置案例按钮必须禁用。
 - 后端 `submit_viewer_event`、`lookup_only`、动态聊天工具 entry 也必须拒绝执行，不能只依赖前端禁用。
+- 已进入 pipeline 的沙盒和手动模拟请求，在异步准备完成后由 `safety_guard.before_output` 复查开发者模式，关闭时跳过，不扣冷却。
 - runtime 只发送 `NEKO_ROAST_DEVELOPER_RESTORE_INSTRUCTIONS` 退出调试态，仍保留直播锐评语境。
 - 不清空 `recent_sandbox_results`，不清空头像 preview cache，不影响观众档案或直播总结。
 - “清空沙盒记录”仍可用，因为它是清理动作，不触发查询、pipeline 或 NEKO 输出。
@@ -655,6 +656,8 @@ host 的 `update_own_config`（把配置写回 `plugin.toml`）在「只重后�
 1. **先内存生效**：`_activate_config(LiveConfig.from_mapping(...))` 一步把新配置装进 `self.config`（gate / safety_guard 共享同一对象，即时权威）；若改了 `developer_tools_enabled` 顺带 `sync_developer_mode`。
 2. **再带预算尽力持久化**：`persist_config_best_effort` 用 `asyncio.wait_for(asyncio.shield(task), timeout=_CONFIG_PERSIST_BUDGET_SECONDS)`（默认 4.0s）。超时只结束插件侧等待，宿主写仍可能完成；task 带着 `_config_revision`，完成后若 revision 已变则再写当前配置，避免迟到写入盖掉更新值。超时记 `config_persist_timeout`、失败记 `config_persist_failed`，**都不回滚已生效的内存配置**。
 3. **串行化**：`asyncio.Lock` 覆盖旧配置快照、内存 apply、提示词副作用和持久化。listener reconcile 在锁外执行，避免 20s ready 把保存设置卡死在锁里。平台或房间变化时必须先捕获并停止旧平台的具体 provider 实例，再启动新平台；不能在激活新配置后通过动态 router 反查并误停新 provider。
+
+切换目标或停用直播时以 provider 的 `has_listener()` 判定是否需要清理。认证、连接、重连或清理中的监听资源也归旧 provider 管理。面板的 `is_listening()` 继续表示当前能够接收事件。新操作接管后，旧操作仍可清理已离开的平台，但不能更新新会话的状态。断开回调只有在 provider 和房间仍属于当前直播目标时才能改变运行时连接态。
 
 平台切换若没有在同一 patch 中提供新 `live_room_ref`，必须清空旧平台目标、旧数字房号和 `live_enabled`；不同 provider 的目标字符串不能互相继承。房间元数据查询完成后还必须核对当前 provider 与当前配置目标，旧房间的迟到标题、主播名、直播状态或失败结果不得覆盖新房间语境。
 
@@ -710,7 +713,7 @@ UI 侧：3 个 room action 的 `room_id` input_schema 收 `string`、handler 传
 
 **不做什么**：不做服务端 token 吊销（注销 = 本地删凭据）；v0.1 不用写能力（发弹幕/私信留待后续）。
 
-**安全模型**：凭据（SESSDATA/bili_jct/DedeUserID/buvid3）经 **Fernet 对称加密**落盘到 per-plugin data 目录（`plugin.data_path()`），密钥 `bili_credential.key` + 密文 `bili_credential.enc` 分别 `chmod 600`（非 Windows）。**凭据绝不写 audit / log / config / UI**——只回显 uid / 用户名 / 是否登录。可**本地注销**（删 key+enc）。
+**安全模型**：各平台使用独立的加密凭据命名空间。Windows 对 Fernet 密钥增加账户级 DPAPI 保护，旧格式迁移、失败降级及注销见[观众与安全存储](modules/viewer_stores.md)。凭据只用于平台操作，公开状态仅显示账号标识及登录状态。
 
 登录状态校验和“开始登录前检查既有账号”都优先复用用户资料请求；资料请求成功时不会追加第二次校验。若资料接口瞬时异常，才调用 SDK 凭据有效性检查兜底：凭据仍有效时保持登录态但暂时不返回用户名，也不会错误生成新二维码；有效性检查自己超时且本地仍有 SESSDATA 时同样保持已登录，不得当成掉线。凭据检查明确失败时才要求重新扫码。缺少可用 UID 的旧凭据也必须先通过该校验，不能仅凭本地文件存在就声明已登录。资料请求、凭据校验、二维码生成与扫码轮询都必须有短超时（资料 3s、校验 2s、既有登录检查总计 4s、生码/轮询 8s）；超时后不得继续空等到 Hosted UI 的 30s 上限。点「扫码登录」时既有登录检查超时：本地有 SESSDATA 则保持已登录，没有才出新码。该兜底不做后台轮询、不记录异常正文或凭据，只在异常路径增加一次网络请求。
 
@@ -1126,7 +1129,7 @@ Hosted UI action 会补 `_ctx.lanlan_name`，插件进程复用 `ctx._current_la
 2. 以 compatibility / facade 命名或在模块边界表中标为旧导入出口的文件不是冗余，例如 `active_topic_compat.py`、`active_topic_selection.py`、`active_topic_materials.py`、`pipeline_results.py`、`live_hosting_beats.py`、`recent_context.py` 和 `modules/_prompt_context.py`。这些文件的职责是保护旧 import、runtime mixin 和测试边界；如果要删除，必须先改调用方和契约测试。
 3. 插件 action / lifecycle 方法不是普通未引用函数：`@plugin_entry`、`@ui.action`、`@lifecycle` 注册的方法由宿主反射调用，不能按本仓搜索不到直接调用来删除。
 4. 写能力必须和只读 ingest 分离。`modules/bili_live_ingest/danmaku_core.py` 已收口为只读监听器，不再保留旧 `DanmakuListener.send_danmaku()`；未来若需要发弹幕、评论、动态或私信，只能在 `bili_write_tools` 这类独立写模块中接入，并单独做权限、登录态和安全评审。
-5. 本地运行态文件不是源码：`__pycache__` 和 `plugin.toml.lock` 可以清理，`vendor/douyin_bridge/windows-amd64/douyinLive.exe` 是内置 bridge 二进制，作为受校验的发行资产纳入版本控制，不要在普通卫生清理里删除。
+5. 本地运行态文件不是源码：`__pycache__` 和 `plugin.toml.lock` 可以清理。`vendor/douyin_bridge/windows-amd64/douyinLive.exe` 是源码版桥接资产，正式安装包排除该文件，见[发布规则](releases/README.md)。
 
 ## 数据边界
 

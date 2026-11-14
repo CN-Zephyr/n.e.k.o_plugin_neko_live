@@ -81,6 +81,8 @@ class LiveRuntime(
         self.bili_credential: Any = None  # Cached bilibili_api.Credential; None means not logged in.
         self.bili_auth = runtime_bili_auth.create_auth_service(self, plugin)
         # Douyin v1 uses manual cookie import only; no browser automation or auto-login.
+        self.douyin_credential_lock = asyncio.Lock()
+        self.douyin_credential_generation = 0
         self.douyin_credential_store = runtime_douyin_auth.create_credential_store(plugin, self.audit)
         self.douyin_credential: dict[str, Any] | None = None
         # Twitch uses official Device Code Flow; device codes remain in-memory.

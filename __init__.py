@@ -671,6 +671,16 @@ class NekoLivePlugin(NekoPluginBase):
             return Err(SdkError("developer mode is disabled"))
         return Ok({"cleared": runtime.clear_sandbox_data()})
 
+    @ui.action(id="clear_recent_diagnostics", label=tr("panel.actions.clearRecentDiagnostics"), group="privacy", refresh_context=True)
+    @plugin_entry(
+        id="clear_recent_diagnostics",
+        name=tr("panel.actions.clearRecentDiagnostics", default="清空最近直播诊断"),
+        description=tr("panel.messages.clearRecentDiagnosticsConfirm"),
+    )
+    @_err_on_exception
+    async def clear_recent_diagnostics(self, **_):
+        return Ok({"cleared": self._runtime().clear_recent_diagnostics()})
+
     @ui.action(id="clear_viewer_profiles", label=tr("entries.clear_viewer_profiles.name"), group="audience", refresh_context=True)
     @plugin_entry(id="clear_viewer_profiles", name=tr("entries.clear_viewer_profiles.name", default="清空观众档案"), description=tr("entries.clear_viewer_profiles.description", default="清空观众档案，用于下一场受控直播测试前重置首评状态。"))
     async def clear_viewer_profiles(self, **_):

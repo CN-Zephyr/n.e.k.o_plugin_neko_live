@@ -11,6 +11,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 from plugin.plugins.neko_live.core.contracts import LiveRoomStatus
+from plugin.plugins.neko_live.core.runtime import LiveRuntime
+from plugin.plugins.neko_live.core.runtime_config import apply_host_config
 from plugin.plugins.neko_live.core.runtime_live_listener import start_live_listener
 from plugin.plugins.neko_live.modules import bili_live_ingest as ingest_mod
 from plugin.plugins.neko_live.modules.bili_live_ingest import BiliLiveIngestModule, danmaku_core
@@ -71,6 +73,51 @@ class _FakeListener:
 
     def get_connection_state(self) -> dict[str, Any]:
         return {"state": "receiving" if self.ready.is_set() else "connecting", "room_id": self.room_id}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("switch_room", [True, False], ids=["room-switch", "host-disable"])
+async def test_reconnecting_listener_is_retired_on_config_change(
+    runtime: LiveRuntime, monkeypatch: pytest.MonkeyPatch, switch_room: bool,
+) -> None:
+    class ReconnectingListener(_FakeListener):
+        instances: list[_FakeListener] = []
+
+        async def start(self) -> None:
+            self.ready.set()
+            await super().start()
+
+    module = BiliLiveIngestModule()
+    module.ctx = runtime
+    runtime.bili_live_ingest = module
+    runtime.bili_credential = SimpleNamespace(check_valid=AsyncMock(return_value=True))
+    monkeypatch.setattr(danmaku_core, "DanmakuListener", ReconnectingListener)
+    monkeypatch.setattr(runtime, "bili_login_status", AsyncMock(return_value={"logged_in": True}))
+    monkeypatch.setattr(module, "lookup_room_status", AsyncMock(
+        side_effect=lambda room_id: LiveRoomStatus(room_id=room_id, ok=True, live_status="live"),
+    ))
+
+    try:
+        assert (await runtime.connect_live_room(123))["connected"]
+        old_listener = ReconnectingListener.instances[0]
+        monkeypatch.setattr(old_listener, "get_connection_state", lambda: {"state": "reconnecting", "room_id": 123})
+        assert not module.is_listening()
+
+        if switch_room:
+            await runtime.set_live_room(456)
+        else:
+            await apply_host_config(runtime, {"neko_live": {"live_enabled": False}})
+
+        assert old_listener.stopped.is_set()
+        snapshot = runtime.live_connection_snapshot()
+        assert snapshot["connected"] is switch_room
+        if switch_room:
+            assert [listener.room_id for listener in ReconnectingListener.instances] == [123, 456]
+            assert snapshot["room_id"] == module.listener_state()["room_id"] == 456
+        else:
+            assert not runtime._accepting_live_events
+    finally:
+        await module.stop_listening()
 
 
 def _module() -> BiliLiveIngestModule:

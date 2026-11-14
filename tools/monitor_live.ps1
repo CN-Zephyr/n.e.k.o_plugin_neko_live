@@ -28,8 +28,8 @@ function Write-MonitorHelp {
 NEKO Live monitor
 
 Usage:
-  powershell -NoProfile -ExecutionPolicy Bypass -File .\plugin\plugins\neko_live\tools\monitor_live.ps1 -Once
-  powershell -NoProfile -ExecutionPolicy Bypass -File .\plugin\plugins\neko_live\tools\monitor_live.ps1 -Once -ExpectRealOutput -BackendLogPath <backend-log>
+  pwsh -NoProfile -File .\plugin\plugins\neko_live\tools\monitor_live.ps1 -Once
+  pwsh -NoProfile -File .\plugin\plugins\neko_live\tools\monitor_live.ps1 -Once -ExpectRealOutput -BackendLogPath <backend-log>
 
 Important options:
   -Once              Print one snapshot and exit.

@@ -2,7 +2,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from plugin.plugins.neko_live.core import active_topic_rules
+from plugin.plugins.neko_live.core import active_topic_rules, contracts_events, contracts_interaction
 from plugin.plugins.neko_live.core.contracts import (
     InteractionRequest,
     InteractionResult,
@@ -2467,6 +2467,7 @@ def test_interaction_result_public_dict_sanitizes_public_projection_fields():
 def test_record_result_stores_sanitized_recent_result_payload():
     runtime = SimpleNamespace(
         recent_results=[],
+        recent_diagnostics=[],
         recent_sandbox_results=[],
         event_bus=SimpleNamespace(emit=lambda *_args, **_kwargs: None),
         _route_from_result=lambda _payload: "danmaku_response",
@@ -2531,6 +2532,23 @@ def test_interaction_result_public_dict_exposes_response_latency_ms():
     assert result.to_sandbox_dict()["pipeline_latency_ms"] == 2500
     assert result.to_public_dict()["dispatcher_latency_ms"] == 125
     assert result.to_sandbox_dict()["dispatcher_latency_ms"] == 125
+
+
+def test_interaction_result_uses_local_monotonic_clock_for_subsecond_latency(monkeypatch):
+    monkeypatch.setattr(contracts_events, "perf_counter_ns", lambda: 2_000_000_000)
+    monkeypatch.setattr(contracts_interaction, "perf_counter_ns", lambda: 2_125_000_000)
+    monkeypatch.setattr(contracts_events, "utc_now_iso", lambda **_: "2026-06-20T10:00:00.200+00:00")
+    monkeypatch.setattr(contracts_interaction, "utc_now_iso", lambda **_: "2026-06-20T09:59:59.100+00:00")
+
+    event = ViewerEvent(uid="42", source="live_danmaku")
+    result = InteractionResult(accepted=True, status="pushed", event=event, dispatcher_latency_ms=40)
+    monkeypatch.setattr(contracts_interaction, "perf_counter_ns", lambda: 5_000_000_000)
+
+    for projected in (result.to_public_dict(), result.to_sandbox_dict()):
+        assert projected["pipeline_latency_ms"] == projected["response_latency_ms"] == 125
+        assert projected["dispatcher_latency_ms"] == 40
+        assert "monotonic" not in json.dumps(projected)
+    assert "_local_latency_ms" not in result.to_public_dict()
 
 
 def test_permission_gate_requires_developer_tools_for_sandbox():

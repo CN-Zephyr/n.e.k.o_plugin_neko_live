@@ -29,11 +29,7 @@ from plugin.plugins.neko_live.modules.live_bridge import (
     LiveBridgeState,
     LiveBridgeTransport,
 )
-from plugin.plugins.neko_live.modules.live_bridge import process_supervisor as supervisor_module
-from plugin.plugins.neko_live.modules.live_bridge.process_supervisor import (
-    BridgeProcessSupervisor,
-    cleanup_stale_windows_processes,
-)
+from plugin.plugins.neko_live.modules.live_bridge.process_supervisor import BridgeProcessState, BridgeProcessSupervisor
 from plugin.plugins.neko_live.modules.live_support_events import LiveSupportEventsModule
 
 
@@ -355,8 +351,9 @@ async def test_douyin_start_waits_for_inflight_stop_lifecycle() -> None:
         def __init__(self) -> None:
             self.stop_calls = 0
 
-        async def stop(self) -> None:
+        async def stop(self) -> BridgeProcessState:
             self.stop_calls += 1
+            return BridgeProcessState()
 
     module = DouyinLiveIngestModule()
     transport = _Transport()
@@ -390,8 +387,9 @@ async def test_douyin_failed_transport_start_stops_embedded_supervisor() -> None
         def __init__(self) -> None:
             self.stop_calls = 0
 
-        async def stop(self) -> None:
+        async def stop(self) -> BridgeProcessState:
             self.stop_calls += 1
+            return BridgeProcessState()
 
     module = DouyinLiveIngestModule()
     supervisor = _Supervisor()
@@ -665,24 +663,6 @@ async def test_bridge_start_failure_cleans_process_without_relocking(
 
     assert process.terminated is True
     assert supervisor._process is None
-
-
-def test_stale_cleanup_targets_only_recorded_owned_pid(tmp_path, monkeypatch) -> None:
-    executable = tmp_path / "douyinLive.exe"
-    marker = tmp_path / "bridge.pid"
-    marker.write_text("321", encoding="ascii")
-    calls = []
-
-    monkeypatch.setattr(supervisor_module.os, "name", "nt")
-    monkeypatch.setattr(supervisor_module, "_ownership_marker_path", lambda _path: marker)
-    monkeypatch.setattr(supervisor_module.subprocess, "run", lambda *args, **kwargs: calls.append((args, kwargs)))
-
-    cleanup_stale_windows_processes(executable)
-
-    assert len(calls) == 1
-    assert calls[0][1]["env"]["NEKO_BRIDGE_PROCESS_ID"] == "321"
-    assert "ProcessId -eq $ownedPid" in calls[0][0][0][-1]
-    assert not marker.exists()
 
 
 @pytest.mark.asyncio

@@ -45,8 +45,9 @@ def _run_powershell_script(script: Path, args: list[str], cwd: Path) -> subproce
         [
             shell,
             "-NoProfile",
+            "-NonInteractive",
             "-ExecutionPolicy",
-            "Bypass",
+            "RemoteSigned",
             "-Command",
             command,
         ],

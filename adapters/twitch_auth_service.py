@@ -86,6 +86,7 @@ class TwitchAuthService:
             self._device_session = None
             self._log("warning", "stage=invalid_client_id flow=device_authorization")
             return _error("invalid twitch client id")
+        generation = self._credential_generation
         request_started = time.perf_counter()
         self._log(
             "info",
@@ -107,6 +108,8 @@ class TwitchAuthService:
                 f"error_type={type(exc).__name__} elapsed_ms={_elapsed_ms(request_started)}",
             )
             raise
+        if generation != self._credential_generation:
+            return _error("twitch authorization was superseded")
         self._log(
             "info",
             f"stage=response status={status} flow=device_authorization elapsed_ms={_elapsed_ms(request_started)}",
@@ -236,7 +239,7 @@ class TwitchAuthService:
             },
         )
         if self._device_session is not session:
-            return _error("twitch device authorization is not active")
+            return _error("twitch authorization was superseded")
         if status != 200:
             message = _oauth_error(data)
             if message == "slow_down":
@@ -250,7 +253,7 @@ class TwitchAuthService:
             return _error("twitch authorization failed")
         credential = await self._validated_credential(session.client_id, data)
         if self._device_session is not session:
-            return _error("twitch device authorization is not active")
+            return _error("twitch authorization was superseded")
         if credential is None:
             self._device_session = None
             return _error("twitch access token validation failed")
@@ -333,6 +336,7 @@ class TwitchAuthService:
 
         async with self._credential_mutation_lock:
             self._credential_generation += 1
+            self._device_session = None
             return await self._credential_deleter()
 
     async def _credential_snapshot(self) -> tuple[int, dict[str, Any] | None]:

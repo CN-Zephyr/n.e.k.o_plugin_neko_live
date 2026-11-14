@@ -8,6 +8,7 @@ from typing import Any
 
 from . import safety_guard_cooldown, safety_guard_failures
 from .contracts import LiveConfig, SafetyDecision, SafetyStatus, ViewerEvent
+from .permission_gate import developer_tools_disabled
 from .safety_guard_types import FailureKind
 
 _LIVE_CONNECTED_SOURCES = {
@@ -128,6 +129,9 @@ class SafetyGuard:
         generation = self._event_tasks.get(_current_task())
         if generation is not None and generation != self._queue_generation:
             return SafetyDecision(False, self.status(), "queue.cleared")
+        # Developer permissions can change while the pipeline awaits identity.
+        if event is not None and developer_tools_disabled(self.config, event.source):
+            return SafetyDecision(False, self.status(), "permission.developer_tools_disabled")
         if _requires_live_connection(event) and not self.connected:
             return SafetyDecision(
                 False, "disconnected", "live output source is disconnected"

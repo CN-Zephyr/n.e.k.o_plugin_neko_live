@@ -19,11 +19,11 @@ TriggerSource = Literal[
 SafetyStatus = Literal["running", "paused", "degraded", "tripped", "disconnected"]
 
 
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+def utc_now_iso(*, timespec: str = "seconds") -> str:
+    return datetime.now(timezone.utc).isoformat(timespec=timespec)
 
 
-def _response_latency_ms(seen_at: str, created_at: str) -> int | None:
+def _response_latency_ms(seen_at: str | None, created_at: str | None) -> int | None:
     if not seen_at or not created_at:
         return None
     try:

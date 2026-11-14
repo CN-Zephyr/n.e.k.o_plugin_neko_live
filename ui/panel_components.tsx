@@ -188,6 +188,7 @@ export function AuthCard({
   loginName,
   loginUid,
   disabled = false,
+  logoutDisabled = disabled,
   onLogin,
   onLoginCheck,
   onLogout,
@@ -198,6 +199,7 @@ export function AuthCard({
   loginName: string
   loginUid: string
   disabled?: boolean
+  logoutDisabled?: boolean
   onLogin: () => void
   onLoginCheck: () => void
   onLogout: () => void
@@ -213,13 +215,14 @@ export function AuthCard({
         {loginLoggedIn ? (
           <Grid cols={2}>
             <Button tone="info" disabled={disabled} onClick={onLoginCheck}>{t("panel.actions.biliLoginCheck")}</Button>
-            <Button tone="danger" disabled={disabled} onClick={onLogout}>{t("panel.actions.biliLogout")}</Button>
+            <Button tone="danger" disabled={logoutDisabled} onClick={onLogout}>{t("panel.actions.biliLogout")}</Button>
           </Grid>
         ) : (
           <Stack>
             <Grid cols={2}>
               <Button tone="info" disabled={disabled} onClick={onLogin}>{t("panel.actions.biliLogin")}</Button>
               <Button tone="success" disabled={disabled} onClick={onLoginCheck}>{t("panel.actions.biliLoginCheck")}</Button>
+              {loginState?.logout_error ? <Button tone="danger" disabled={logoutDisabled} onClick={onLogout}>{t("panel.actions.biliLogout")}</Button> : null}
             </Grid>
             {loginState?.qrcode_image ? (
               <Stack>

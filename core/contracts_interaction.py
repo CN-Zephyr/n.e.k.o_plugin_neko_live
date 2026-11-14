@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from time import perf_counter_ns
 from typing import Any, Literal
 
 from .contracts_events import ViewerEvent
@@ -82,12 +83,25 @@ class InteractionResult:
     output: str = ""
     reason: str = ""
     steps: list[PipelineStep] = field(default_factory=list)
-    created_at: str = field(default_factory=utc_now_iso)
+    created_at: str | None = None
     dispatcher_latency_ms: int | None = None
+    _local_latency_ms: int | None = field(default=None, init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.created_at is None:
+            finished_ns = perf_counter_ns()
+            self.created_at = utc_now_iso(timespec="milliseconds")
+            started_ns = self.event._seen_monotonic_ns
+            if started_ns is not None:
+                self._local_latency_ms = max(0, round((finished_ns - started_ns) / 1_000_000))
+
+    def _pipeline_latency_ms(self) -> int | None:
+        if self._local_latency_ms is not None:
+            return self._local_latency_ms
+        return _response_latency_ms(self.event.seen_at, self.created_at)
 
     def to_public_dict(self) -> dict[str, Any]:
-        response_latency_ms = _response_latency_ms(self.event.seen_at, self.created_at)
-        pipeline_latency_ms = response_latency_ms
+        latency_ms = self._pipeline_latency_ms()
         return {
             "accepted": public_bool(self.accepted),
             "status": _safe_result_status(self.status),
@@ -99,14 +113,13 @@ class InteractionResult:
             "reason": public_text(self.reason),
             "steps": [step.to_dict() for step in self.steps],
             "created_at": public_text(self.created_at),
-            "response_latency_ms": response_latency_ms,
-            "pipeline_latency_ms": pipeline_latency_ms,
+            "response_latency_ms": latency_ms,
+            "pipeline_latency_ms": latency_ms,
             "dispatcher_latency_ms": _safe_latency_ms(self.dispatcher_latency_ms),
         }
 
     def to_sandbox_dict(self) -> dict[str, Any]:
-        response_latency_ms = _response_latency_ms(self.event.seen_at, self.created_at)
-        pipeline_latency_ms = response_latency_ms
+        latency_ms = self._pipeline_latency_ms()
         return {
             "accepted": public_bool(self.accepted),
             "status": _safe_result_status(self.status),
@@ -116,8 +129,8 @@ class InteractionResult:
             "reason": public_text(self.reason),
             "steps": [step.to_dict() for step in self.steps],
             "created_at": public_text(self.created_at),
-            "response_latency_ms": response_latency_ms,
-            "pipeline_latency_ms": pipeline_latency_ms,
+            "response_latency_ms": latency_ms,
+            "pipeline_latency_ms": latency_ms,
             "dispatcher_latency_ms": _safe_latency_ms(self.dispatcher_latency_ms),
         }
 

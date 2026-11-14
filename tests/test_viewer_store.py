@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from threading import Event, get_ident
 
 import pytest
 from plugin.plugins.neko_live.core.contracts import ViewerIdentity
 from plugin.plugins.neko_live.core.runtime_config import apply_host_config
+from plugin.plugins.neko_live.stores import viewer_store
 from plugin.plugins.neko_live.stores.viewer_store import ViewerStore
 
 
@@ -50,7 +52,7 @@ async def test_recent_profile_projection_cache_avoids_unchanged_dashboard_reload
     async def fail_reload(*_args, **_kwargs):
         raise AssertionError("unchanged dashboard projection must not reload JSON")
 
-    monkeypatch.setattr(store, "_load_all", fail_reload)
+    monkeypatch.setattr(store, "_load_profiles", fail_reload)
     first = await store.recent_profiles(30)
     first[0]["nickname"] = "mutated"
     first[0]["preference_tags"]["question"] = 999
@@ -64,13 +66,13 @@ async def test_recent_profile_projection_cache_avoids_unchanged_dashboard_reload
 @pytest.mark.asyncio
 async def test_recent_profile_cache_rebuild_holds_writer_lock(tmp_path, monkeypatch):
     store = ViewerStore(_FakePlugin(tmp_path), audit=None)
-    original_load_all = store._load_all
+    original_load_profiles = store._load_profiles
 
-    async def load_while_locked():
+    async def load_while_locked(**kwargs):
         assert store._lock.locked() is True
-        return await original_load_all()
+        return await original_load_profiles(**kwargs)
 
-    monkeypatch.setattr(store, "_load_all", load_while_locked)
+    monkeypatch.setattr(store, "_load_profiles", load_while_locked)
 
     assert await store.recent_profiles() == []
 
@@ -140,7 +142,7 @@ async def test_directory_switch_keeps_inflight_write_and_fallback_with_its_sourc
     original_to_thread = asyncio.to_thread
 
     async def pause_source_read(func, *args, **kwargs):
-        if getattr(func, "__self__", None) == source_file and getattr(func, "__name__", "") == "read_bytes":
+        if func is viewer_store._read_profile_file and args[0] == source_file:
             entered.set()
             await resume.wait()
         return await original_to_thread(func, *args, **kwargs)
@@ -186,7 +188,7 @@ async def test_directory_switch_during_projection_read_does_not_label_old_cache_
     original_to_thread = asyncio.to_thread
 
     async def pause_source_read(func, *args, **kwargs):
-        if getattr(func, "__self__", None) == source / "viewer_profiles.json" and getattr(func, "__name__", "") == "read_bytes":
+        if func is viewer_store._read_profile_file and args[0] == source / "viewer_profiles.json":
             entered.set()
             await resume.wait()
         return await original_to_thread(func, *args, **kwargs)
@@ -202,6 +204,119 @@ async def test_directory_switch_during_projection_read_does_not_label_old_cache_
 
     assert {row["uid"] for row in old_projection} == {"source-viewer"}
     assert {row["uid"] for row in await store.recent_profiles()} == {"destination-viewer"}
+
+
+@pytest.mark.asyncio
+async def test_profile_normalization_and_projection_use_worker_thread(tmp_path, monkeypatch):
+    store = ViewerStore(_FakePlugin(tmp_path), audit=None)
+    await store.upsert_identity(ViewerIdentity(uid="existing", nickname="existing"))
+    caller_thread = get_ident()
+    normalized_threads = set()
+    projected_threads = set()
+    normalize = viewer_store._safe_profile_item
+    project = viewer_store._recent_profile_projection
+
+    def track_normalization(value, *, fallback_uid):
+        if value.get("uid") == "existing":
+            normalized_threads.add(get_ident())
+        return normalize(value, fallback_uid=fallback_uid)
+
+    def track_projection(*args, **kwargs):
+        projected_threads.add(get_ident())
+        return project(*args, **kwargs)
+
+    monkeypatch.setattr(viewer_store, "_safe_profile_item", track_normalization)
+    monkeypatch.setattr(viewer_store, "_recent_profile_projection", track_projection)
+    await store.upsert_identity(ViewerIdentity(uid="new-viewer", nickname="new"))
+
+    assert normalized_threads and caller_thread not in normalized_threads
+    assert projected_threads and caller_thread not in projected_threads
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("config_entry", "reenable"), [("panel", False), ("host", True)])
+async def test_memory_disable_invalidates_danmaku_waiting_on_profile_read(
+    runtime, tmp_path, monkeypatch, config_entry, reenable,
+):
+    store = runtime.viewer_store
+    entered, release = asyncio.Event(), asyncio.Event()
+    load = store._load_for_write
+
+    async def delayed_read(**kwargs):
+        profiles = await load(**kwargs)
+        entered.set()
+        await release.wait()
+        return profiles
+
+    monkeypatch.setattr(store, "_load_for_write", delayed_read)
+    identity = ViewerIdentity(uid="42", nickname="synthetic")
+    pending = asyncio.create_task(runtime.viewer_profile.record_live_danmaku(identity, "这个插件怎么配置？"))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        if config_entry == "host":
+            assert await apply_host_config(runtime, {"neko_live": {"viewer_memory_enabled": False}})
+        else:
+            await runtime.update_config({"viewer_memory_enabled": False})
+        assert runtime.config.viewer_memory_enabled is False
+        if reenable:
+            await runtime.update_config({"viewer_memory_enabled": True})
+    finally:
+        release.set()
+        await asyncio.wait_for(pending, timeout=2)
+
+    file = tmp_path / "viewer_profiles.json"
+    item = json.loads(file.read_text(encoding="utf-8"))["42"]
+    assert item["danmaku_count"] == 1
+    assert item["preference_tags"] == {}
+    assert item["last_interaction_summary"] == ""
+
+
+@pytest.mark.asyncio
+async def test_memory_disable_waits_for_active_disk_write_after_writer_cancellation(
+    runtime, tmp_path, monkeypatch,
+):
+    store = runtime.viewer_store
+    loop = asyncio.get_running_loop()
+    entered, disabling = asyncio.Event(), asyncio.Event()
+    release = Event()
+    write = store._write_json
+    finish_disabling = store.finish_disabling_memory
+
+    def delayed_write(file, profiles):
+        loop.call_soon_threadsafe(entered.set)
+        if not release.wait(timeout=5):
+            raise TimeoutError("test did not release the disk writer")
+        return write(file, profiles)
+
+    async def check_disabling():
+        disabling.set()
+        await finish_disabling()
+
+    monkeypatch.setattr(store, "_write_json", delayed_write)
+    monkeypatch.setattr(store, "finish_disabling_memory", check_disabling)
+    identity = ViewerIdentity(uid="42", nickname="synthetic")
+    reader = asyncio.create_task(runtime.viewer_profile.record_live_danmaku(identity, "这个插件怎么配置？"))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        reader.cancel()
+        update = asyncio.create_task(runtime.update_config({"viewer_memory_enabled": False}))
+        try:
+            await asyncio.wait_for(disabling.wait(), timeout=2)
+            assert runtime.config.viewer_memory_enabled is False
+            assert not update.done()
+            assert store._lock.locked()
+        finally:
+            release.set()
+            await asyncio.wait_for(update, timeout=2)
+        assert (tmp_path / "viewer_profiles.json").exists()
+        await runtime.viewer_profile.record_live_danmaku(identity, "还有教程吗？")
+        item = json.loads((tmp_path / "viewer_profiles.json").read_text(encoding="utf-8"))["42"]
+        assert item["danmaku_count"] == 2
+        assert item["preference_tags"]["question"] == 1
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(reader, timeout=2)
 
 
 @pytest.mark.asyncio

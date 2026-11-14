@@ -5,4 +5,5 @@ version = "3.5.1"
 dependencies = []
 
 [tool.neko.build]
+exclude_dirs = ["artifacts"]
 exclude_files = [".git", "vendor/douyin_bridge/windows-amd64/douyinLive.exe"]

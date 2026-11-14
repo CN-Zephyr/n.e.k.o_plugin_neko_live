@@ -18,6 +18,8 @@ The runtime director creates a synthetic public `ViewerEvent` only after live-mo
 
 Hosting material is read from plugin-owned live content and recent plugin runtime state. This slice does not write viewer profiles, credentials, or long-term memory. Beat selection state is in-memory and is cleared with the live runtime.
 
+The minimum interval for automatic idle hosting starts after the first attempt. A new live session has no previous attempt, so the absolute value of the monotonic clock does not impose a cooldown.
+
 Runtime Timeline uses stable hosting gate/pressure reasons from `runtime-observability.md`, including `hosting.not_ready`, `hosting.queue_pressure`, and the selected hosting route. A skipped gate is an Event Outcome, not permission to bypass Safety Guard or Dispatcher.
 
 ## Decision Points

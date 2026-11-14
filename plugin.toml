@@ -4,7 +4,7 @@ name = "直播助手"
 previous_ids = [
     "neko_roast",
 ]
-description = "NEKO 的直播互动中心：连接支持的平台直播互动，承载弹幕、观众档案与锐评流程。"
+description = "NEKO 的直播互动中心，支持 B 站和 Twitch。抖音监听需 Windows x64 源码版及桥接程序，安装包不含该程序。"
 short_description = "NEKO 的直播互动中心。"
 keywords = [
     "bilibili",
@@ -22,7 +22,7 @@ version = "3.5.1"
 entry = "plugin.plugins.neko_live:NekoLivePlugin"
 
 [plugin.author]
-name = "N.E.K.O Team"
+name = "上九天揽星辰 (CN-Zephyr)"
 
 [plugin.sdk]
 recommended = ">=0.1.0,<0.2.0"

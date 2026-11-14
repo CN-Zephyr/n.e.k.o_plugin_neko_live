@@ -44,6 +44,7 @@ safety_window_seconds = 60
 safety_pipeline_failure_limit = 3
 safety_output_failure_limit = 2
 safety_queue_overflow_limit = 3
+# 维护者可手动指定档案目录；留空使用插件数据目录，主播面板只读展示实际路径。
 viewer_store_dir = ""
 activity_level = "standard"
 co_stream_host_pause_fill_activation = "off"

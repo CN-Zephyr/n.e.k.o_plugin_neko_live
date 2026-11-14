@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import tomllib
@@ -60,6 +61,7 @@ def test_distribution_excludes_douyin_executable_and_preserves_package_files(tmp
     destination = tmp_path / "payload"
     with (REPO_ROOT / "pyproject.toml").open("rb") as handle:
         rules = load_build_rules(tomllib.load(handle))
+    assert "artifacts" in rules.exclude_dirs
     copied = PluginBuilder().copy_plugin_runtime_files(REPO_ROOT, destination, rules=rules)
     bridge_path = Path("vendor/douyin_bridge/windows-amd64")
     source_bridge = REPO_ROOT / bridge_path
@@ -67,6 +69,31 @@ def test_distribution_excludes_douyin_executable_and_preserves_package_files(tmp
     expected = (source_bridge / "CHECKSUMS.txt").read_text().split()[0]
     assert hashlib.sha256(source_binary.read_bytes()).hexdigest() == expected
     assert not (destination / bridge_path / "douyinLive.exe").exists()
+    assert not (destination / "artifacts").exists()
     assert (destination / bridge_path / "LICENSE.douyinLive").resolve() in copied
     for name in ("LICENSE", "NOTICE", "config.example.toml", "pyproject.toml"):
         assert (destination / name).resolve() in copied
+
+
+def test_market_workflows_use_one_pinned_host_revision():
+    workflows = REPO_ROOT / ".github" / "workflows"
+    revisions = []
+    for name in ("verify", "release"):
+        source = (workflows / f"{name}.yml").read_text(encoding="utf-8")
+        workflow = re.search(rf"plugin-market-{name}\.yml@([a-f0-9]{{40}})$", source, re.MULTILINE)
+        checkout = re.search(r"^ *neko-ref: ([a-f0-9]{40})$", source, re.MULTILINE)
+        assert workflow and checkout and workflow[1] == checkout[1]
+        revisions.append(workflow[1])
+    panel = (workflows / "panel.yml").read_text(encoding="utf-8")
+    assert f"ref: {revisions[0]}" in panel
+    assert revisions[0] == revisions[1]
+    assert all(re.fullmatch(r"[a-f0-9]{40}", ref) for ref in re.findall(r"uses: [^\s@]+@(\S+)", panel))
+    verify = (workflows / "verify.yml").read_text(encoding="utf-8")
+    assert f"ref: {revisions[0]}" in verify
+    assert "runs-on: windows-2025" in verify
+    assert "test_credential_store.py" in verify and "test_live_bridge.py" in verify
+    release = (workflows / "release.yml").read_text(encoding="utf-8")
+    assert f"RELEASE_HOST_SHA: {revisions[0]}" in release
+    assert "needs: release" in release
+    assert '--signer-digest "$RELEASE_HOST_SHA"' in release
+    assert '--source-digest "$SOURCE_SHA"' in release

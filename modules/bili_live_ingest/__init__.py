@@ -95,6 +95,10 @@ class BiliLiveIngestModule(BaseModule):
             "last_packet_at": float(listener_state.get("last_packet_at") or 0.0),
         }
 
+    def has_listener(self) -> bool:
+        """Include authentication, reconnect and cleanup in listener ownership."""
+        return self._lifecycle_lock.locked() or self._listener is not None
+
     def is_listening(self) -> bool:
         if self._listener is None or self._listener_task is None or self._listener_task.done():
             return False

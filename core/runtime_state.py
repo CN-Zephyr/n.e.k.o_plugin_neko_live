@@ -14,6 +14,7 @@ from .runtime_log import RuntimeLog
 def initialize_runtime_state(runtime: Any) -> None:
     """Initialize runtime-local mutable state and scheduler caches."""
     runtime.recent_results = deque(maxlen=runtime.config.recent_limit)
+    runtime.recent_diagnostics = deque(maxlen=runtime.config.recent_limit)
     runtime.recent_sandbox_results = deque(maxlen=runtime.config.recent_limit)
     runtime.runtime_timeline = deque(maxlen=200)
     runtime.runtime_log = RuntimeLog()

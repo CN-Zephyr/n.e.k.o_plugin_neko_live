@@ -6,6 +6,7 @@ from typing import Any
 
 from . import runtime_live_controls
 from .contracts import LiveConfig
+from .recent_results_store import clear_recent_diagnostics
 
 
 class RuntimeControlApiMixin:
@@ -20,6 +21,9 @@ class RuntimeControlApiMixin:
 
     async def clear_viewer_profiles(self) -> dict[str, Any]:
         return await runtime_live_controls.clear_viewer_profiles(self)
+
+    def clear_recent_diagnostics(self) -> bool:
+        return clear_recent_diagnostics(self)
 
     async def delete_viewer_profile(self, uid: str) -> dict[str, Any]:
         return await runtime_live_controls.delete_viewer_profile(self, uid)

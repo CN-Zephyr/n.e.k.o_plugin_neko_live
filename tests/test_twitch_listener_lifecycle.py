@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
+from plugin.plugins.neko_live.core import runtime_config
+from plugin.plugins.neko_live.core.runtime import LiveRuntime
 from plugin.plugins.neko_live.core.runtime_live_controls import _resolve_connection_auth_mode
 from plugin.plugins.neko_live.modules.twitch_live_ingest import (
     TwitchLiveIngestModule,
@@ -174,6 +177,97 @@ class _Client:
 
     async def close(self, **_kwargs: Any) -> None:
         self.closed.set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("superseded", [False, True], ids=["normal-switch", "connect-during-save"])
+async def test_platform_switch_retires_twitch_listener_during_subscription(
+    runtime: LiveRuntime, monkeypatch: pytest.MonkeyPatch, superseded: bool,
+) -> None:
+    subscribing, release, config_applied = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    finish_config_write = asyncio.Event()
+
+    class ConnectingClient(_Client):
+        async def subscribe_websocket(self, payload: Any, **kwargs: Any) -> None:
+            subscribing.set()
+            await release.wait()
+            await super().subscribe_websocket(payload, **kwargs)
+
+    client = ConnectingClient()
+    module = TwitchLiveIngestModule(client_factory=lambda **_: client)
+    module.ctx = runtime
+    runtime.twitch_live_ingest = module
+    runtime.twitch_credential = _context(module, _Store()).twitch_credential
+    runtime.bili_credential = object()
+    runtime.config.live_platform = "twitch"
+    runtime.config.live_room_ref = "target_channel"
+    runtime.config.live_enabled = True
+    monkeypatch.setattr(runtime, "bili_login_status", AsyncMock(return_value={"logged_in": True}))
+
+    async def notify_config_applied(*_args: Any) -> None:
+        config_applied.set()
+        await finish_config_write.wait()
+
+    monkeypatch.setattr(runtime_config, "persist_config_best_effort", notify_config_applied)
+    connecting = asyncio.create_task(runtime._start_live_listener("target_channel"))
+    tasks = [connecting]
+    try:
+        await asyncio.wait_for(subscribing.wait(), timeout=1)
+        assert not module.is_listening()
+        switching = asyncio.create_task(runtime.update_config({
+            "live_platform": "bilibili", "live_room_ref": "456", "live_enabled": True,
+        }))
+        tasks.append(switching)
+        await asyncio.wait_for(config_applied.wait(), timeout=1)
+        if superseded:
+            assert (await runtime.connect_live_room("456"))["connected"]
+        finish_config_write.set()
+        release.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), timeout=2)
+
+        assert client.closed.is_set()
+        assert not module.is_listening()
+        assert runtime.bili_live_ingest.room_id == 456
+        assert runtime.live_connection_snapshot()["connected"]
+    finally:
+        finish_config_write.set()
+        release.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await module.stop_listening()
+
+
+@pytest.mark.asyncio
+async def test_late_twitch_disconnect_leaves_new_platform_connected() -> None:
+    closing, release = asyncio.Event(), asyncio.Event()
+
+    class ClosingClient(_Client):
+        async def close(self, **kwargs: Any) -> None:
+            closing.set()
+            await release.wait()
+            await super().close(**kwargs)
+
+    client = ClosingClient()
+    module = TwitchLiveIngestModule(client_factory=lambda **_: client)
+    ctx = module.ctx = _context(module, _Store())
+    assert await module.start_listening("target_channel")
+    supervisor = module._client_supervisor_task
+    assert supervisor is not None
+
+    try:
+        client.closed.set()
+        await asyncio.wait_for(closing.wait(), timeout=1)
+        ctx.live_provider.platform = "bilibili"
+        ctx.config.live_platform = "bilibili"
+    finally:
+        release.set()
+        await asyncio.wait_for(supervisor, timeout=1)
+
+    assert ctx.config.live_enabled
+    assert ctx._accepting_live_events
+    assert ctx.restore_calls == []
 
 
 class _RefreshingLookupClient(_Client):

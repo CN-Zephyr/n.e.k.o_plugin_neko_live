@@ -1,8 +1,8 @@
-"""Single writer for viewer profiles（本地 JSON 持久化，存储目录可由主播配置）。
+"""Single writer for viewer profiles（本地 JSON 持久化，主播面板只读展示目录）。
 
 不走宿主 PluginStore：其 ``store.enabled`` 在插件构造期被冻结、且 ``store.db`` 路径焊死不可配
 （见 docs/devlog.md）。改为直接读写一个本地 JSON 文件，从根上绕开那个 bug，并让"改存储位置"成为可能：
-- 存储目录优先用配置的 ``viewer_store_dir``（``dir_provider`` 提供），留空则用插件数据目录 ``plugin.data_path()``；
+- 维护者可手动设置 ``viewer_store_dir``（``dir_provider`` 提供），留空使用插件数据目录 ``plugin.data_path()``；
 - 配置目录不可写时回退默认目录并记一次 audit；
 - 原子写（tmp + os.replace）+ asyncio 锁，避免并发 upsert/mark_roasted 互相覆盖（lost update）。
 """
@@ -18,7 +18,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
 
 from ..core.contracts import ViewerIdentity, ViewerProfile, utc_now_iso
 from ..core.contracts_public import public_int, public_text
@@ -33,7 +33,9 @@ from ..core.viewer_preferences import (
 _STORE_FILE = "viewer_profiles.json"
 _MAX_PROFILE_TEXT = 240
 _PROFILE_RETENTION_DAYS = 90
+_PROFILE_RETENTION = timedelta(days=_PROFILE_RETENTION_DAYS)
 _RECENT_PROFILE_CACHE_LIMIT = 200
+_T = TypeVar("_T")
 
 
 class ViewerStoreUnavailableError(OSError):
@@ -68,6 +70,8 @@ class ViewerStore:
         self._memory_enabled_provider = memory_enabled_provider
         # 串行化读改写，避免并发 upsert/mark_roasted 互相覆盖（lost update）。
         self._lock = asyncio.Lock()
+        self._memory_generation = 0
+        self._pending_write: asyncio.Task[bool] | None = None
         self._fallback_warned = False
         self._load_failure_warned = False
         self._active_fallback_file: Path | None = None
@@ -115,6 +119,12 @@ class ViewerStore:
             return self._memory_enabled_provider() is not False
         except Exception:  # noqa: BLE001
             return False
+
+    async def finish_disabling_memory(self) -> None:
+        """Invalidate pending learning and let a write already started finish."""
+        self._memory_generation += 1
+        if self._pending_write is not None:
+            await asyncio.shield(self._pending_write)
 
     def _fallback_marker(self, source: Path) -> Path:
         digest = hashlib.sha256(str(source.resolve()).encode("utf-8")).hexdigest()[:24]
@@ -186,19 +196,21 @@ class ViewerStore:
             and self._recent_cache_signature == self._file_signature(file)
         )
 
-    def _update_recent_cache(
+    async def _update_recent_cache(
         self,
         profiles: dict[str, dict[str, Any]],
         *,
         file: Path | None = None,
     ) -> None:
         target = file or self._active_store_file()
-        self._recent_cache = _recent_profile_projection(
+        signature = self._file_signature(target)
+        self._recent_cache = await asyncio.to_thread(
+            _recent_profile_projection,
             profiles,
             _RECENT_PROFILE_CACHE_LIMIT,
         )
         self._recent_cache_file = target
-        self._recent_cache_signature = self._file_signature(target)
+        self._recent_cache_signature = signature
         self._recent_cache_ready = True
 
     def storage_status(self) -> dict[str, Any]:
@@ -227,7 +239,7 @@ class ViewerStore:
         tmp: Path | None = None
         try:
             file.parent.mkdir(parents=True, exist_ok=True)
-            data = json.dumps(profiles, ensure_ascii=False, indent=2).encode("utf-8")
+            data = json.dumps(profiles, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             fd, tmp_name = tempfile.mkstemp(
                 prefix=f".{file.name}.",
                 suffix=".tmp",
@@ -249,14 +261,6 @@ class ViewerStore:
                     tmp.unlink(missing_ok=True)
                 except Exception:  # noqa: BLE001 — cleanup failure must not mask the write result
                     pass
-
-    async def _load_all(
-        self,
-        *,
-        include_expired: bool = False,
-    ) -> dict[str, dict[str, Any]]:
-        profiles, _writable = await self._load_profiles(include_expired=include_expired)
-        return profiles
 
     async def _load_profiles(
         self,
@@ -287,33 +291,17 @@ class ViewerStore:
             if not candidate.exists():
                 continue
             try:
-                raw = await asyncio.to_thread(candidate.read_bytes)
+                profiles = await asyncio.to_thread(_read_profile_file, candidate, include_expired)
             except OSError as exc:
                 unreadable = True
                 self._audit_load_failure(f"{type(exc).__name__}: {candidate.name}")
                 continue
-            try:
-                data = json.loads(raw.decode("utf-8"))
-            except ValueError:
-                data = None
-            if not isinstance(data, dict):
+            if profiles is None:
                 if not await self._quarantine_corrupt_file(candidate):
                     unreadable = True
                 continue
             if not unreadable:
                 self._load_failure_warned = False
-            profiles: dict[str, dict[str, Any]] = {}
-            for key, value in data.items():
-                if not isinstance(value, dict):
-                    continue
-                uid = _safe_profile_uid(value.get("uid")) or _safe_profile_uid(key)
-                if not uid:
-                    continue
-                item = _safe_profile_item(value, fallback_uid=uid)
-                if item and (
-                    include_expired or not _profile_is_expired(item)
-                ):
-                    profiles[uid] = item
             return profiles, not unreadable
         return {}, not unreadable
 
@@ -329,7 +317,8 @@ class ViewerStore:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         target = candidate.with_name(f"{candidate.name}.corrupt-{stamp}")
         try:
-            await asyncio.to_thread(os.replace, str(candidate), str(target))
+            work = asyncio.create_task(asyncio.to_thread(os.replace, str(candidate), str(target)))
+            await _wait_for_disk_operation(work)
         except OSError as exc:
             self._audit_load_failure(f"corrupt, quarantine failed ({type(exc).__name__}): {candidate.name}")
             return False
@@ -363,11 +352,7 @@ class ViewerStore:
                     "applied": False,
                     "retention_days": _PROFILE_RETENTION_DAYS,
                 }
-            active = {
-                uid: item
-                for uid, item in profiles.items()
-                if not _profile_is_expired(item)
-            }
+            active = await asyncio.to_thread(_active_profiles, profiles)
             pruned = len(profiles) - len(active)
             applied = True
             if pruned:
@@ -392,6 +377,22 @@ class ViewerStore:
         location: _StoreLocation | None = None,
     ) -> bool:
         location = location or self._store_location()
+        work = asyncio.create_task(
+            self._commit_profiles(profiles, allow_fallback=allow_fallback, location=location)
+        )
+        self._pending_write = work
+        try:
+            return await _wait_for_disk_operation(work)
+        finally:
+            self._pending_write = None
+
+    async def _commit_profiles(
+        self,
+        profiles: dict[str, dict[str, Any]],
+        *,
+        allow_fallback: bool,
+        location: _StoreLocation,
+    ) -> bool:
         file, custom = location.file, location.custom
         write_target = location.active_file
         if custom and location.fallback_file is not None and write_target != self._fallback_file(file):
@@ -403,10 +404,10 @@ class ViewerStore:
             if not await asyncio.to_thread(self._write_json, self._fallback_marker(file), self._fallback_ownership(file)):
                 return False
             self._activate_fallback(location, write_target)
-            self._update_recent_cache(profiles, file=write_target)
+            await self._update_recent_cache(profiles, file=write_target)
             return True
         if await asyncio.to_thread(self._write_json, write_target, profiles):
-            self._update_recent_cache(profiles, file=write_target)
+            await self._update_recent_cache(profiles, file=write_target)
             return True
         # 自定义目录写失败 → 回退默认目录（只告警一次，避免刷屏）。
         if custom and allow_fallback:
@@ -415,7 +416,7 @@ class ViewerStore:
             ownership = self._fallback_ownership(file)
             if await asyncio.to_thread(self._write_json, fallback, profiles) and await asyncio.to_thread(self._write_json, marker, ownership):
                 self._activate_fallback(location, fallback)
-                self._update_recent_cache(profiles, file=fallback)
+                await self._update_recent_cache(profiles, file=fallback)
                 if not self._fallback_warned:
                     self._audit("viewer_store_fallback", f"自定义目录不可写，已回退默认目录：{fallback.parent}")
                     self._fallback_warned = True
@@ -489,6 +490,8 @@ class ViewerStore:
         *,
         remember_preferences: bool | None = None,
     ) -> ViewerProfile:
+        memory_generation = self._memory_generation
+        allowed_at_entry = (remember_preferences is None or bool(remember_preferences)) and self._memory_enabled()
         async with self._lock:
             now = utc_now_iso()
             uid = _safe_profile_uid(identity.uid)
@@ -500,9 +503,9 @@ class ViewerStore:
             profiles = await self._load_for_write(location=location)
             item = _safe_profile_item(profiles.get(uid) or {"uid": uid}, fallback_uid=uid)
             memory_enabled = (
-                self._memory_enabled()
-                if remember_preferences is None
-                else bool(remember_preferences)
+                allowed_at_entry
+                and memory_generation == self._memory_generation
+                and self._memory_enabled()
             )
             inference = infer_viewer_preferences(danmaku_text) if memory_enabled else {}
             if memory_enabled:
@@ -585,7 +588,8 @@ class ViewerStore:
         return await self._save_all(profiles, location=location)
 
     async def has_roasted(self, uid: str) -> bool:
-        profiles = await self._load_all()
+        async with self._lock:
+            profiles, _readable = await self._load_profiles()
         safe_uid = _safe_profile_uid(uid)
         item = profiles.get(safe_uid)
         return bool(item and public_int(item.get("roast_count"), default=0, minimum=0) > 0)
@@ -599,13 +603,7 @@ class ViewerStore:
         requested = max(1, min(30, int(limit)))
         async with self._lock:
             profiles, _readable = await self._load_profiles()
-        matched = {
-            uid: item
-            for uid, item in profiles.items()
-            if needle in str(item.get("nickname") or "").casefold()
-            or needle in str(uid or "").casefold()
-        }
-        return _recent_profile_projection(matched, requested)
+        return await asyncio.to_thread(_search_profile_projection, profiles, needle, requested)
 
     async def recent_profiles(self, limit: int = 30) -> list[dict[str, Any]]:
         requested = max(0, int(limit))
@@ -617,11 +615,11 @@ class ViewerStore:
             location = self._store_location()
             profiles, readable = await self._load_profiles(location=location)
             if not readable:
-                return _recent_profile_projection(profiles, requested)
-            self._update_recent_cache(profiles, file=location.active_file)
+                return await asyncio.to_thread(_recent_profile_projection, profiles, requested)
+            await self._update_recent_cache(profiles, file=location.active_file)
             if requested <= _RECENT_PROFILE_CACHE_LIMIT:
                 return copy.deepcopy(self._recent_cache[:requested])
-            return _recent_profile_projection(profiles, requested)
+            return await asyncio.to_thread(_recent_profile_projection, profiles, requested)
 
     async def clear_profiles(self) -> dict[str, Any]:
         async with self._lock:
@@ -705,6 +703,46 @@ class ViewerStore:
             }
 
 
+async def _wait_for_disk_operation(work: asyncio.Task[_T]) -> _T:
+    try:
+        return await asyncio.shield(work)
+    except asyncio.CancelledError:
+        # Hold the writer lock until an atomic replacement on the worker finishes.
+        while not work.done():
+            try:
+                await asyncio.shield(work)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not work.cancelled():
+            work.exception()
+        raise
+
+
+def _read_profile_file(file: Path, include_expired: bool) -> dict[str, dict[str, Any]] | None:
+    raw = file.read_bytes()
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    cutoff = datetime.now(timezone.utc) - _PROFILE_RETENTION
+    profiles: dict[str, dict[str, Any]] = {}
+    for key, value in data.items():
+        if isinstance(value, dict):
+            item = _safe_profile_item(value, fallback_uid=key)
+            if item and (include_expired or not _profile_is_expired(item, cutoff)):
+                profiles[item["uid"]] = item
+    return profiles
+
+
+def _active_profiles(profiles: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    cutoff = datetime.now(timezone.utc) - _PROFILE_RETENTION
+    return {uid: item for uid, item in profiles.items() if not _profile_is_expired(item, cutoff)}
+
+
 def _recent_profile_projection(
     profiles: dict[str, dict[str, Any]],
     limit: int,
@@ -720,6 +758,17 @@ def _recent_profile_projection(
         if safe_item:
             result.append({**safe_item, **viewer_profile_projection(safe_item)})
     return result
+
+
+def _search_profile_projection(
+    profiles: dict[str, dict[str, Any]], needle: str, limit: int,
+) -> list[dict[str, Any]]:
+    matched = {
+        uid: item
+        for uid, item in profiles.items()
+        if needle in str(item.get("nickname") or "").casefold() or needle in uid.casefold()
+    }
+    return _recent_profile_projection(matched, limit)
 
 
 def _safe_profile_uid(value: Any) -> str:
@@ -748,10 +797,9 @@ def _path_is_writable(file: Path) -> bool:
         return False
 
 
-def _profile_is_expired(item: dict[str, Any]) -> bool:
+def _profile_is_expired(item: dict[str, Any], cutoff: datetime) -> bool:
     observed_at: list[datetime] = []
-    for value in (item.get("last_interaction_at"), item.get("last_seen_at")):
-        raw = _safe_profile_text(value)
+    for raw in (item.get("last_interaction_at"), item.get("last_seen_at")):
         if not raw:
             continue
         try:
@@ -761,11 +809,7 @@ def _profile_is_expired(item: dict[str, Any]) -> bool:
         if seen_at.tzinfo is None:
             seen_at = seen_at.replace(tzinfo=timezone.utc)
         observed_at.append(seen_at)
-    if not observed_at:
-        return False
-    return datetime.now(timezone.utc) - max(observed_at) > timedelta(
-        days=_PROFILE_RETENTION_DAYS
-    )
+    return bool(observed_at and max(observed_at) < cutoff)
 
 
 def _safe_profile_item(value: dict[str, Any], *, fallback_uid: Any) -> dict[str, Any]:

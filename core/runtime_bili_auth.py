@@ -6,7 +6,7 @@ from typing import Any
 
 from ..adapters.bili_auth_service import BiliAuthService
 from ..stores.credential_store import CredentialStore
-from .runtime_live_listener import stop_live_session_for_platform
+from .runtime_credential_logout import remove_local_credential
 
 
 def create_credential_store(plugin: Any, audit: Any) -> CredentialStore:
@@ -42,8 +42,9 @@ async def bili_login_status(runtime: Any) -> dict[str, Any]:
 
 
 async def bili_logout(runtime: Any) -> dict[str, Any]:
-    removed = await runtime.credential_store.delete()
-    runtime.bili_credential = None
-    await stop_live_session_for_platform(runtime, "bilibili")
-    runtime.audit.record("bili_logout", "logged out (local credential removed)", detail={"files": removed})
-    return {"logged_out": True, "removed": removed, "logged_in": False}
+    async def delete() -> list[str]:
+        return await runtime.bili_auth.delete_credential(runtime.credential_store.delete)
+
+    return await remove_local_credential(
+        runtime, platform="bilibili", cache_attr="bili_credential", delete=delete, audit_op="bili_logout",
+    )

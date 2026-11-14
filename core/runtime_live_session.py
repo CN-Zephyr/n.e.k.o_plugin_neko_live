@@ -60,6 +60,7 @@ def begin_live_session(runtime: Any) -> int:
         reset_reply_reader()
     runtime._live_session_generation = int(runtime._live_session_generation or 0) + 1
     runtime.recent_results.clear()
+    runtime.recent_diagnostics.clear()
     runtime.runtime_timeline.clear()
     runtime._timeline_salt = secrets.token_bytes(32)
     runtime._last_live_danmaku_seen_at = 0.0

@@ -85,7 +85,7 @@ def idle_hosting_auto_ready(
 ) -> bool:
     if consecutive_failures >= failure_limit:
         return False
-    return now - last_attempt_at >= min_interval_seconds
+    return last_attempt_at <= 0 or now - last_attempt_at >= min_interval_seconds
 
 
 def idle_hosting_candidate(live_state: dict[str, Any]) -> bool:

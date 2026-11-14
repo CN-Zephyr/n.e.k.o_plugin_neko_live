@@ -690,6 +690,7 @@ function AuthCard({
   loginName,
   loginUid,
   disabled = false,
+  logoutDisabled = disabled,
   onLogin,
   onLoginCheck,
   onLogout,
@@ -700,6 +701,7 @@ function AuthCard({
   loginName: string
   loginUid: string
   disabled?: boolean
+  logoutDisabled?: boolean
   onLogin: () => void
   onLoginCheck: () => void
   onLogout: () => void
@@ -715,13 +717,14 @@ function AuthCard({
         {loginLoggedIn ? (
           <Grid cols={2}>
             <Button tone="info" disabled={disabled} onClick={onLoginCheck}>{t("panel.actions.biliLoginCheck")}</Button>
-            <Button tone="danger" disabled={disabled} onClick={onLogout}>{t("panel.actions.biliLogout")}</Button>
+            <Button tone="danger" disabled={logoutDisabled} onClick={onLogout}>{t("panel.actions.biliLogout")}</Button>
           </Grid>
         ) : (
           <Stack>
             <Grid cols={2}>
               <Button tone="info" disabled={disabled} onClick={onLogin}>{t("panel.actions.biliLogin")}</Button>
               <Button tone="success" disabled={disabled} onClick={onLoginCheck}>{t("panel.actions.biliLoginCheck")}</Button>
+              {loginState?.logout_error ? <Button tone="danger" disabled={logoutDisabled} onClick={onLogout}>{t("panel.actions.biliLogout")}</Button> : null}
             </Grid>
             {loginState?.qrcode_image ? (
               <Stack>
@@ -1375,6 +1378,8 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   const [onboardingStep, setOnboardingStep] = useState(0)
   const [safetyDisableConfirmOpen, setSafetyDisableConfirmOpen] = useState(false)
   const [clearViewerMemoryConfirmOpen, setClearViewerMemoryConfirmOpen] = useState(false)
+  const [clearRecentDiagnosticsConfirmOpen, setClearRecentDiagnosticsConfirmOpen] = useState(false)
+  const [clearingRecentDiagnostics, setClearingRecentDiagnostics] = useState(false)
   const [storageDetailsOpen, setStorageDetailsOpen] = useState(false)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [consoleSaving, setConsoleSaving] = useState(false)
@@ -1639,7 +1644,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   }
 
   function openConsoleDialog(dialog: "account" | "room" | "theme" | "pacing" | "diagnostics") {
-    if ((dialog === "account" || dialog === "room") && sessionInProgress) {
+    if (dialog === "room" && sessionInProgress) {
       toast.warning(t("panel.messages.endSessionBeforeChangingTarget"))
       return
     }
@@ -1903,18 +1908,8 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   }
 
   async function biliLogout() {
-    if (authPending || sessionInProgress) return
-    setAuthPending("bili_logout")
-    try {
-      const result = unwrapActionResult(await props.api.call("bili_logout"))
-      setLoginState(result)
-      toast.success(t("panel.auth.logoutDone"))
-      await refreshDashboard(true)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
-    } finally {
-      setAuthPending("")
-    }
+    if (authPending) return
+    await logoutPlatform("bili_logout", setLoginState, "panel.auth.logoutDone")
   }
 
   async function douyinCookieStatus() {
@@ -1990,18 +1985,8 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   }
 
   async function douyinCookieDelete() {
-    if (authPending || sessionInProgress) return
-    setAuthPending("douyin_cookie_delete")
-    try {
-      const result = unwrapActionResult(await props.api.call("douyin_cookie_delete"))
-      setDouyinAuthState(result)
-      toast.success(t("panel.douyinAuth.cookieDeleted"))
-      await refreshDashboard(true)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
-    } finally {
-      setAuthPending("")
-    }
+    if (authPending) return
+    await logoutPlatform("douyin_cookie_delete", setDouyinAuthState, "panel.douyinAuth.cookieDeleted")
   }
 
   async function twitchAuthorize() {
@@ -2052,16 +2037,24 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   }
 
   async function twitchLogout() {
-    if (authPending || sessionInProgress) return
+    if (authPending) return
     stopTwitchAuthorizationPolling()
-    setAuthPending("twitch_logout")
+    await logoutPlatform("twitch_logout", setTwitchAuthState, "panel.auth.logoutDone")
+  }
+
+  async function logoutPlatform(action: string, setAuthState: (value: any) => void, successKey: string) {
+    setAuthPending(action)
     try {
-      const result = unwrapActionResult(await props.api.call("twitch_logout"))
-      setTwitchAuthState(result)
-      toast.success(t("panel.actions.twitchLogout"))
+      const result = unwrapActionResult(await props.api.call(action))
+      setAuthState(result)
+      if (result.logged_out === true) {
+        toast.success(t(successKey))
+      } else {
+        toast.error(t(result.logout_error === "listener_stop_failed" ? "panel.auth.logoutStopFailed" : "panel.auth.logoutFailed"))
+      }
       await refreshDashboard(true)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+    } catch {
+      toast.error(t("panel.auth.logoutFailed"))
     } finally {
       setAuthPending("")
     }
@@ -2282,6 +2275,25 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
     }
   }
 
+  async function clearRecentDiagnostics(): Promise<void> {
+    if (clearingRecentDiagnostics) return
+    setClearingRecentDiagnostics(true)
+    try {
+      const result = unwrapActionResult(await props.api.call("clear_recent_diagnostics", {}))
+      if (result.cleared === true) {
+        toast.success(t("panel.messages.done"))
+        await refreshDashboard(true)
+      } else {
+        toast.error(t("panel.messages.clearRecentDiagnosticsFailed"))
+      }
+    } catch {
+      toast.error(t("panel.messages.clearRecentDiagnosticsFailed"))
+    } finally {
+      setClearingRecentDiagnostics(false)
+      setClearRecentDiagnosticsConfirmOpen(false)
+    }
+  }
+
   async function submitSandbox() {
     const identity = lookupResult?.identity || {}
     const manualUid = sandboxForm.values.uid.trim()
@@ -2436,7 +2448,11 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   )
   const livePlatform = String(configForm.values.live_platform || config.live_platform || "bilibili")
   const livePlatformKey = livePlatform === "douyin" ? "douyin" : livePlatform === "twitch" ? "twitch" : "bilibili"
-  const livePlatformLabel = t(`panel.platform.${livePlatformKey}`)
+  const modules = Array.isArray(safeState.modules) ? safeState.modules : []
+  const douyinBridgeAvailable = modules.find((entry) => entry?.id === "douyin_live_ingest")?.status?.bridge_available === true
+  const douyinUnavailable = livePlatformKey === "douyin" && !douyinBridgeAvailable
+  const douyinPlatformLabel = t(douyinBridgeAvailable ? "panel.platform.douyin" : "panel.platform.douyinSourceOnly")
+  const livePlatformLabel = livePlatformKey === "douyin" ? douyinPlatformLabel : t(`panel.platform.${livePlatformKey}`)
   const roomFieldLabel = livePlatform === "douyin" ? t("panel.fields.douyinRoom") : livePlatform === "twitch" ? t("panel.fields.twitchRoom") : t("panel.fields.roomId")
   const roomPlaceholder = livePlatform === "douyin" ? t("panel.placeholders.douyinRoom") : livePlatform === "twitch" ? t("panel.placeholders.twitchRoom") : t("panel.placeholders.roomId")
   const configuredRoomRef = String(config.live_room_ref || config.live_room_id || "").trim()
@@ -2507,16 +2523,18 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   const liveSettingsReady = Boolean(String(config.live_mode || configForm.values.live_mode || "").trim()) && Number.isFinite(savedCooldownSeconds) && savedCooldownSeconds >= 0
   const unsafeSafetyStates = new Set(["paused", "tripped", "degraded"])
   const safetyCheckReady = !connectPending && !sessionInProgress && !unsafeSafetyStates.has(String(safety.status || ""))
-  const canStart = roomConfigured && accountStartReady && liveSettingsReady && safetyCheckReady
-  const readinessReason = !accountStartReady
-    ? t("panel.console.preparation.login")
-    : !roomConfigured
-      ? t(canConfirmLiveRoom ? "panel.console.preparation.confirmRoom" : "panel.console.preparation.lookupRoom")
-      : !liveSettingsReady
-        ? t("panel.console.preparation.liveSettings")
-        : !safetyCheckReady
-          ? t("panel.console.preparation.safety")
-          : ""
+  const canStart = !douyinUnavailable && roomConfigured && accountStartReady && liveSettingsReady && safetyCheckReady
+  const readinessReason = douyinUnavailable
+    ? t("panel.douyinAuth.bridgeUnavailable")
+    : !accountStartReady
+      ? t("panel.console.preparation.login")
+      : !roomConfigured
+        ? t(canConfirmLiveRoom ? "panel.console.preparation.confirmRoom" : "panel.console.preparation.lookupRoom")
+        : !liveSettingsReady
+          ? t("panel.console.preparation.liveSettings")
+          : !safetyCheckReady
+            ? t("panel.console.preparation.safety")
+            : ""
   const primaryStatusLabel = started
     ? t("panel.console.state.live")
     : connectPending
@@ -2542,7 +2560,8 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   const accountLabel = accountReady
     ? (livePlatform === "douyin" ? (douyinNickname || douyinUid || t("panel.douyinAuth.cookieReady")) : livePlatform === "twitch" ? (twitchLogin || twitchUserId || t("panel.twitchAuth.authorized")) : (loginName || loginUid || t("panel.auth.loggedIn")))
     : t("panel.auth.loggedOut")
-  const modules = Array.isArray(safeState.modules) ? safeState.modules : []
+  const logoutError = livePlatform === "douyin" ? douyinAuthState?.logout_error
+    : livePlatform === "twitch" ? twitchAuthState?.logout_error : loginState?.logout_error
 
   const streamThemeForm = (
     <Stack>
@@ -2642,7 +2661,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
         <Card title={t("panel.console.accountTitle")}>
           <Stack gap={8}>
             <StatusBadge tone={accountReady ? "success" : "warning"} label={accountLabel} />
-            <Button tone="default" disabled={sessionInProgress} onClick={() => { openConsoleDialog("account") }}>{t("panel.console.manage")}</Button>
+            <Button tone="default" onClick={() => { openConsoleDialog("account") }}>{t("panel.console.manage")}</Button>
           </Stack>
         </Card>
         <Card title={t("panel.room.title")}>
@@ -2762,13 +2781,14 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
         footer={<Button tone="default" onClick={() => { setConsoleDialog("") }}>{t("panel.actions.cancel")}</Button>}
       >
         <Stack>
+          {logoutError ? <Alert tone="warning">{t(logoutError === "listener_stop_failed" ? "panel.auth.logoutStopFailed" : "panel.auth.logoutFailed")}</Alert> : null}
           <Field label={t("panel.fields.platform")}>
             <Select
               value={livePlatform}
               disabled={sessionInProgress || consoleSaving || !!authPending}
               options={[
                 { value: "bilibili", label: t("panel.platform.bilibili") },
-                { value: "douyin", label: `${t("panel.platform.douyin")} ${t("panel.platform.incompleteSuffix")}` },
+                { value: "douyin", label: douyinPlatformLabel },
                 { value: "twitch", label: t("panel.platform.twitch") },
               ]}
               onChange={(value) => switchLivePlatform(String(value))}
@@ -2776,24 +2796,25 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
           </Field>
           {livePlatform === "douyin" ? (
             <Stack>
+              <Alert tone="warning">{t(douyinUnavailable ? "panel.douyinAuth.bridgeUnavailable" : "panel.douyinAuth.bridgeNetworkHint")}</Alert>
               <StatusBadge tone={douyinLoggedIn ? "success" : "warning"} label={accountLabel} />
               {douyinSavedAt ? <Text>{t("panel.douyinAuth.savedAt")}: {douyinSavedAt}</Text> : null}
               {douyinValidationMessage ? <Text>{douyinValidationMessage}</Text> : null}
               {douyinValidationStatus ? <Text>{t("panel.room.liveStatus")}: {t(`panel.liveStatus.${douyinValidationStatus}`)}</Text> : null}
               <Field label={t("panel.fields.douyinCookie")}>
-                <Textarea disabled={sessionInProgress || !!authPending} value={configForm.values.douyin_cookie} placeholder={t("panel.placeholders.douyinCookie")} onChange={(value) => { configForm.setField("douyin_cookie", value) }} />
+                <Textarea disabled={douyinUnavailable || sessionInProgress || !!authPending} value={configForm.values.douyin_cookie} placeholder={t("panel.placeholders.douyinCookie")} onChange={(value) => { configForm.setField("douyin_cookie", value) }} />
               </Field>
               <Grid cols={2}>
-                <Field label={t("panel.fields.douyinUid")}><Input disabled={sessionInProgress || !!authPending} value={configForm.values.douyin_uid} onChange={(value) => { configForm.setField("douyin_uid", value) }} /></Field>
-                <Field label={t("panel.fields.douyinNickname")}><Input disabled={sessionInProgress || !!authPending} value={configForm.values.douyin_nickname} onChange={(value) => { configForm.setField("douyin_nickname", value) }} /></Field>
+                <Field label={t("panel.fields.douyinUid")}><Input disabled={douyinUnavailable || sessionInProgress || !!authPending} value={configForm.values.douyin_uid} onChange={(value) => { configForm.setField("douyin_uid", value) }} /></Field>
+                <Field label={t("panel.fields.douyinNickname")}><Input disabled={douyinUnavailable || sessionInProgress || !!authPending} value={configForm.values.douyin_nickname} onChange={(value) => { configForm.setField("douyin_nickname", value) }} /></Field>
               </Grid>
               <Grid cols={4}>
-                <Button tone="success" disabled={sessionInProgress || !!authPending} onClick={douyinCookieImport}>{t("panel.actions.douyinCookieImport")}</Button>
+                <Button tone="success" disabled={douyinUnavailable || sessionInProgress || !!authPending} onClick={douyinCookieImport}>{t("panel.actions.douyinCookieImport")}</Button>
                 <Button tone="info" disabled={!!authPending} onClick={douyinCookieStatus}>{t("panel.actions.douyinCookieStatus")}</Button>
-                <Button tone="info" disabled={!!authPending} onClick={douyinCookieValidate}>{t("panel.actions.douyinCookieValidate")}</Button>
-                <Button tone="danger" disabled={sessionInProgress || !!authPending} onClick={douyinCookieDelete}>{t("panel.actions.douyinCookieDelete")}</Button>
+                <Button tone="info" disabled={douyinUnavailable || sessionInProgress || !!authPending} onClick={douyinCookieValidate}>{t("panel.actions.douyinCookieValidate")}</Button>
+                <Button tone="danger" disabled={!!authPending} onClick={douyinCookieDelete}>{t("panel.actions.douyinCookieDelete")}</Button>
               </Grid>
-              <Text>{t("panel.douyinAuth.manualHint")}</Text>
+              {!douyinUnavailable ? <Text>{t("panel.douyinAuth.manualHint")}</Text> : null}
             </Stack>
           ) : livePlatform === "twitch" ? (
             <Stack>
@@ -2806,8 +2827,8 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
               {twitchAuthorizationPending ? <Alert tone="info">{t("panel.twitchAuth.waitingCountdown", { seconds: twitchRemainingSeconds })}</Alert> : null}
               {twitchAuthorizationPending ? (
                 <Button tone="danger" disabled={sessionInProgress || !!authPending} onClick={twitchCancelAuthorization}>{t("panel.actions.twitchCancelAuthorization")}</Button>
-              ) : twitchLoggedIn ? (
-                <Button tone="danger" disabled={sessionInProgress || !!authPending} onClick={twitchLogout}>{t("panel.actions.twitchLogout")}</Button>
+              ) : twitchLoggedIn || twitchAuthState?.logout_error ? (
+                <Button tone="danger" disabled={!!authPending} onClick={twitchLogout}>{t("panel.actions.twitchLogout")}</Button>
               ) : twitchAuthorizationValidating ? (
                 <Text>{t("panel.twitchAuth.validating")}</Text>
               ) : (
@@ -2816,7 +2837,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
             </Stack>
           ) : (
             <Stack>
-              <AuthCard t={t} loginState={loginState} loginLoggedIn={loginLoggedIn} loginName={loginName} loginUid={loginUid} disabled={sessionInProgress || !!authPending} onLogin={biliLogin} onLoginCheck={biliLoginCheck} onLogout={biliLogout} />
+              <AuthCard t={t} loginState={loginState} loginLoggedIn={loginLoggedIn} loginName={loginName} loginUid={loginUid} disabled={sessionInProgress || !!authPending} logoutDisabled={!!authPending} onLogin={biliLogin} onLoginCheck={biliLoginCheck} onLogout={biliLogout} />
               {!loginLoggedIn ? (
                 <Alert tone="info">{t("panel.console.loginPrimaryHint")}</Alert>
               ) : null}
@@ -3745,9 +3766,11 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
                     />
                   </div>
                   {viewerStore.writable === false ? <Alert tone="warning">{t("panel.storage.notWritable")}</Alert> : null}
+                  <Text>{t("panel.settings.recentDiagnosticsHint")}</Text>
                   <Grid cols={2}>
                     <Button tone="default" onClick={() => { setStorageDetailsOpen(true) }}>{t("panel.settings.viewStoragePath")}</Button>
                     <Button tone="danger" onClick={() => { setClearViewerMemoryConfirmOpen(true) }}>{t("panel.actions.clearViewerProfiles")}</Button>
+                    <Button tone="danger" disabled={clearingRecentDiagnostics} onClick={() => { setClearRecentDiagnosticsConfirmOpen(true) }}>{t("panel.actions.clearRecentDiagnostics")}</Button>
                   </Grid>
                 </Stack>
               </Card>
@@ -3795,6 +3818,16 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
         cancelLabel={t("panel.actions.cancel")}
         onConfirm={clearViewerMemory}
         onCancel={() => setClearViewerMemoryConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        open={clearRecentDiagnosticsConfirmOpen}
+        title={t("panel.actions.clearRecentDiagnostics")}
+        message={t("panel.messages.clearRecentDiagnosticsConfirm")}
+        tone="danger"
+        confirmLabel={t("panel.actions.clearRecentDiagnostics")}
+        cancelLabel={t("panel.actions.cancel")}
+        onConfirm={clearRecentDiagnostics}
+        onCancel={() => setClearRecentDiagnosticsConfirmOpen(false)}
       />
       <ConfirmDialog
         open={safetyDisableConfirmOpen}
@@ -4013,6 +4046,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   }
 
   const onboardingSteps = [
+    { title: t("panel.settings.privacyTab"), body: t("panel.onboarding.privacyBody"), action: t("panel.onboarding.privacyAction"), success: "" },
     { title: t("panel.onboarding.welcomeTitle"), body: t("panel.onboarding.welcomeBody"), action: t("panel.onboarding.welcomeAction"), success: t("panel.onboarding.welcomeSuccess") },
     { title: t("panel.onboarding.accountTitle"), body: t("panel.onboarding.accountBody"), action: t("panel.onboarding.accountAction"), success: t("panel.onboarding.accountSuccess") },
     { title: t("panel.onboarding.roomTitle"), body: t("panel.onboarding.roomBody"), action: t("panel.onboarding.roomAction"), success: t("panel.onboarding.roomSuccess") },
@@ -4051,7 +4085,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
             <Stack gap={8}>
               <Text>{currentOnboarding.body}</Text>
               <Alert tone="info">{t("panel.onboarding.actionLabel")}: {currentOnboarding.action}</Alert>
-              <Alert tone="success">{t("panel.onboarding.successLabel")}: {currentOnboarding.success}</Alert>
+              {currentOnboarding.success ? <Alert tone="success">{t("panel.onboarding.successLabel")}: {currentOnboarding.success}</Alert> : null}
             </Stack>
           </Card>
         </Stack>

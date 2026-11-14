@@ -143,6 +143,6 @@ class RuntimeLiveStatusApiMixin(RuntimeLiveStatusHelperMixin):
         return live_status_rules.speech_explanation(
             live_status=status,
             live_state=state,
-            latest_result=self.recent_results[-1] if self.recent_results else None,
+            latest_result=self.recent_diagnostics[-1] if self.recent_diagnostics else None,
             iso_age_fn=self._iso_age_sec,
         )

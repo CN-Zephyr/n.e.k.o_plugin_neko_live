@@ -119,6 +119,16 @@ Initial outcomes:
 
 Use `skipped` for expected policy decisions and `failed` for exceptional behavior.
 
+### Recent diagnostic storage
+
+`core/recent_results_store.py` keeps a bounded disk snapshot for reopening the panel. Each row allows status, event category, route, stable reason code, timestamps, an internal trace ID and latency measurements. Restored rows populate panel history. The current session builds its own context in RAM as new events arrive. Upgrading projects legacy rows into the same schema before loading them and atomically rewrites the old snapshot. It also removes the old interrupted-write file. If access is denied, a redacted audit event records the disk failure.
+
+The confirmed **Clear recent live diagnostics** action removes the snapshot, any old interrupted-write file, and the recent result history and timeline shown in the panel. Later events start a new diagnostic history. The current session still uses its bounded in-memory results for pacing, reply context and repetition checks. Starting a new listener session resets that context. A failed disk operation keeps the in-memory state and returns failure.
+
+**Decision and budget.** Both in-memory histories use the configured cap of up to 200 entries. The diagnostic history adds a shallow copy of each result to attach the timeline without keeping a second copy of the response text or viewer data. The snapshot keeps the existing allowlist, path and format, so earlier builds can read it. Tests cover redaction, reload, failed cleanup and a clear during automatic hosting, including a subsequent event that must not bring the cleared rows back.
+
+`pipeline_latency_ms` uses elapsed monotonic time from local `ViewerEvent` creation to `InteractionResult` creation. `response_latency_ms` is the same value for older panel consumers. Explicit historical timestamps still use the wall-clock interval. `dispatcher_latency_ms` measures the dispatcher call. The Windows acceptance guide records the separate time from chat submission to audible speech.
+
 #### `pushed` consumer rules
 
 `pushed` is a **host handoff**, not an audible-output or playback-completion event.
@@ -202,7 +212,7 @@ Initial skip reasons:
 
 - `input.uid_required`
 - `ingest.duplicate_support_event`
-- `permission.developer_tools_disabled`
+- `permission.developer_tools_disabled`：开发者来源在 `permission_gate` 被拒，或在 `safety_guard.before_output` 发现开关已关闭，标记 `skipped`。
 - `runtime.disconnected`
 - `safety.paused`
 - `safety.tripped`

@@ -79,6 +79,7 @@ class DouyinLiveIngestModule(BaseModule):
     def status(self) -> dict[str, Any]:
         return {
             "enabled": safe_public_bool(self.enabled),
+            "bridge_available": self._bridge_supervisor.is_available(),
             "listening": self.is_listening(),
             "room_ref": safe_room_ref(self._room_ref),
             "state": _public_state(self._state),
@@ -91,6 +92,14 @@ class DouyinLiveIngestModule(BaseModule):
             "last_status_only_event_type": _public_event_type(self._last_status_only_event_type),
             "status_only_count": safe_public_int(self._status_only_count),
         }
+
+    def has_listener(self) -> bool:
+        """Include bridge startup, reconnect and cleanup in listener ownership."""
+        return (
+            self._lifecycle_lock.locked()
+            or self.is_listening()
+            or self._state in {"connecting", "reconnecting"}
+        )
 
     def is_listening(self) -> bool:
         return _public_state(self._state) in {"connected", "receiving"}
@@ -175,11 +184,14 @@ class DouyinLiveIngestModule(BaseModule):
         self._stop_requested = True
         self._generation += 1
         await self._bridge_transport.stop()
-        await self._bridge_supervisor.stop()
+        stopped = await self._bridge_supervisor.stop()
         self._state = "disconnected"
         self._last_error = ""
         self._connection_plan = None
         self._reconnect.reset()
+        if stopped.last_error:
+            self._last_error = stopped.last_error
+            raise RuntimeError("Douyin bridge cleanup could not be confirmed")
 
     def _publish_transport_event_for_generation(
         self,
@@ -300,14 +312,15 @@ class DouyinLiveIngestModule(BaseModule):
         if self._state in {"connected", "receiving"}:
             self._reconnect.reset()
         sync_runtime_state = getattr(self.ctx, "_sync_douyin_listener_state", None)
-        if callable(sync_runtime_state):
+        owns_target = self._owns_active_target()
+        if callable(sync_runtime_state) and owns_target:
             sync_runtime_state(self._state)
         if (
             self._state in {"disconnected", "auth_required"}
             and not self._stop_requested
             and self.ctx is not None
             and bool(getattr(self.ctx, "_accepting_live_events", False))
-            and self._owns_active_target()
+            and owns_target
         ):
             self._stop_requested = True
             self._generation += 1

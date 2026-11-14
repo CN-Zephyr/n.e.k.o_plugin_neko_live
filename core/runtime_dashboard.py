@@ -57,7 +57,7 @@ async def dashboard_state(runtime: Any) -> dict[str, Any]:
         "safety": runtime.safety_guard.snapshot(),
         "recent_profiles": profiles,
         "live_session": runtime.live_audience_session.snapshot(),
-        "recent_results": list(reversed(runtime.recent_results)),
+        "recent_results": list(reversed(runtime.recent_diagnostics)),
         "recent_sandbox_results": list(reversed(runtime.recent_sandbox_results)),
         "recent_audit": runtime.audit.recent(runtime.config.recent_limit),
         "avatar_cache": runtime.avatar_cache.status(),

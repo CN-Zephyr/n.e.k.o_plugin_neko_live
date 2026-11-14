@@ -19,7 +19,7 @@ def live_explanation(
     live_director_status: dict[str, Any],
     speech_explanation: dict[str, Any],
 ) -> dict[str, Any]:
-    latest = runtime.recent_results[-1] if runtime.recent_results else {}
+    latest = runtime.recent_diagnostics[-1] if runtime.recent_diagnostics else {}
     selection = _module_status(runtime.live_events)
     trace_id = safe_text(latest.get("trace_id"), max_len=120) if isinstance(latest, dict) else ""
     return {

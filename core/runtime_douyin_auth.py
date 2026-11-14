@@ -11,6 +11,7 @@ from ..modules.douyin_live_ingest.room_ref import parse_douyin_room_ref
 from ..modules.douyin_live_ingest.webcast import fetch_webcast_info
 from ..stores.credential_store import CredentialStore
 from .contracts import utc_now_iso
+from .runtime_credential_logout import remove_local_credential
 
 _DOUYIN_FIELDS = ("cookie", "uid", "nickname", "saved_at")
 _MAX_COOKIE_LENGTH = 32768
@@ -151,6 +152,12 @@ async def reload_credential(runtime: Any) -> None:
 
 
 async def import_cookie(runtime: Any, cookie: Any, uid: Any = "", nickname: Any = "") -> dict[str, Any]:
+    async with runtime.douyin_credential_lock:
+        runtime.douyin_credential_generation += 1
+        return await _import_cookie(runtime, cookie, uid=uid, nickname=nickname)
+
+
+async def _import_cookie(runtime: Any, cookie: Any, uid: Any, nickname: Any) -> dict[str, Any]:
     try:
         normalized_cookie = normalize_cookie(cookie)
     except ValueError as exc:
@@ -208,6 +215,7 @@ async def validate_cookie(runtime: Any, room_ref: Any = "") -> dict[str, Any]:
     if runtime.douyin_credential is None and runtime.douyin_credential_store.has_credential():
         await reload_credential(runtime)
     status = _public_status(runtime.douyin_credential)
+    generation = runtime.douyin_credential_generation
     cookie = _credential_cookie(runtime.douyin_credential)
     target = _validation_room_ref(room_ref, getattr(runtime.config, "live_room_ref", ""))
     parsed = parse_douyin_room_ref(target)
@@ -239,6 +247,8 @@ async def validate_cookie(runtime: Any, room_ref: Any = "") -> dict[str, Any]:
             timeout=10.0,
         )
     except Exception as exc:
+        if generation != runtime.douyin_credential_generation:
+            return _superseded_validation(runtime)
         message = f"douyin cookie validation failed: {type(exc).__name__}"
         runtime.audit.record("douyin_cookie_validate_failed", message, level="warning")
         return {
@@ -249,6 +259,8 @@ async def validate_cookie(runtime: Any, room_ref: Any = "") -> dict[str, Any]:
             "live_status": "unknown",
             "message": message,
         }
+    if generation != runtime.douyin_credential_generation:
+        return _superseded_validation(runtime)
     valid = bool(info.ok)
     result = {
         **status,
@@ -265,6 +277,17 @@ async def validate_cookie(runtime: Any, room_ref: Any = "") -> dict[str, Any]:
         detail={"room_ref": result["room_ref"], "valid": valid, "live_status": result["live_status"]},
     )
     return result
+
+
+def _superseded_validation(runtime: Any) -> dict[str, Any]:
+    return {
+        **_public_status(runtime.douyin_credential),
+        "checked": True,
+        "valid": False,
+        "room_ref": "",
+        "live_status": "unknown",
+        "message": "douyin cookie validation was superseded",
+    }
 
 
 def _credential_cookie(data: dict[str, Any] | None) -> str:
@@ -284,13 +307,13 @@ def _validation_room_ref(room_ref: Any, fallback: Any) -> Any:
 
 
 async def delete_cookie(runtime: Any) -> dict[str, Any]:
-    removed = await runtime.douyin_credential_store.delete()
-    runtime.douyin_credential = None
-    runtime.audit.record("douyin_cookie_deleted", "douyin cookie removed", detail={"files": removed})
-    return {
-        "platform": "douyin",
-        "logged_out": True,
-        "removed": removed,
-        "logged_in": False,
-        "has_cookie": False,
-    }
+    async with runtime.douyin_credential_lock:
+        runtime.douyin_credential_generation += 1
+        result = await remove_local_credential(
+            runtime,
+            platform="douyin",
+            cache_attr="douyin_credential",
+            delete=runtime.douyin_credential_store.delete,
+            audit_op="douyin_cookie_deleted",
+        )
+    return {**result, "platform": "douyin", "has_cookie": False}

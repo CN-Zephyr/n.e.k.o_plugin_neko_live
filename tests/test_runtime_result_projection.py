@@ -333,7 +333,7 @@ async def test_handle_live_payload_routes_gift_to_support_events(runtime: LiveRu
 
     assert result.status == "pushed"
     assert result.reason == ""
-    latest = runtime.recent_results[-1]
+    latest = runtime.recent_diagnostics[-1]
     assert latest["event_signal"] == "gift_signal"
     assert latest["response_module"] == "live_support_events"
     assert latest["support_event_type"] == "gift"

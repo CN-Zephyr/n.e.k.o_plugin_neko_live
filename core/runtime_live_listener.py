@@ -53,15 +53,13 @@ async def reconcile_live_listener_after_config(
     old_room_id: int,
     old_platform: str = "bilibili",
     old_room_ref: str = "",
-    was_listening: bool,
+    had_listener: bool,
     old_provider: Any = None,
     operation_id: int | None = None,
 ) -> None:
     if operation_id is None:
         operation_id = int(getattr(runtime, "_live_listener_operation_id", 0) or 0)
-    if not is_current_live_listener_operation(runtime, operation_id) or getattr(runtime, "_stopping", False):
-        return
-    if not was_listening:
+    if not had_listener or getattr(runtime, "_stopping", False):
         return
     room_ref = runtime.live_provider.configured_room_ref()
     platform = runtime.live_provider.platform
@@ -76,9 +74,14 @@ async def reconcile_live_listener_after_config(
     disabled = "live_enabled" in clean and not bool(runtime.config.live_enabled)
     if not room_changed and not disabled:
         return
-    runtime._accepting_live_events = False
-    _disable_recent_chat_tool(runtime)
-    invalidate_live_session(runtime)
+    if is_current_live_listener_operation(runtime, operation_id):
+        runtime._accepting_live_events = False
+        _disable_recent_chat_tool(runtime)
+        invalidate_live_session(runtime)
+    elif platform == old_platform or old_provider is None or old_provider is runtime.live_provider:
+        return
+    # A newer connection can claim runtime state while the config write waits.
+    # The captured provider still needs cleanup if its platform was left.
     try:
         await _stop_captured_provider(old_provider or runtime.live_provider)
     except Exception as exc:

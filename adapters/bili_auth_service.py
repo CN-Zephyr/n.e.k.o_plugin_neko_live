@@ -16,6 +16,7 @@ CredentialProvider = Callable[[], Awaitable[Optional[object]]]
 CredentialSaver = Callable[[Dict[str, str]], Awaitable[bool]]
 CredentialReloader = Callable[[], Awaitable[None]]
 QrCleanup = Callable[[], None]
+CredentialDeleter = Callable[[], Awaitable[list[str]]]
 
 # Hosted UI 默认 30s 超时。资料接口和 passport 扫码接口近年常被风控拖住，
 # 没有上限时点「扫码登录」会空等一整段超时才出码。
@@ -43,6 +44,8 @@ class BiliAuthService:
         self._cleanup_callback = cleanup_callback
         self._login_session = None
         self._login_generated_at: float = 0.0
+        self._login_generation = 0
+        self._credential_mutation_lock = asyncio.Lock()
 
     def _require_login_sdk(self):
         try:
@@ -53,12 +56,25 @@ class BiliAuthService:
 
     def clear_qr_session(self) -> None:
         self._login_session = None
+        self._login_generation += 1
         if self._cleanup_callback:
             try:
                 self._cleanup_callback()
             except Exception:
                 if self.logger:
-                    self.logger.debug("清理二维码会话失败", exc_info=True)
+                    self.logger.debug("清理二维码会话失败")
+
+    async def delete_credential(self, delete: CredentialDeleter) -> list[str]:
+        self.clear_qr_session()
+        async with self._credential_mutation_lock:
+            return await delete()
+
+    @staticmethod
+    def _no_session() -> Dict[str, Any]:
+        return {
+            "status": "no_session",
+            "message": "没有进行中的登录，请先调用 bili_login 生成二维码",
+        }
 
     async def _check_existing_login(self) -> Optional[Dict[str, Any]]:
         status = await self.check_credential()
@@ -72,6 +88,7 @@ class BiliAuthService:
         }
 
     async def login(self) -> Dict[str, Any]:
+        generation = self._login_generation
         try:
             existing = await asyncio.wait_for(
                 self._check_existing_login(),
@@ -79,6 +96,8 @@ class BiliAuthService:
             )
         except TimeoutError:
             existing = None
+        if generation != self._login_generation:
+            return self._no_session()
         if existing:
             return existing
 
@@ -86,21 +105,26 @@ class BiliAuthService:
             self.clear_qr_session()
 
         QrCodeLogin, _ = self._require_login_sdk()
-        self._login_session = QrCodeLogin()
+        session = QrCodeLogin()
+        self._login_session = session
         try:
             await asyncio.wait_for(
-                self._login_session.generate_qrcode(),
+                session.generate_qrcode(),
                 timeout=_QR_GENERATE_TIMEOUT_SECONDS,
             )
         except TimeoutError as exc:
+            if self._login_session is not session:
+                return self._no_session()
             self.clear_qr_session()
             raise RuntimeError("获取二维码超时，请检查网络后重试。") from exc
+        if self._login_session is not session:
+            return self._no_session()
         self._login_generated_at = time.time()
-        pic = self._login_session.get_qrcode_picture()
+        pic = session.get_qrcode_picture()
         png_bytes = pic.content
         img_base64 = base64.b64encode(png_bytes).decode("utf-8")
-        terminal_qr = self._login_session.get_qrcode_terminal()
-        qr_url = str(getattr(self._login_session, "qr_link", "") or getattr(self._login_session, "qrcode_url", "") or "")
+        terminal_qr = session.get_qrcode_terminal()
+        qr_url = str(getattr(session, "qr_link", "") or getattr(session, "qrcode_url", "") or "")
         return {
             "status": "qrcode_ready",
             "message": "请用B站App扫描二维码登录（180秒内有效）",
@@ -111,23 +135,25 @@ class BiliAuthService:
         }
 
     async def login_check(self) -> Dict[str, Any]:
-        if not self._login_session:
+        session = self._login_session
+        if session is None:
             existing = await self._check_existing_login()
             if existing:
                 return existing
-            return {
-                "status": "no_session",
-                "message": "没有进行中的登录，请先调用 bili_login 生成二维码",
-            }
+            return self._no_session()
 
         _, QrCodeLoginEvents = self._require_login_sdk()
         try:
             state = await asyncio.wait_for(
-                self._login_session.check_state(),
+                session.check_state(),
                 timeout=_QR_POLL_TIMEOUT_SECONDS,
             )
         except TimeoutError as exc:
+            if self._login_session is not session:
+                return self._no_session()
             raise RuntimeError("检查扫码状态超时，请稍后重试。") from exc
+        if self._login_session is not session:
+            return self._no_session()
         none_state = getattr(QrCodeLoginEvents, "NONE", None)
         if none_state is not None and state == none_state:
             return {"status": "waiting", "message": "等待扫码...", "next_step": "请用B站App扫描二维码"}
@@ -151,7 +177,14 @@ class BiliAuthService:
             self.clear_qr_session()
             return {"status": "timeout", "message": "二维码已过期，请重新调用 bili_login 生成新二维码"}
         if state == QrCodeLoginEvents.DONE:
-            cred = self._login_session.get_credential()
+            return await self._complete_login(session)
+        return {"status": "unknown", "message": f"未知状态: {state}"}
+
+    async def _complete_login(self, session: Any) -> Dict[str, Any]:
+        async with self._credential_mutation_lock:
+            if self._login_session is not session:
+                return self._no_session()
+            cred = session.get_credential()
             payload = {
                 "SESSDATA": getattr(cred, "sessdata", "") or "",
                 "bili_jct": getattr(cred, "bili_jct", "") or "",
@@ -159,33 +192,40 @@ class BiliAuthService:
                 "buvid3": getattr(cred, "buvid3", "") or "",
             }
             ok = await self._credential_saver(payload)
+            if self._login_session is not session:
+                return self._no_session()
             if not ok:
                 self.clear_qr_session()
                 raise RuntimeError("登录成功，但保存加密凭据失败。")
             await self._credential_reloader()
+            if self._login_session is not session:
+                return self._no_session()
             self.clear_qr_session()
+            generation = self._login_generation
 
-            username = ""
-            try:
-                uid = int(getattr(cred, "dedeuserid", 0) or 0)
-                if uid > 0:
-                    fresh_cred = await self._credential_provider()
-                    user_info = await self._fetch_user_info(uid, fresh_cred)
-                    username = user_info.get("name", "")
-            except Exception:
-                if self.logger:
-                    self.logger.warning("login user info fetch failed")
+        username = ""
+        try:
+            uid = int(getattr(cred, "dedeuserid", 0) or 0)
+            if uid > 0:
+                fresh_cred = await self._credential_provider()
+                user_info = await self._fetch_user_info(uid, fresh_cred)
+                username = user_info.get("name", "")
+        except Exception:
+            if self.logger:
+                self.logger.warning("login user info fetch failed")
 
-            return {
-                "status": "done",
-                "message": "登录成功！凭据已加密保存，现在可以使用所有B站功能了",
-                "uid": payload["DedeUserID"],
-                "username": username,
-                "has_buvid3": bool(payload["buvid3"]),
-            }
-        return {"status": "unknown", "message": f"未知状态: {state}"}
+        if generation != self._login_generation:
+            return self._no_session()
+        return {
+            "status": "done",
+            "message": "登录成功！凭据已加密保存，现在可以使用所有B站功能了",
+            "uid": payload["DedeUserID"],
+            "username": username,
+            "has_buvid3": bool(payload["buvid3"]),
+        }
 
     async def check_credential(self) -> Dict[str, Any]:
+        generation = self._login_generation
         credential = await self._credential_provider()
         if not credential:
             return {"logged_in": False, "message": "未登录，请调用 bili_login 进行扫码登录"}
@@ -194,19 +234,14 @@ class BiliAuthService:
             return {"logged_in": False, "message": "credential could not be verified; please login again"}
         try:
             info = await self._fetch_user_info(int(uid or 0), credential)
-            return {
-                "logged_in": True,
-                "uid": uid,
-                "username": info.get("name", ""),
-                "message": "凭证有效",
-            }
+            username = info.get("name", "")
+            message = "凭证有效"
         except Exception:
-            return {
-                "logged_in": True,
-                "uid": uid,
-                "username": "",
-                "message": "credential valid; account profile temporarily unavailable",
-            }
+            username = ""
+            message = "credential valid; account profile temporarily unavailable"
+        if generation != self._login_generation:
+            return {"logged_in": False, "message": "credential validation was superseded"}
+        return {"logged_in": True, "uid": uid, "username": username, "message": message}
 
     @staticmethod
     async def _fetch_user_info(uid: int, credential: object) -> Dict[str, Any]:

@@ -27,8 +27,26 @@ Personalized viewer memory defaults to enabled. The switch controls local prefer
 - **Cost budget:** bounded local JSON I/O and existing prompt tokens when enabled. The existing scoped-history bridge also sends local HTTP requests to the host memory service; extraction cost is determined by the host. No new model API, dependency, timer, `watch_time`, or `contribution_rank` is introduced by the review fixes.
 - **Action semantics:** reset removes local impressions and preserves identity, counts, and first-roast state; delete removes the complete persistent UID record and its session claim; clear-all affects local profiles and unsent memory batches, not summaries, sandbox results, or safety queues. Delete/reset cancel unsent batches for the UID. None of these actions purges memory already accepted by the host.
 - **Rejected alternatives:** disabling the basic profile store with personalization would break first-roast dedup; background retention jobs add idle cost; retaining raw history increases privacy and migration risk.
-- **Degrade / rollback:** setting `viewer_memory_enabled=false` immediately stops learning and prompt use while preserving the basic live contract. Existing JSON remains schema-compatible if the UI controls are rolled back.
+- **Degrade / rollback.** Disabling `viewer_memory_enabled` stops learning and prompt use. A pending message that has yet to start its disk commit updates basic counts only, even if the switch is quickly re-enabled. The configuration action waits for any commit already started before returning. Previously stored impressions remain available when memory is re-enabled.
 - **Evidence:** config projection, disabled-learning, prompt gating, 90-day pruning, reset/delete/clear, panel parity, locale, and full plugin gates cover this decision.
+
+## Profile update performance
+
+The store reads, normalizes and filters the JSON on a worker thread. The worker also refreshes the bounded panel projection. Writes still use an atomic replacement under the writer lock, including when the caller cancels during the commit. The store saves compact JSON with the same schema and continues to read existing files. This keeps migrations and disk growth out of this change. Individual updates still scan and rewrite the local file, so measure write latency and event-loop delays separately when testing larger synthetic datasets.
+
+## Decision Points for Windows credential protection
+
+- **Protection.** Keep Fernet and the existing namespace files. On Windows, wrap the Fernet key with current-user DPAPI through the system API and the existing worker thread. POSIX keeps separate owner-only key and ciphertext files. A cross-platform keyring would add dependencies and availability requirements.
+- **Upgrade budget.** An existing Windows key gets one atomic replacement after its credential decrypts successfully or when the user saves a replacement credential. Normal reads perform one local DPAPI call.
+- **Failure and rollback.** If credentials cannot be migrated or unwrapped, the store retains the files and reports the existing redacted load failure. Sign in again after clearing local credentials or retry under the same Windows account. Downgrading to a version that cannot read protected keys requires signing in again.
+- **Verification.** Synthetic credentials test Windows wrapping, migration, failed replacement, re-open and logout. POSIX tests retain the mode-bit checks. Both panel surfaces use the same credential actions and public status.
+
+## Local credential removal
+
+- Bilibili, Twitch and Douyin share the logout result contract. `logged_out=true` means both local files are absent and the provider listener stop completed. A missing file is already removed. A partial failure is retryable and produces `credential_removal_failed` or `listener_stop_failed`, without returning an operating-system path or exception message. The action still clears the in-process credential and attempts to stop the provider.
+- The store holds its write lock until the worker finishes even if the caller is cancelled. Bilibili invalidates the captured QR session and serializes its final save against logout. Twitch invalidates both the device session and token generation. Douyin serializes explicit imports and removal, and discards late validation results. All listeners continue to use the existing runtime, pipeline and Safety Guard.
+- **Decision and cost.** Reuse the store and provider locks on account operations. Removal makes at most two local file-delete calls per attempt. This adds no credential writes, timers or provider requests. After a filesystem error, the running plugin refuses to reload the credential from that store until the next explicit login. Retry logout before restarting if a file could not be removed. This operation is local to NEKO.
+- Windows and shared tests cover denied/partial deletion, retry, interrupted disk saves, QR authorization races and provider stop. DPAPI and Job Object tests also run in the Windows CI job.
 
 ## Testing
 

@@ -21,7 +21,7 @@ _REASON_CODES = {
     "output_channel_unavailable", "ready", "room_not_configured", "safety_degraded",
     "safety_tripped", "live_presence.disabled", "avatar_roast_declined",
     "like_greet.disabled", "follow_greet.disabled", "queue.cleared",
-    "live_status.check_failed", "song_request.cooldown",
+    "live_status.check_failed", "permission.developer_tools_disabled", "song_request.cooldown",
 }
 
 
@@ -138,6 +138,8 @@ def _reason_code(value: Any) -> str:
     reason = safe_text(value, max_len=160)
     if reason in _REASON_CODES:
         return reason
+    if reason == "developer tools are disabled":
+        return "permission.developer_tools_disabled"
     lowered = reason.lower()
     if lowered.startswith("selected "):
         event_type = safe_text(lowered.removeprefix("selected "), max_len=32)
@@ -156,4 +158,16 @@ def _reason_code(value: Any) -> str:
         return "dispatcher.skipped"
     if reason.endswith(("Error", "Exception")):
         return "exception"
+    return ""
+
+
+def persisted_reason_code(value: Any) -> str:
+    """Use stable diagnostics without retaining message-derived detail."""
+    if isinstance(value, str) and value in {"selected", "support", "signal_only", "exception"}:
+        return value
+    reason = _reason_code(value)
+    if reason in _REASON_CODES or reason == "exception":
+        return reason
+    if reason.startswith(("selected", "support.", "signal_only.")):
+        return reason.split(".", 1)[0]
     return ""

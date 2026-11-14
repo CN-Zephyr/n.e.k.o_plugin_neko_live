@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from time import perf_counter_ns
 from typing import Any
 
 from .contracts_public import (
@@ -25,11 +26,17 @@ class ViewerEvent:
     source: TriggerSource = "developer_sandbox"
     live_mode: LiveMode = "co_stream"
     trace_id: str = ""
-    seen_at: str = field(default_factory=utc_now_iso)
+    seen_at: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
+    _seen_monotonic_ns: int | None = field(default=None, init=False, repr=False, compare=False)
     # Ephemeral, internally captured input context; never accepted from raw
     # provider fields or included in public/store projections.
     prior_danmaku: tuple[str, ...] = field(default=(), init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.seen_at is None:
+            self._seen_monotonic_ns = perf_counter_ns()
+            self.seen_at = utc_now_iso(timespec="milliseconds")
 
     def to_dict(self) -> dict[str, Any]:
         data = {

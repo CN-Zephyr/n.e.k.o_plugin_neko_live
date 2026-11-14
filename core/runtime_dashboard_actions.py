@@ -19,6 +19,7 @@ def dashboard_actions() -> list[dict[str, str]]:
         "trigger_active_engagement",
         "submit_viewer_event",
         "clear_sandbox_data",
+        "clear_recent_diagnostics",
         "clear_viewer_profiles",
         "search_viewer_profiles",
         "delete_viewer_profile",

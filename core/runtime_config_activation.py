@@ -50,6 +50,10 @@ def activate_config(runtime: Any, config: LiveConfig) -> LiveConfig:
         runtime.recent_results,
         maxlen=runtime.config.recent_limit,
     )
+    runtime.recent_diagnostics = deque(
+        runtime.recent_diagnostics,
+        maxlen=runtime.config.recent_limit,
+    )
     runtime.recent_sandbox_results = deque(
         runtime.recent_sandbox_results,
         maxlen=runtime.config.recent_limit,

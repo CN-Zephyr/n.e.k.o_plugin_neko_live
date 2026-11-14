@@ -3,6 +3,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
+import socket
+import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -112,15 +116,16 @@ def test_default_douyin_bridge_backend_is_the_only_bundled_binary_spec():
 
     assert backend.backend_id == "douyinlive"
     assert backend.executable_path.name == "douyinLive.exe"
-    assert backend.checksum_path is not None
-    assert backend.checksum_path.name == "CHECKSUMS.txt"
+    assert len(backend.expected_sha256) == 64
     assert backend.args_factory(18088) == ["--port", "18088", "--log-level", "warn"]
 
 
 def test_default_bridge_binary_is_present_and_matches_pinned_checksum():
     backend = default_douyin_bridge_backend()
-    expected = backend.checksum_path.read_text(encoding="utf-8").split()[0]
-    assert hashlib.sha256(backend.executable_path.read_bytes()).hexdigest() == expected
+    recorded = backend.executable_path.with_name("CHECKSUMS.txt").read_text(encoding="ascii").split()[0]
+    assert recorded == backend.expected_sha256
+    with backend.executable_path.open("rb") as executable:
+        assert hashlib.file_digest(executable, "sha256").hexdigest() == backend.expected_sha256
 
 
 @pytest.mark.asyncio
@@ -150,7 +155,7 @@ def test_douyin_embedded_bridge_supervisor_accepts_replaceable_backend(tmp_path:
         backend_id="replacement",
         executable_path=tmp_path / "replacement.exe",
         args_factory=lambda port: ["serve", "--listen", str(port)],
-        checksum_path=tmp_path / "CHECKSUMS.txt",
+        expected_sha256=hashlib.sha256(b"replacement").hexdigest(),
     )
     supervisor = DouyinEmbeddedBridgeSupervisor(backend=backend)
 
@@ -274,13 +279,7 @@ async def test_live_bridge_transport_resets_retry_budget_after_successful_reconn
 async def test_bridge_process_supervisor_starts_and_stops_bundled_executable(tmp_path: Path):
     executable = tmp_path / "douyinLive.exe"
     executable.write_bytes(b"fake exe")
-    checksum = tmp_path / "CHECKSUMS.txt"
-    checksum.write_text(
-        f"{hashlib.sha256(executable.read_bytes()).hexdigest()}  {executable.name}\n",
-        encoding="ascii",
-    )
     calls: list[dict[str, object]] = []
-    cleaned: list[Path] = []
     fake_process = _FakeProcess()
 
     def process_factory(args, **kwargs):
@@ -290,18 +289,16 @@ async def test_bridge_process_supervisor_starts_and_stops_bundled_executable(tmp
     supervisor = BridgeProcessSupervisor(
         executable_path=executable,
         args_factory=lambda port: ["--port", str(port), "--log-level", "warn"],
-        checksum_path=checksum,
+        expected_sha256=hashlib.sha256(b"fake exe").hexdigest(),
         process_factory=process_factory,
         port_factory=lambda: 18088,
         port_waiter=lambda port, timeout: port == 18088,
-        stale_process_cleaner=cleaned.append,
     )
 
     state = await supervisor.start()
     stopped = await supervisor.stop()
 
     assert state.ok is True
-    assert cleaned == [executable]
     assert state.base_url == "ws://127.0.0.1:18088/ws"
     assert calls[0]["args"] == [str(executable), "--port", "18088", "--log-level", "warn"]
     assert calls[0]["kwargs"]["cwd"] == str(tmp_path)
@@ -311,25 +308,22 @@ async def test_bridge_process_supervisor_starts_and_stops_bundled_executable(tmp
 
 
 @pytest.mark.parametrize(
-    ("manifest", "expected_error"),
+    ("expected_sha256", "expected_error"),
     [
-        (None, "bundled bridge checksum is missing"),
-        ("not-a-checksum  douyinLive.exe\n", "bundled bridge checksum is invalid"),
-        ("非 ASCII\n", "bundled bridge checksum is invalid"),
-        (f"{'0' * 64}  douyinLive.exe\n", "bundled bridge checksum mismatch"),
+        ("not-a-checksum", "bundled bridge checksum is invalid"),
+        ("0" * 64, "bundled bridge checksum mismatch"),
     ],
 )
 @pytest.mark.asyncio
 async def test_bridge_process_supervisor_rejects_unverified_executable(
-    tmp_path: Path,
-    manifest: str | None,
-    expected_error: str,
+    tmp_path: Path, expected_sha256: str, expected_error: str,
 ):
     executable = tmp_path / "douyinLive.exe"
-    executable.write_bytes(b"fake exe")
-    checksum = tmp_path / "CHECKSUMS.txt"
-    if manifest is not None:
-        checksum.write_text(manifest, encoding="utf-8")
+    executable.write_bytes(b"replacement bytes")
+    # A matching sidecar cannot bless a replacement executable.
+    executable.with_name("CHECKSUMS.txt").write_text(
+        f"{hashlib.sha256(b'replacement bytes').hexdigest()}  {executable.name}\n", encoding="ascii",
+    )
     process_calls = 0
 
     def process_factory(*_args, **_kwargs):
@@ -340,7 +334,7 @@ async def test_bridge_process_supervisor_rejects_unverified_executable(
     supervisor = BridgeProcessSupervisor(
         executable_path=executable,
         args_factory=lambda port: ["--port", str(port)],
-        checksum_path=checksum,
+        expected_sha256=expected_sha256,
         process_factory=process_factory,
     )
 
@@ -352,43 +346,10 @@ async def test_bridge_process_supervisor_rejects_unverified_executable(
 
 
 @pytest.mark.asyncio
-async def test_bridge_process_supervisor_ignores_stale_cleanup_failures(tmp_path: Path):
-    executable = tmp_path / "douyinLive.exe"
-    executable.write_bytes(b"fake exe")
-    fake_process = _FakeProcess()
-
-    def fail_cleanup(path: Path) -> None:
-        raise OSError("cleanup failed")
-
-    supervisor = BridgeProcessSupervisor(
-        executable_path=executable,
-        args_factory=lambda port: ["--port", str(port)],
-        process_factory=lambda args, **kwargs: fake_process,
-        port_factory=lambda: 18089,
-        port_waiter=lambda port, timeout: port == 18089,
-        stale_process_cleaner=fail_cleanup,
-    )
-
-    state = await supervisor.start()
-
-    assert state.ok is True
-    assert state.base_url == "ws://127.0.0.1:18089/ws"
-
-
-@pytest.mark.asyncio
 async def test_bridge_process_supervisor_serializes_concurrent_starts(tmp_path: Path):
     executable = tmp_path / "douyinLive.exe"
     executable.write_bytes(b"fake exe")
-    entered_cleanup = threading.Event()
-    release_cleanup = threading.Event()
-    cleanup_calls = 0
     processes: list[_FakeProcess] = []
-
-    def stale_cleaner(path: Path) -> None:
-        nonlocal cleanup_calls
-        cleanup_calls += 1
-        entered_cleanup.set()
-        assert release_cleanup.wait(timeout=2.0)
 
     def process_factory(args, **kwargs):
         process = _FakeProcess()
@@ -401,46 +362,43 @@ async def test_bridge_process_supervisor_serializes_concurrent_starts(tmp_path: 
         process_factory=process_factory,
         port_factory=lambda: 18090,
         port_waiter=lambda port, timeout: True,
-        stale_process_cleaner=stale_cleaner,
     )
 
-    first = asyncio.create_task(supervisor.start())
-    assert await asyncio.to_thread(entered_cleanup.wait, 1.0)
-    second = asyncio.create_task(supervisor.start())
-    release_cleanup.set()
-    first_state, second_state = await asyncio.gather(first, second)
+    first, second = await asyncio.gather(supervisor.start(), supervisor.start())
 
-    assert cleanup_calls == 1
     assert len(processes) == 1
-    assert first_state == second_state
-    assert first_state.port == 18090
+    assert first == second
+    assert first.port == 18090
 
 
 @pytest.mark.asyncio
 async def test_bridge_process_supervisor_stop_waits_for_start_lifecycle(tmp_path: Path):
     executable = tmp_path / "douyinLive.exe"
     executable.write_bytes(b"fake exe")
-    entered_cleanup = threading.Event()
-    release_cleanup = threading.Event()
+    entered_wait = threading.Event()
+    release_wait = threading.Event()
     fake_process = _FakeProcess()
 
-    def stale_cleaner(path: Path) -> None:
-        entered_cleanup.set()
-        assert release_cleanup.wait(timeout=2.0)
+    def wait_for_port(_port: int, _timeout: float) -> bool:
+        entered_wait.set()
+        return release_wait.wait(timeout=3.0)
 
     supervisor = BridgeProcessSupervisor(
         executable_path=executable,
         args_factory=lambda port: ["--port", str(port)],
         process_factory=lambda args, **kwargs: fake_process,
         port_factory=lambda: 18091,
-        port_waiter=lambda port, timeout: True,
-        stale_process_cleaner=stale_cleaner,
+        port_waiter=wait_for_port,
     )
 
     starting = asyncio.create_task(supervisor.start())
-    assert await asyncio.to_thread(entered_cleanup.wait, 1.0)
-    stopping = asyncio.create_task(supervisor.stop())
-    release_cleanup.set()
+    try:
+        assert await asyncio.to_thread(entered_wait.wait, 2.0)
+        stopping = asyncio.create_task(supervisor.stop())
+        await asyncio.sleep(0)
+        assert not stopping.done()
+    finally:
+        release_wait.set()
 
     assert (await starting).ok is True
     assert (await stopping).port == 18091
@@ -478,3 +436,111 @@ async def test_bridge_process_supervisor_reports_missing_executable(tmp_path: Pa
 
     assert state.ok is False
     assert state.last_error == "bundled bridge executable is missing"
+
+
+@pytest.mark.asyncio
+async def test_bridge_rejects_open_port_after_child_exits(tmp_path: Path):
+    executable = tmp_path / "bridge.exe"
+    executable.touch()
+    child = _FakeProcess()
+    child.returncode = 1
+    supervisor = BridgeProcessSupervisor(
+        executable_path=executable,
+        args_factory=lambda port: [],
+        process_factory=lambda *_args, **_kwargs: child,
+        port_factory=lambda: 18092,
+        port_waiter=lambda *_args: True,
+    )
+
+    state = await supervisor.start()
+
+    assert not state.ok
+    assert state.last_error == "bundled bridge exited during startup"
+
+
+@pytest.mark.asyncio
+async def test_bridge_retains_child_after_failed_stop(tmp_path: Path):
+    executable = tmp_path / "bridge.exe"
+    executable.touch()
+    child = _FakeProcess()
+    child.terminate = child.kill = lambda: None
+    launches = []
+
+    def launch(*_args, **_kwargs):
+        launches.append(child)
+        return child
+
+    supervisor = BridgeProcessSupervisor(
+        executable_path=executable,
+        args_factory=lambda port: [],
+        process_factory=launch,
+        port_factory=lambda: 18092,
+        port_waiter=lambda *_args: True,
+    )
+
+    assert (await supervisor.start()).ok
+    assert (await supervisor.stop()).last_error
+    assert not (await supervisor.start()).ok
+    assert launches == [child]
+    child.returncode = 0
+    assert not (await supervisor.stop()).last_error
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="requires a Windows Job Object")
+def test_windows_bridge_job_stops_only_its_own_child(tmp_path: Path):
+    from plugin.plugins.neko_live.modules.live_bridge.windows_job import start_job_process
+
+    argv = [sys._base_executable, "-I", "-c", "import time; time.sleep(15)"]
+    own = start_job_process(argv, cwd=str(tmp_path))
+    try:
+        other = start_job_process(argv, cwd=str(tmp_path))
+        try:
+            with pytest.raises(subprocess.TimeoutExpired):
+                own.wait(timeout=0.01)
+            own.terminate()
+            assert own.wait(timeout=4) == own.poll()
+            assert other.poll() is None
+        finally:
+            other.terminate()
+            other.wait(timeout=4)
+    finally:
+        own.terminate()
+        own.wait(timeout=4)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="requires Windows TCP owner lookup")
+def test_windows_listener_owner_distinguishes_processes():
+    from plugin.plugins.neko_live.modules.live_bridge.windows_listener import owns_listener
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        assert owns_listener(os.getpid(), port)
+        assert not owns_listener(0, port)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="requires Windows Job Object and TCP owner lookup")
+@pytest.mark.asyncio
+async def test_windows_supervisor_starts_an_owned_local_listener(tmp_path: Path):
+    from plugin.plugins.neko_live.modules.live_bridge.windows_job import start_job_process
+    from plugin.plugins.neko_live.modules.live_bridge.windows_listener import owns_listener
+
+    server = (
+        "import socket, sys; s = socket.socket(); "
+        "s.bind(('127.0.0.1', int(sys.argv[1]))); s.listen(); s.accept()"
+    )
+    server += "; import time; time.sleep(15)"
+    supervisor = BridgeProcessSupervisor(
+        executable_path=Path(sys._base_executable),
+        args_factory=lambda port: ["-I", "-c", server, str(port)],
+        process_factory=start_job_process,
+        listener_owner=lambda process, port: owns_listener(process.pid, port),
+    )
+
+    try:
+        state = await supervisor.start()
+        assert state.ok, state.last_error
+        assert state.base_url == f"ws://127.0.0.1:{state.port}/ws"
+    finally:
+        assert not (await supervisor.stop()).last_error

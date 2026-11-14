@@ -6,7 +6,7 @@ from typing import Any
 
 from ..adapters.twitch_auth_service import TwitchAuthService
 from ..stores.credential_store import CredentialStore
-from .runtime_live_listener import stop_live_session_for_platform
+from .runtime_credential_logout import remove_local_credential
 
 _TWITCH_FIELDS = (
     "access_token",
@@ -140,21 +140,18 @@ async def validate_credential(runtime: Any) -> dict[str, Any]:
 
 async def logout(runtime: Any) -> dict[str, Any]:
     auth = getattr(runtime, "twitch_auth", None)
-    if auth is not None:
-        removed = await auth.delete_credential()
-        await auth.cancel_device_authorization(_client_id(runtime))
-    else:
-        removed = await runtime.twitch_credential_store.delete()
-    runtime.twitch_credential = None
-    await stop_live_session_for_platform(runtime, "twitch")
-    runtime.audit.record("twitch_logout", "twitch credential removed", detail={"files": removed})
+    result = await remove_local_credential(
+        runtime,
+        platform="twitch",
+        cache_attr="twitch_credential",
+        delete=auth.delete_credential if auth is not None else runtime.twitch_credential_store.delete,
+        audit_op="twitch_logout",
+    )
     return {
+        **result,
         "platform": "twitch",
-        "logged_out": True,
-        "logged_in": False,
         "pending": False,
         "authorization_state": "unauthorized",
-        "removed": removed,
     }
 
 

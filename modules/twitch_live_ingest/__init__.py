@@ -57,6 +57,10 @@ class TwitchLiveIngestModule(BaseModule):
         await self.stop_listening()
         await super().teardown()
 
+    def has_listener(self) -> bool:
+        """Include pending EventSub setup and cleanup in listener ownership."""
+        return self._lifecycle_lock.locked() or self._client is not None
+
     def is_listening(self) -> bool:
         return self._listening is True and self._state in {"connected", "receiving"}
 
@@ -237,7 +241,11 @@ class TwitchLiveIngestModule(BaseModule):
         connection_state: str = "disconnected",
     ) -> None:
         runtime = self.ctx
-        if runtime is None:
+        if (
+            runtime is None
+            or not getattr(runtime, "_accepting_live_events", False)
+            or not self._owns_configured_target()
+        ):
             return
         await handle_unexpected_live_listener_stop(runtime, connection_state=connection_state)
         audit = getattr(runtime, "audit", None)
@@ -484,7 +492,12 @@ class TwitchLiveIngestModule(BaseModule):
         return dict(candidate) if isinstance(candidate, dict) else {}
 
     def _owns_target(self, generation: int) -> bool:
-        if generation != self._generation or self._stop_requested or not self.is_listening() or self.ctx is None:
+        if generation != self._generation or self._stop_requested or not self.is_listening():
+            return False
+        return self._owns_configured_target()
+
+    def _owns_configured_target(self) -> bool:
+        if self.ctx is None or getattr(self.ctx, "_stopping", False):
             return False
         router = getattr(self.ctx, "live_provider", None)
         if getattr(router, "platform", "") != "twitch":

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import platform
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
-from ..live_bridge.process_supervisor import cleanup_stale_windows_processes
+_DOUYIN_LIVE_SHA256 = "14b21b9682dc8f1f510f5390b640cf1a07f2597ab7a77e0e705ec3852e83ccf2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,8 +18,10 @@ class DouyinBridgeBackend:
     backend_id: str
     executable_path: Path
     args_factory: Callable[[int], list[str]]
-    checksum_path: Path
-    stale_process_cleaner: Callable[[Path], None] | None = None
+    expected_sha256: str
+    supported: bool = True
+    process_factory: Callable[..., Any] | None = None
+    listener_owner: Callable[[Any, int], bool] | None = None
 
 
 def default_douyin_bridge_backend() -> DouyinBridgeBackend:
@@ -25,11 +29,25 @@ def default_douyin_bridge_backend() -> DouyinBridgeBackend:
         backend_id="douyinlive",
         executable_path=_bundled_executable_path("douyinLive.exe"),
         args_factory=lambda port: ["--port", str(port), "--log-level", "warn"],
-        checksum_path=_bundled_executable_path("CHECKSUMS.txt"),
-        stale_process_cleaner=cleanup_stale_windows_processes,
+        expected_sha256=_DOUYIN_LIVE_SHA256,
+        supported=sys.platform == "win32" and platform.machine().lower() in {"amd64", "x86_64"},
+        process_factory=_start_windows_bridge,
+        listener_owner=_owns_windows_listener,
     )
 
 
 def _bundled_executable_path(filename: str) -> Path:
     root = Path(__file__).resolve().parents[2]
     return root / "vendor" / "douyin_bridge" / "windows-amd64" / filename
+
+
+def _start_windows_bridge(*args, **kwargs):
+    from ..live_bridge.windows_job import start_job_process
+
+    return start_job_process(*args, **kwargs)
+
+
+def _owns_windows_listener(process, port: int) -> bool:
+    from ..live_bridge.windows_listener import owns_listener
+
+    return owns_listener(process.pid, port)

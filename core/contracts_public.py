@@ -18,7 +18,7 @@ _VIEWER_DERIVED_TOPIC_SOURCES = {"recent_danmaku", "live_thread"}
 
 _SENSITIVE_AUTH_RE = re.compile(
     r'''["']?\b(?:proxy[-_]?authorization|authorization)\b["']?\s*[:=]\s*'''
-    r'''["']?(?:bearer|basic)?\s*[^'"\s;,}\]]+["']?''',
+    r'''["']?(?:(?:bearer|basic|oauth)\s+)?[^'"\s;,}\]]+["']?''',
     re.IGNORECASE,
 )
 _SENSITIVE_COOKIE_HEADER_RE = re.compile(r"\bcookie\s*:\s*[^\r\n]*", re.IGNORECASE)

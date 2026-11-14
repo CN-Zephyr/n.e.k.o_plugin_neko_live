@@ -57,7 +57,6 @@ def record_result(runtime: Any, result: InteractionResult) -> None:
         reason=result.reason,
         route=str(payload.get("response_module") or ""),
     )
-    payload["timeline"] = timeline_for_trace(runtime, trace_id)
     expose_request_metadata(payload)
     if str(payload.get("status") or "") == "pushed":
         spent_output = runtime._spent_output_text(payload)
@@ -65,9 +64,11 @@ def record_result(runtime: Any, result: InteractionResult) -> None:
         if spent_families:
             payload["spent_output_family"] = ",".join(spent_families)
     runtime.recent_results.append(payload)
+    diagnostic = {**payload, "timeline": timeline_for_trace(runtime, trace_id)}
+    runtime.recent_diagnostics.append(diagnostic)
     save_recent_results(runtime)
     _note_live_memory(runtime, payload, event=result.event)
-    runtime.event_bus.emit("result", payload)
+    runtime.event_bus.emit("result", diagnostic)
 
 
 def _note_live_memory(runtime: Any, payload: dict[str, Any], *, event: ViewerEvent | None = None) -> None:
