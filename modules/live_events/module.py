@@ -944,7 +944,7 @@ class LiveEventsModule(BaseModule):
         text = event_text(event)
         if not text or not event_is_current_session(event, self.ctx):
             return 0
-        input_skip_reason = danmaku_skip_reason(self.ctx, text, event_type=event_type(event))
+        input_skip_reason = danmaku_skip_reason(self.ctx, text, event_type=event_type(event), nickname=event_nickname(event))
         if input_skip_reason:
             self._record_reply_skip(event, reason=input_skip_reason, score=0.0)
             record_timeline(

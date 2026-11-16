@@ -223,6 +223,7 @@ def test_random_pressure_does_not_resubmit_after_run_is_accepted(monkeypatch: py
     def create_entry_run(self, entry_id, args, *, timeout=45.0):
         nonlocal create_calls
         create_calls += 1
+        assert entry_id == "submit_manual_live_event"
         return {"run_id": "run-accepted"}, "run-accepted"
 
     def collect_entry_run(self, created, run_id, *, timeout=45.0):

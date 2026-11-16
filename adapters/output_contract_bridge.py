@@ -1,8 +1,8 @@
 """Adapter between NEKO Live requests and host-visible metadata.
 
-The bridge is deliberately metadata-only for now. It gives the plugin a single
-place to connect to a future generic host output-contract API without teaching
-the host about NEKO Live internals today.
+The bridge maps requests to plugin-owned prompt metadata. The separate
+``response_text_transform`` adapter connects the shaper to the generic host
+boundary without teaching the host about NEKO Live wording.
 """
 
 from __future__ import annotations

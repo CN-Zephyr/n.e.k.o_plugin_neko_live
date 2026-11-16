@@ -31,6 +31,8 @@ import type { PluginSurfaceProps } from "@neko/plugin-ui"
 import {
   AuthCard,
   AvatarPreview,
+  ContentFilterSettings,
+  MemoryForgetRecovery,
   ModuleHealthBadge,
   ModuleOverviewCard,
   ModuleRenderBoundary,
@@ -182,6 +184,7 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
   const audit = Array.isArray(safeState.recent_audit) ? safeState.recent_audit : []
   const [sandboxResult, setSandboxResult] = useState<any>(null)
   const [lookupResult, setLookupResult] = useState<any>(null)
+  const [lookupAvatarPreview, setLookupAvatarPreview] = useState("")
   const [liveRoomResult, setLiveRoomResult] = useState<any>(null)
   const [queriedRoomRef, setQueriedRoomRef] = useState("")
   const [loginState, setLoginState] = useState<any>(null)
@@ -282,6 +285,7 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
       danmaku_response_enabled: config.danmaku_response_enabled !== false,
       danmaku_filter_enabled: config.danmaku_filter_enabled !== false,
       danmaku_filter_prefixes: String(config.danmaku_filter_prefixes ?? "!\n！"),
+      content_filter_terms: String(config.content_filter_terms || ""),
       live_support_events_enabled: config.live_support_events_enabled !== false,
       warmup_hosting_enabled: config.warmup_hosting_enabled !== false,
       idle_hosting_enabled: config.idle_hosting_enabled !== false,
@@ -330,6 +334,7 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
     config.danmaku_response_enabled,
     config.danmaku_filter_enabled,
     config.danmaku_filter_prefixes,
+    config.content_filter_terms,
     config.live_support_events_enabled,
     config.warmup_hosting_enabled,
     config.idle_hosting_enabled,
@@ -1079,14 +1084,15 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
     await loadSongRequestStatus()
   }
 
-  async function runViewerProfileAction(action: string, uid: string): Promise<void> {
+  async function runViewerProfileAction(action: string, uid: string, scope?: { platform: string; target: string }): Promise<void> {
     if (!uid) return
     try {
-      await props.api.call(action, { uid })
-      toast.success(t("panel.messages.done"))
+      const result = unwrapActionResult(await props.api.call(action, { uid, ...scope }))
+      if (action === "forget_viewer_memory" && result.forgotten !== true) throw new Error("host_memory.erase_unconfirmed")
+      toast.success(t(action === "forget_viewer_memory" ? "panel.privacy.forgetDone" : "panel.messages.done"))
       await refreshDashboard(true)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(action === "forget_viewer_memory" ? t("panel.privacy.forgetFailed") : err instanceof Error ? err.message : String(err))
       throw err
     }
   }
@@ -1155,14 +1161,18 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
     try {
       const envelope = await props.api.call("submit_viewer_event", {
         lookup_only: true,
+        include_avatar_preview: true,
         target: sandboxForm.values.target.trim(),
+        avatar_url: sandboxForm.values.avatar_url.trim(),
       })
-      const result = unwrapActionResult(envelope)
+      const { avatar_preview_data_url, ...result } = unwrapActionResult(envelope)
+      setLookupAvatarPreview(typeof avatar_preview_data_url === "string" ? avatar_preview_data_url : "")
       setLookupResult(result)
       setSandboxResult(result)
       await refreshDashboard(true)
       toast.success(t("panel.messages.lookupDone"))
     } catch (err) {
+      setLookupAvatarPreview("")
       toast.error(err instanceof Error ? err.message : String(err))
     }
   }
@@ -1186,6 +1196,7 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
       await props.api.call("clear_sandbox_data", {})
       setSandboxResult(null)
       setLookupResult(null)
+      setLookupAvatarPreview("")
       await refreshDashboard(true)
       toast.success(t("panel.messages.sandboxCleared"))
     } catch (err) {
@@ -2504,6 +2515,8 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
   )
 
   const viewerStore = safeState.viewer_store || {}
+  const capacityReasons = Array.isArray(viewerStore.capacity_reasons) ? viewerStore.capacity_reasons : []
+  const storageNeedsAttention = viewerStore.writable === false || capacityReasons.length > 0
   const queuePresets = [
     { value: 3, labelKey: "panel.settings.queueCautious", hintKey: "panel.settings.queueCautiousHint" },
     { value: 5, labelKey: "panel.settings.queueStandard", hintKey: "panel.settings.queueStandardHint" },
@@ -2583,17 +2596,33 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
                     {t(configForm.values.viewer_memory_enabled ? "panel.settings.viewerMemoryEnabledHint" : "panel.settings.viewerMemoryDisabledHint")}
                   </Alert>
                   <Text>{t("panel.settings.viewerMemoryRetentionHint")}</Text>
+                  <Text>{t("panel.privacy.localOnly")}</Text>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
                     <Stack gap={4}>
                       <Text>{t("panel.settings.localStorageLabel")}</Text>
                       <Text>{t("panel.settings.localStorageHint")}</Text>
                     </Stack>
                     <StatusBadge
-                      tone={viewerStore.writable === false ? "warning" : "success"}
-                      label={t(viewerStore.writable === false ? "panel.settings.storageNeedsAttention" : "panel.settings.storageReady")}
+                      tone={storageNeedsAttention ? "warning" : "success"}
+                      label={t(storageNeedsAttention ? "panel.settings.storageNeedsAttention" : "panel.settings.storageReady")}
                     />
                   </div>
                   {viewerStore.writable === false ? <Alert tone="warning">{t("panel.storage.notWritable")}</Alert> : null}
+                  {capacityReasons.includes("profile_count") ? <Alert tone="warning">{t("panel.storage.profileLimit")}</Alert> : null}
+                  {capacityReasons.includes("file_size") ? <Alert tone="warning">{t("panel.storage.fileLimit")}</Alert> : null}
+                  <ContentFilterSettings
+                    value={String(configForm.values.content_filter_terms || "")}
+                    saving={settingsSaving}
+                    onSave={(value) => applySettingsPatch({ content_filter_terms: value })}
+                    t={t}
+                  />
+                  <Text>{t("panel.contentFilter.rateHint")}</Text>
+                  <MemoryForgetRecovery
+                    state={safeState.memory_forget}
+                    disabled={config.live_enabled === true || safety.connected !== false}
+                    onRetry={(uid, scope) => runViewerProfileAction("forget_viewer_memory", uid, scope)}
+                    t={t}
+                  />
                   <Text>{t("panel.settings.recentDiagnosticsHint")}</Text>
                   <Grid cols={2}>
                     <Button tone="default" onClick={() => { setStorageDetailsOpen(true) }}>{t("panel.settings.viewStoragePath")}</Button>
@@ -2640,7 +2669,7 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
       <ConfirmDialog
         open={clearViewerMemoryConfirmOpen}
         title={t("panel.actions.clearViewerProfiles")}
-        message={t("panel.messages.clearViewerProfilesConfirm")}
+        message={`${t("panel.messages.clearViewerProfilesConfirm")} ${t("panel.privacy.localOnly")}`}
         tone="danger"
         confirmLabel={t("panel.actions.clearViewerProfiles")}
         cancelLabel={t("panel.actions.cancel")}
@@ -2692,6 +2721,9 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
               locale={props.locale}
               onResetImpression={(uid) => runViewerProfileAction("reset_viewer_impression", uid)}
               onDeleteProfile={(uid) => runViewerProfileAction("delete_viewer_profile", uid)}
+              onForgetProfile={(uid, scope) => runViewerProfileAction("forget_viewer_memory", uid, scope)}
+              hostMemoryScope={{ platform: String(config.live_platform || "bilibili"), target: String(safeState.memory_target || "") }}
+              hostMemoryDisabled={config.live_enabled === true || safety.connected !== false}
               onSearch={searchViewerProfiles}
             />
           ),
@@ -2701,7 +2733,7 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
   )
 
   const lookupIdentity = lookupResult?.identity || null
-  const lookupAvatarSrc = lookupIdentity?.avatar_preview_url || lookupIdentity?.avatar_url || lookupResult?.profile?.avatar_url || ""
+  const lookupAvatarSrc = developerToolsEnabled ? lookupAvatarPreview : ""
   const lookupSourceLabel = !lookupIdentity
     ? "-"
     : lookupIdentity.fetched
@@ -2713,7 +2745,7 @@ export default function NekoLivePanel(props: PluginSurfaceProps<DashboardState>)
     String(lookupIdentity?.nickname || lookupIdentity?.name || "").trim() ||
     presetViewerNickname
   const emitterAvatar = sandboxForm.values.avatar_url.trim() || String(lookupIdentity?.avatar_url || "").trim()
-  const emitterAvatarSrc = sandboxForm.values.avatar_url.trim() || lookupAvatarSrc
+  const emitterAvatarSrc = emitterAvatar === String(lookupIdentity?.avatar_url || "").trim() ? lookupAvatarSrc : ""
   const emitterDanmaku = sandboxForm.values.danmaku_text.trim() || presetViewerDanmaku
 
   const developerSandbox = (

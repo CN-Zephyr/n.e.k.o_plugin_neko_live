@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import urllib.error
+from contextlib import nullcontext
 from dataclasses import asdict
 from pathlib import Path
 from urllib.parse import quote
@@ -81,6 +82,9 @@ class _Audit:
 class _Safety:
     def output_cooldown_remaining(self, now=None) -> float:
         return 0.0
+
+    def wait_for_capacity(self):
+        return nullcontext()
 
 
 class _LiveEventsCtx:
@@ -1492,7 +1496,7 @@ def test_fetch_webcast_info_bounds_urlopen_timeout(monkeypatch):
         return _Response()
 
     monkeypatch.setattr(
-        "plugin.plugins.neko_live.modules.douyin_live_ingest.webcast.urllib.request.urlopen",
+        "plugin.plugins.neko_live.modules.douyin_live_ingest.webcast.open_without_redirects",
         fake_urlopen,
     )
 
@@ -1527,7 +1531,7 @@ def test_fetch_webcast_info_rejects_unsafe_cookie_headers(monkeypatch):
         return _Response()
 
     monkeypatch.setattr(
-        "plugin.plugins.neko_live.modules.douyin_live_ingest.webcast.urllib.request.urlopen",
+        "plugin.plugins.neko_live.modules.douyin_live_ingest.webcast.open_without_redirects",
         fake_urlopen,
     )
 
@@ -1549,7 +1553,7 @@ def test_fetch_webcast_info_returns_status_for_http_error(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "plugin.plugins.neko_live.modules.douyin_live_ingest.webcast.urllib.request.urlopen",
+        "plugin.plugins.neko_live.modules.douyin_live_ingest.webcast.open_without_redirects",
         fake_urlopen,
     )
 
@@ -1568,7 +1572,7 @@ def test_fetch_webcast_info_returns_status_for_url_error(monkeypatch):
         raise urllib.error.URLError("connection failed token=must-not-leak")
 
     monkeypatch.setattr(
-        "plugin.plugins.neko_live.modules.douyin_live_ingest.webcast.urllib.request.urlopen",
+        "plugin.plugins.neko_live.modules.douyin_live_ingest.webcast.open_without_redirects",
         fake_urlopen,
     )
 
@@ -1668,7 +1672,7 @@ def test_fetch_webcast_info_rejects_oversized_page(monkeypatch):
             return b"x" * limit
 
     monkeypatch.setattr(
-        "plugin.plugins.neko_live.modules.douyin_live_ingest.webcast.urllib.request.urlopen",
+        "plugin.plugins.neko_live.modules.douyin_live_ingest.webcast.open_without_redirects",
         lambda *_args, **_kwargs: _Response(),
     )
 

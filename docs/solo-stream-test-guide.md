@@ -107,7 +107,51 @@ npm start
 - Dashboard、recent results、`live_explain` 或 backend log 的人工复核连续发现 `long_reply` / `reply_repeat` / `generic_host_prompt`；这些是复核分类，不依赖独立 monitor 输出。
 - 猫猫抢其他插件或非直播场景发言。
 
+## 本地合成弹幕试听记录（2026-11-16）
+
+本轮使用隔离数据目录和虚构观众，没有连接直播间或读取角色私聊历史。插件真实启动并执行手动弹幕的 Pipeline、Permission Gate、Safety Guard 和 Dispatcher；测试装置接收 SDK 投送内容，再交给真实免费对话服务、宿主文本客户端、生产 HTTP/IPC 整形回调和流式 TTS worker。SDK 队列衔接由测试装置接管，因此本轮不代表 Electron 的完整投送、播放和抢话恢复已经通过。
+
+| 合成场景 | 最终试听文本 | 音频时长 | 人工结果 |
+|---|---|---|---|
+| 普通接话 | 小林喜欢呀，雨声听起来软乎乎的好舒服 | 4.669 秒 | 清楚完整 |
+| 问候 | 晚上好呀小桃，今天也要开心哦～ | 2.974 秒 | 清楚完整 |
+| 未核实送礼 | 小夏，弹幕喊的礼物不算数哦 | 2.144 秒 | 清楚完整 |
+
+操作者确认“三条都清楚完整”。三份 WAV 均为 48 kHz、16-bit、单声道，收到对应 `audio_done`，并核对了有效采样和文件校验值。普通接话的昵称后没有逗号，已保留实际生成文本和原音频；本轮人工听感通过，不据此增加未经验证的称呼重写规则。
+
+前置尝试曾没有生成文本，其中诊断请求返回 HTTP 400。试听脚本补齐宿主系统提示模板和 `======以上为` 水印后，三类输入均成功。失败记录也保留，不计为通过。测试进程、TTS 线程、IPC 待处理请求和随机回调监听端口均已清理。
+
+本地证据位于工作区 `artifacts/local-listen-20261116/`：`manifest.json`、`audio-inspection.json`、三份 WAV、脚本及前置失败记录。它们不属于发布包。本轮通过范围是本地合成输入到音频文件及人工试听；后续本地播放链检查见下一节，真实平台和正式安装包仍按 Windows 实播步骤单独验收。
+
+## 本地 SDK 与 Electron 播放链记录（2026-11-16）
+
+后续检查复用上节已获人工确认的三份 WAV，不连接直播间，也不再请求模型或 TTS 服务。真实插件子进程执行手动弹幕 Pipeline 和 Dispatcher，经实际 SDK `push_message`、消息平面、ProactiveBridge、MainServerAgentBridge 和主服务器事件分发进入宿主排队器；文本整形仍走生产 HTTP/IPC 回调。
+
+独立验收页在副屏的 Electron 41.2.0 中加载未经修改的宿主 `app-state.js`、`app-websocket.js`、`app-audio-playback.js` 和 Ogg 解码封装。测试装置在排队器的交付回调处回放已录制音频，并提供最小 WebSocket 服务，将前端真实 `voice_play_start/end` 回执交回宿主播放门禁。它覆盖实际排队、消息解析和 WebAudio 调度；没有运行正式桌面启动入口、完整页面或生产 WebSocket 路由。
+
+13 项检查全部通过：
+
+| 场景 | 实际结果 |
+|---|---|
+| A 播放期间提交 B | B 保持排队；A 播放 4.688 秒，结束回执后约 2.062 秒才开始 B |
+| B 播放期间提交 C，并打断 B | B 在约 0.719 秒时中断；约 2.047 秒后开始 C |
+| C 播放期间送达 B 的迟到音频 | 旧片段及其结束标记被隔离；没有第二次启动 B，C 正常结束 |
+| WebSocket 受控断开并自动重连 | 第二次连接建立后，D 正常播放 2.969 秒；D 复用问候音频 |
+| 最终状态与清理 | A/B/C/D 各一次开播及结束回执；宿主待播队列、前端音频队列和待播节点归零，待处理 IPC 为 0，测试进程退出，7 个临时端口释放 |
+
+首次诊断在 B 的 `audio_done` 之后又发送了 B 的 TTS 片段，导致重复开播和超时。该构造超出本轮 TTS 流结束契约，保留在 `diagnostic-after-terminal.json`，不计为通过，也不据此修改生产代码。最终用例让 B 的流在中断时保持开放，先发送迟到片段，再发送其结束标记；音频头与实际 `send_speech` 一致，只带 `speech_id`，不额外提供 `turn_id`。原生 realtime 的跨 response 续答不在本轮结论内。
+
+工作区 `artifacts/desktop-chain-20261116/` 保留运行脚本、隔离 fixture、`report.json`、运行时版本、源码校验值和诊断说明。该目录中的 Electron 仅服务本地验收，不是生产依赖或发布资产。本轮未改产品逻辑；上述播放时长来自前端回执，不替代新的人工听感确认。正式安装包、真实平台入站、10–30 分钟连续试播、平台断线恢复和停播后的普通聊天恢复仍待 Windows 实播验收。
+
 ## Windows 实播验收
+
+配套宿主源码可以先做本地跨进程验收。在宿主 `pyproject.toml` 所在目录运行：
+
+```powershell
+uv run python -m pytest "plugin/tests/integration/test_response_text_transform_process.py" -q
+```
+
+这组测试用临时数据目录、系统分配的本机端口和合成文本，实际启动插件子进程并通过生产 HTTP 路由调用整形器，覆盖超时恢复、进程退出、暂停/恢复、清空队列和重启后的旧回复失效。测试结束会检查进程、IPC 请求和监听端口清理，并检查日志不含测试回复正文。开发者投送上下文由测试构造；不会连接直播间或调用模型/TTS 服务，因此通过后仍需完成下面的实际播放验收。详细约束见[输出契约](modules/output_contract.md#post-generation-enforcement-status)。
 
 使用上面已通过测试的场景。把完成来源验证的 `.neko-plugin` 安装到隔离的 Windows Electron 测试档案，选择自己控制的 B 站或 Twitch 测试直播间。先运行无声链路，再切换到真实输出。每个通过的平台单独记录一行。
 

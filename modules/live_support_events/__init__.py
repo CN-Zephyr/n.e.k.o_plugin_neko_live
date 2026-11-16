@@ -296,9 +296,14 @@ class LiveSupportEventsModule(BaseModule):
         return payload
 
     async def _handle_payload(self, payload: dict[str, Any]) -> Any:
-        if self.ctx is None:
+        ctx = self.ctx
+        if ctx is None:
             return
-        return await self.ctx.handle_live_payload(payload)
+        guard = getattr(ctx, "safety_guard", None)
+        if guard is None:
+            return await ctx.handle_live_payload(payload)
+        async with guard.wait_for_capacity():
+            return await ctx.handle_live_payload(payload)
 
     def build_request(
         self,

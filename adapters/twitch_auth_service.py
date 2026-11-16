@@ -413,7 +413,9 @@ async def _request_json(
     timeout = aiohttp.ClientTimeout(total=8)
     session_kwargs = aiohttp_session_kwargs_for_url(url)
     async with aiohttp.ClientSession(timeout=timeout, **session_kwargs) as session:
-        async with session.request(method, url, headers=headers, data=data) as response:
+        async with session.request(method, url, headers=headers, data=data, allow_redirects=False) as response:
+            if 300 <= response.status < 400:
+                return response.status, {}
             try:
                 payload = await response.json(content_type=None)
             except Exception:

@@ -1,6 +1,8 @@
+import io
 from types import SimpleNamespace
 
 import pytest
+from PIL import Image
 from plugin.plugins.neko_live.adapters.neko_dispatcher import NekoDispatcher
 from plugin.plugins.neko_live.adapters.output_contract_bridge import (
     metadata_for_request,
@@ -1207,10 +1209,12 @@ async def test_dispatcher_attaches_avatar_image_for_visual_opt_in():
         def push_message(self, **kwargs):
             self.parts = kwargs["parts"]
 
+    avatar = io.BytesIO()
+    Image.new("RGB", (8, 8), "blue").save(avatar, format="PNG")
     plugin = Plugin()
     request = InteractionRequest(
         event=ViewerEvent(uid="42", nickname="viewer", source="live_danmaku", live_mode="solo_stream"),
-        identity=ViewerIdentity(uid="42", nickname="viewer", avatar_bytes=b"avatar", avatar_mime="image/png"),
+        identity=ViewerIdentity(uid="42", nickname="viewer", avatar_bytes=avatar.getvalue(), avatar_mime="image/png"),
         profile=ViewerProfile(uid="42", nickname="viewer"),
         prompt_text="reply",
         live_mode="solo_stream",
@@ -1221,11 +1225,14 @@ async def test_dispatcher_attaches_avatar_image_for_visual_opt_in():
     result = await NekoDispatcher(plugin).push_roast(request)
 
     assert "queued_to_neko(" in result
-    assert "image_part_bytes=6" in result
     assert len(plugin.parts) == 2
+    assert f"image_part_bytes={len(plugin.parts[1]['data'])}" in result
     assert plugin.parts[0]["type"] == "text"
     assert _after_delivery_boundary(plugin.parts[0]["text"]).startswith(
         "reply\n\nNEKO Live short output contract:"
     )
     assert "For avatar_roast: connect the viewer's first message" in plugin.parts[0]["text"]
-    assert plugin.parts[1] == {"type": "image", "data": b"avatar", "mime": "image/png"}
+    assert plugin.parts[1]["type"] == "image"
+    assert plugin.parts[1]["mime"] == "image/jpeg"
+    with Image.open(io.BytesIO(plugin.parts[1]["data"])) as normalized:
+        assert normalized.size == (8, 8)

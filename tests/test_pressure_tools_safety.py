@@ -156,6 +156,7 @@ def test_trip_during_pressure_is_not_resumed_or_queue_cleared(
     tmp_path,
 ) -> None:
     action_ids: list[str] = []
+    entry_calls: list[tuple[str, dict[str, Any]]] = []
     config: dict[str, Any] = {
         "live_enabled": True,
         "live_mode": "solo_stream",
@@ -180,6 +181,11 @@ def test_trip_during_pressure_is_not_resumed_or_queue_cleared(
                     "live_connection": {"connected": True, "room_ref": "room-1"},
                 }
             }
+
+        def run_entry(self, entry_id: str, args: dict[str, Any]) -> dict[str, Any]:
+            assert config["developer_tools_enabled"] is True
+            entry_calls.append((entry_id, args))
+            return {"record": {"status": "succeeded"}}
 
         def action(
             self, action_id: str, args: dict[str, Any] | None = None
@@ -208,6 +214,8 @@ def test_trip_during_pressure_is_not_resumed_or_queue_cleared(
             "1",
             "--interval",
             "0",
+            "--fake-signal-at",
+            "1",
             "--log",
             str(tmp_path / "trip.jsonl"),
         ]
@@ -215,6 +223,10 @@ def test_trip_during_pressure_is_not_resumed_or_queue_cleared(
 
     assert run_silence(args) == 0
     assert safety_status == "tripped"
+    assert len(entry_calls) == 1
+    entry_id, fields = entry_calls[0]
+    assert entry_id == "submit_manual_live_event"
+    assert set(fields) == {"uid", "nickname", "danmaku_text", "avatar_url"}
     assert "resume_roast" not in action_ids
     assert "clear_queue" not in action_ids
 

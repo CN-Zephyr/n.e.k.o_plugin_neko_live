@@ -413,6 +413,8 @@ Dashboard should be able to answer:
 
 Dashboard must not show raw payloads, cookies, tokens, avatar bytes, base64 images, or unredacted private data.
 
+The explicit developer avatar preview is separate from dashboard observability: only a bounded, re-encoded thumbnail is delivered to its image component, never to snapshots, audit or JSON diagnostics. Its request/response and budget contract is defined in [UI architecture](ui-architecture.md#decision-points-developer-avatar-preview).
+
 ## Event Lifecycle
 
 ### ingest
@@ -426,6 +428,8 @@ Expected outcomes: `received`, `published`, `failed`, `degraded`.
 ### EventBus
 
 `core/event_bus.py` publishes `LiveEvent` by type to subscribers. This stage should explain whether an event was published, had no subscriber, or hit an isolated handler failure.
+
+`status()` exposes `pending_tasks`, `pending_task_limit`, `pending_tasks_per_owner_limit`, and `dropped_capacity_count` for bounded asynchronous subscriptions. A capacity drop counts one rejected subscriber invocation, not a lost platform event: other subscribers may still receive that event. Counts contain no payload or viewer identity. The task budgets, coroutine cleanup and ownership rules are defined in [development / EventBus](development.md#直播事件中枢eventbus与新增事件-handler).
 
 Expected outcomes: `published`, `failed`, `dropped`.
 
@@ -505,6 +509,8 @@ Expected outcomes: `skipped`, `failed`, `pushed`, `degraded`.
 
 `core/safety_guard.py` is the mandatory guard for connection state, pause state, automatic trips, queue limits, and rate limits.
 
+The bounded support scheduler can wait upstream of Pipeline admission when active capacity is full. SafetyGuard exposes `waiting_for_capacity` as an aggregate count in its snapshot and reserves the next available slot for the waiting worker; `queue_size` still counts only admitted work. Overflow audit records include the effective `admission_limit` alongside the configured `queue_limit`, so a temporary support reservation is distinguishable from a lower configuration. Waiting is not an Event Outcome or host delivery evidence. All normal Pipeline and output gates still apply after admission. Capacity/safety/config changes signal the existing worker without polling. Cancellation or a pre-admission return removes its reservation, while queue clearing also invalidates and cancels waiters using the existing generation boundary.
+
 `clear_queue` cancels pending selection windows, selected speech tasks, support queue/combo tasks and presence/like buckets through their owning modules. `resume` uses the same pending-work cleanup before resetting safety state. Both retain room facts, audience counts and processed support-event identities. SafetyGuard tracks admitted task ownership and a queue generation: cancellation does not release its slot until the pipeline's `after_event()` runs, and a cancelled task that suppresses cancellation still fails the final generation check with `queue.cleared`. Output already handed to the host cannot be recalled; these actions clear plugin work, not the host's audio queue.
 
 Decision Points for this fix: reuse the existing tasks and queue limit, keep only one task reference/generation per admitted event, and add no task, timer, polling, dependency, model call or persistent state. Clearing counters alone was rejected because it neither stops old output nor preserves capacity accounting. Module `clear_pending()` hooks clear work without resetting session facts or gift dedupe; full session `reset()` retains its broader semantics. Reverting these hooks restores stale-work risk. Tests cover cancellation during identity lookup, cancellation-resistant work, slot release and new admission, real module buffers and retained support dedupe. Logs contain only the stable queue-clear operation/reason, never input text.
@@ -515,7 +521,7 @@ Expected outcomes: `skipped`, `degraded`, `failed`.
 
 `adapters/neko_dispatcher.py` is the only output boundary. It must explain whether output was pushed, dry-run, skipped as non-deliverable, degraded to text-only, or failed.
 
-Plugin-owned output-contract helpers are split by concern: `core/live_reply_contract.py` defines structured metadata, `core/live_output_quality.py` owns quality fallback rules, `core/live_output_shape.py` owns final text shaping (both are not yet called on the live path because the host exposes no pre-TTS callback; see [output_contract](modules/output_contract.md#post-generation-enforcement-status)), `core/live_output_memory.py` owns recent-output negative examples, and `core/live_output_contract_prompt.py` renders prompt-contract text and merges callback metadata. These helpers may shape plugin-owned live output metadata and prompts, but they must not bypass Dispatcher or patch host/core final output paths.
+Plugin-owned output-contract helpers are split by concern: `core/live_reply_contract.py` defines structured metadata, `core/live_output_quality.py` owns recognized quality fallback rules, `core/live_output_shape.py` owns final text shaping, `core/live_output_memory.py` owns recent-output negative examples, and `core/live_output_contract_prompt.py` renders prompt-contract text and merges callback metadata. `adapters/response_text_transform.py` connects the shaper to the paired host's bounded reserved callback before offline text reaches display/TTS; older hosts and native realtime audio retain the prompt contract only. Plugin wording remains plugin-owned and all submissions still pass Dispatcher. No shaping-reason metadata, new Timeline stage or playback receipt is persisted by this bridge. See [output contract](modules/output_contract.md#post-generation-enforcement-status).
 
 `dry_run` is a Dispatcher Outcome, not an early exit. A `dry_run` event should still explain the earlier lifecycle stages that led to Dispatcher.
 
@@ -617,6 +623,17 @@ Volume is bounded without a timer:
 Because the flush is driven by record count rather than a clock, this adds no background task, no periodic wakeup, and no work while the room is silent.
 
 Session boundaries always flush, including when nothing happened. A `connect` summary followed by a `disconnect` summary reading `records=0` is itself the diagnosis, and is the specific evidence the earlier bundle could not provide.
+
+### Text policy and viewer admission reasons
+
+- `content.blocked_term`: configured literal text exclusion, at `input_filter`, `content_filter` or the final dispatcher boundary. No matched term or raw text is included in the reason.
+- `content.input_too_large`: a checked value exceeds the 32,768-character scan budget while the policy is enabled.
+- `input.viewer_rate_limited`: ordinary live/manual-chat admission rejected at `safety_guard.before_event`; surfaced as a skipped event and counted by `safety.viewer_input_rejected`. This does not trip the global failure breaker or consume output cooldown.
+- Profile capacity remains `viewer_store.capacity_reasons=[profile_count|file_size]`, now also displayed by the privacy panel when `writable=true`.
+- `viewer_memory_forgotten` is audited only after a validated host receipt and successful local deletion. `host_memory.*` errors are action failures, never a successful erasure signal; see [viewer stores](modules/viewer_stores.md#explicit-scoped-host-erasure).
+- `memory_forget_store_unavailable` reports an unreadable/unwritable deletion journal once per outage, without paths or stored contents. Dashboard `memory_forget.available` and bounded `pending` rows expose recovery state; restored pending requests do not execute automatically. `host_memory.journal_unavailable`, `host_memory.scope_changed` and `host_memory.local_delete_failed` retain the recovery boundary described in [viewer stores](modules/viewer_stores.md#explicit-scoped-host-erasure).
+
+Passive-context rejection returns a stable dispatcher result without manufacturing a spoken interaction outcome. The compatible host additionally records `output_policy.invalid`, `output_policy.unsupported_delivery`, `output_policy.blocked_term`, `output_policy.too_large`, `output_policy.too_complex`, `output_policy.transform_failed` or `output_policy.stale` when rejecting declared or generated response text, without logging terms or reply content in these diagnostics. Plugin submission success still does not confirm host policy enforcement, shaping or audio playback. The canonical policy and transform budgets are in [text exclusions](modules/content_filter.md) and [output contract](modules/output_contract.md#post-generation-enforcement-status).
 
 Status exposes `runtime_log_records` and `runtime_log_pending` only. Diagnostics must never break the live path: a logger that raises is dropped silently, and a missing logger is a no-op.
 

@@ -1,8 +1,8 @@
 """Plugin-owned NEKO Live reply contract declarations.
 
 This module is intentionally independent from ``main_logic``. It describes
-what the plugin wants from an eventual generic host output boundary, while the
-current host may simply treat the metadata as opaque.
+what the plugin wants from a generic host output boundary, while older
+hosts may simply treat the metadata as opaque.
 """
 
 from __future__ import annotations

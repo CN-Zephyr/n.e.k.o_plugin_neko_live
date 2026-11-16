@@ -50,6 +50,7 @@ type LiveConfig = {
   safety_auto_stop_enabled?: boolean
   dry_run?: boolean
   viewer_store_dir?: string
+  content_filter_terms?: string
   stream_theme?: string
   stream_sub_theme?: string
   stream_goal?: string
@@ -58,6 +59,8 @@ type LiveConfig = {
 }
 
 type DashboardState = {
+  memory_target?: string
+  memory_forget?: { available?: boolean; pending?: Array<{ uid: string; platform: string; target: string }> }
   config?: LiveConfig
   live_connection?: Record<string, any>
   store_enabled?: boolean
@@ -94,6 +97,7 @@ const configDefaults = {
   danmaku_response_enabled: true,
   danmaku_filter_enabled: true,
   danmaku_filter_prefixes: "!\n！",
+  content_filter_terms: "",
   live_support_events_enabled: true,
   warmup_hosting_enabled: true,
   idle_hosting_enabled: true,
@@ -513,6 +517,70 @@ function latestEventLabel(result: any): string {
 }
 
 /* bundled source: ui/panel_components.tsx */
+function MemoryForgetRecovery({ state, disabled, onRetry, t }: {
+  state?: { available?: boolean; pending?: Array<{ uid: string; platform: string; target: string }> }
+  disabled: boolean
+  onRetry: (uid: string, scope: { platform: string; target: string }) => Promise<void>
+  t: PanelTranslator
+}) {
+  const [selected, setSelected] = useState<{ uid: string; platform: string; target: string } | null>(null)
+  const [pending, setPending] = useState(false)
+  const rows = Array.isArray(state?.pending) ? state.pending : []
+  if (state?.available !== false && !rows.length) return null
+  return (
+    <Card title={t("panel.privacy.recoveryTitle")}>
+      <Stack>
+        <Text>{t("panel.privacy.recoveryHint")}</Text>
+        {state?.available === false && <Alert tone="warning">{t("panel.privacy.recoveryUnavailable")}</Alert>}
+        {rows.map(row => <div key={`${row.platform}:${row.target}:${row.uid}`}>
+          <Text>{`${row.platform} / ${row.target} / UID: ${row.uid}`}</Text>
+          <Button disabled={disabled || pending} onClick={() => { setSelected({ ...row }) }}>{t("panel.privacy.retryForget")}</Button>
+        </div>)}
+        <ConfirmDialog
+          open={!!selected} title={t("panel.privacy.retryForget")} tone="danger"
+          message={`${t("panel.privacy.forgetConfirm")} ${selected?.platform || ""} / ${selected?.target || ""} / UID: ${selected?.uid || ""}`}
+          confirmLabel={t("panel.privacy.retryForget")} cancelLabel={t("panel.actions.cancel")}
+          onCancel={() => { if (!pending) setSelected(null) }}
+          onConfirm={async () => {
+            if (!selected || pending || disabled) return
+            setPending(true)
+            try {
+              await onRetry(selected.uid, { platform: selected.platform, target: selected.target })
+              setSelected(null)
+            } catch {
+              // The parent reports the error; keep the original scope for retry.
+            } finally { setPending(false) }
+          }}
+        />
+      </Stack>
+    </Card>
+  )
+}
+
+function ContentFilterSettings({ value, saving, onSave, t }: {
+  value: string; saving: boolean; onSave: (value: string) => Promise<boolean>; t: PanelTranslator
+}) {
+  const [draft, setDraft] = useState(value)
+  const [dirty, setDirty] = useState(false)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => { if (!dirty) setDraft(value) }, [value, dirty])
+  return (
+    <Card title={t("panel.contentFilter.title")}>
+      <Stack>
+        <Text>{t("panel.contentFilter.hint")}</Text>
+        <Textarea value={draft} disabled={saving} onChange={(text) => { setDraft(text); setDirty(true); setFailed(false) }} />
+        {failed ? <Alert tone="warning">{t("panel.contentFilter.invalid")}</Alert> : null}
+        <Button disabled={saving || !dirty} onClick={async () => {
+          const terms = draft.split(/\r?\n/).map(term => term.trim()).filter(Boolean)
+          if (draft.length > 8192 || terms.length > 128 || terms.some(term => [...term].length > 64)) { setFailed(true); return }
+          if (await onSave(draft)) { setDirty(false); setFailed(false) }
+          else setFailed(true)
+        }}>{t("panel.actions.save")}</Button>
+      </Stack>
+    </Card>
+  )
+}
+
 const moduleTitleKeys: Record<string, string> = {
   bili_live_ingest: "panel.modules.biliLiveInput",
   douyin_live_ingest: "panel.modules.douyinLiveInput",
@@ -645,7 +713,11 @@ function ToggleSwitch(props: {
 }
 
 function AvatarPreview(props: { src?: string; alt: any }) {
-  if (!props.src) {
+  // Only the explicit backend lookup can supply a normalized, bounded JPEG.
+  // Never let the browser resolve arbitrary avatar URLs, including overrides.
+  const src = typeof props.src === "string" ? props.src : ""
+  const maxLength = "data:image/jpeg;base64,".length + 4 * Math.ceil(12 * 1024 / 3)
+  if (src.length > maxLength || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(src)) {
     return (
       <div
         style={{
@@ -661,7 +733,7 @@ function AvatarPreview(props: { src?: string; alt: any }) {
 
   return (
     <img
-      src={props.src}
+      src={src}
       alt={props.alt}
       style={{
         width: "72px",
@@ -1042,6 +1114,9 @@ function ViewerProfilesTable({
   locale,
   onResetImpression,
   onDeleteProfile,
+  onForgetProfile,
+  hostMemoryScope,
+  hostMemoryDisabled = true,
   onSearch,
 }: {
   t: PanelTranslator
@@ -1049,11 +1124,15 @@ function ViewerProfilesTable({
   locale?: string
   onResetImpression: (uid: string) => Promise<void>
   onDeleteProfile: (uid: string) => Promise<void>
+  onForgetProfile?: (uid: string, scope: { platform: string; target: string }) => Promise<void>
+  hostMemoryScope?: { platform: string; target: string }
+  hostMemoryDisabled?: boolean
   onSearch?: (query: string) => Promise<any[]>
 }) {
   const [query, setQuery] = useState("")
   const [selectedProfile, setSelectedProfile] = useState<any>(null)
-  const [pendingAction, setPendingAction] = useState<"reset" | "delete" | "">("")
+  const [pendingAction, setPendingAction] = useState<"reset" | "delete" | "forget" | "">("")
+  const [forgetScope, setForgetScope] = useState<{ platform: string; target: string; uid: string } | null>(null)
   const [actionPending, setActionPending] = useState(false)
   const [remoteProfiles, setRemoteProfiles] = useState<any[] | null>(null)
   const [searchRevision, setSearchRevision] = useState(0)
@@ -1128,12 +1207,18 @@ function ViewerProfilesTable({
             <Button tone="default" disabled={actionPending} onClick={() => setSelectedProfile(null)}>{t("panel.actions.cancel")}</Button>
             <Button tone="info" disabled={actionPending} onClick={() => { setPendingAction("reset") }}>{t("panel.actions.resetViewerImpression")}</Button>
             <Button tone="danger" disabled={actionPending} onClick={() => { setPendingAction("delete") }}>{t("panel.actions.deleteViewerProfile")}</Button>
+            {onForgetProfile && <Button tone="danger" disabled={actionPending || hostMemoryDisabled || !hostMemoryScope?.target} onClick={() => {
+              setForgetScope(hostMemoryScope ? { ...hostMemoryScope, uid: String(selectedProfile?.uid || "") } : null)
+              setPendingAction("forget")
+            }}>{t("panel.privacy.forgetHost")}</Button>}
           </div>
         }
       >
         {selectedProfile ? (
           <Stack>
             <Text>{selectedProfile.nickname || t("panel.audience.anonymousViewer")}</Text>
+            <Text>{t("panel.privacy.localOnly")}</Text>
+            {onForgetProfile && <Text>{t("panel.privacy.forgetHint")}</Text>}
             <KeyValue
               items={[
                 { key: "stage", label: t("panel.columns.viewerStage"), value: profileLabel("viewerStage", selectedProfile.viewer_stage, t) },
@@ -1155,20 +1240,28 @@ function ViewerProfilesTable({
       </Modal>
       <ConfirmDialog
         open={!!pendingAction && !!selectedProfile}
-        title={t(pendingAction === "delete" ? "panel.actions.deleteViewerProfile" : "panel.actions.resetViewerImpression")}
-        message={t(pendingAction === "delete" ? "panel.messages.deleteViewerProfileConfirm" : "panel.messages.resetViewerImpressionConfirm")}
-        tone={pendingAction === "delete" ? "danger" : "warning"}
-        confirmLabel={t(pendingAction === "delete" ? "panel.actions.deleteViewerProfile" : "panel.actions.resetViewerImpression")}
+        title={t(pendingAction === "forget" ? "panel.privacy.forgetHost" : pendingAction === "delete" ? "panel.actions.deleteViewerProfile" : "panel.actions.resetViewerImpression")}
+        message={pendingAction === "forget"
+          ? `${t("panel.privacy.forgetConfirm")} ${forgetScope?.platform || ""} / ${forgetScope?.target || ""} / UID: ${forgetScope?.uid || ""}`
+          : `${t(pendingAction === "delete" ? "panel.messages.deleteViewerProfileConfirm" : "panel.messages.resetViewerImpressionConfirm")} ${t("panel.privacy.localOnly")}`}
+        tone={pendingAction === "reset" ? "warning" : "danger"}
+        confirmLabel={t(pendingAction === "forget" ? "panel.privacy.forgetHost" : pendingAction === "delete" ? "panel.actions.deleteViewerProfile" : "panel.actions.resetViewerImpression")}
         cancelLabel={t("panel.actions.cancel")}
         onConfirm={async () => {
           if (!selectedProfile || actionPending) return
           setActionPending(true)
           try {
-            if (pendingAction === "delete") await onDeleteProfile(String(selectedProfile.uid || ""))
+            if (pendingAction === "forget") {
+              if (!forgetScope || !onForgetProfile || hostMemoryDisabled) return
+              await onForgetProfile(forgetScope.uid, { platform: forgetScope.platform, target: forgetScope.target })
+            } else if (pendingAction === "delete") await onDeleteProfile(String(selectedProfile.uid || ""))
             else await onResetImpression(String(selectedProfile.uid || ""))
             setSearchRevision((revision) => revision + 1)
             setPendingAction("")
             setSelectedProfile(null)
+          } catch (error) {
+            // The panel reports the failure; preserve the selection for retry.
+            if (pendingAction !== "forget") throw error
           } finally {
             setActionPending(false)
           }
@@ -1354,6 +1447,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   const audit = Array.isArray(safeState.recent_audit) ? safeState.recent_audit : []
   const [sandboxResult, setSandboxResult] = useState<any>(null)
   const [lookupResult, setLookupResult] = useState<any>(null)
+  const [lookupAvatarPreview, setLookupAvatarPreview] = useState("")
   const [liveRoomResult, setLiveRoomResult] = useState<any>(null)
   const [queriedRoomRef, setQueriedRoomRef] = useState("")
   const [loginState, setLoginState] = useState<any>(null)
@@ -1454,6 +1548,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
       danmaku_response_enabled: config.danmaku_response_enabled !== false,
       danmaku_filter_enabled: config.danmaku_filter_enabled !== false,
       danmaku_filter_prefixes: String(config.danmaku_filter_prefixes ?? "!\n！"),
+      content_filter_terms: String(config.content_filter_terms || ""),
       live_support_events_enabled: config.live_support_events_enabled !== false,
       warmup_hosting_enabled: config.warmup_hosting_enabled !== false,
       idle_hosting_enabled: config.idle_hosting_enabled !== false,
@@ -1502,6 +1597,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
     config.danmaku_response_enabled,
     config.danmaku_filter_enabled,
     config.danmaku_filter_prefixes,
+    config.content_filter_terms,
     config.live_support_events_enabled,
     config.warmup_hosting_enabled,
     config.idle_hosting_enabled,
@@ -2251,14 +2347,15 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
     await loadSongRequestStatus()
   }
 
-  async function runViewerProfileAction(action: string, uid: string): Promise<void> {
+  async function runViewerProfileAction(action: string, uid: string, scope?: { platform: string; target: string }): Promise<void> {
     if (!uid) return
     try {
-      await props.api.call(action, { uid })
-      toast.success(t("panel.messages.done"))
+      const result = unwrapActionResult(await props.api.call(action, { uid, ...scope }))
+      if (action === "forget_viewer_memory" && result.forgotten !== true) throw new Error("host_memory.erase_unconfirmed")
+      toast.success(t(action === "forget_viewer_memory" ? "panel.privacy.forgetDone" : "panel.messages.done"))
       await refreshDashboard(true)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(action === "forget_viewer_memory" ? t("panel.privacy.forgetFailed") : err instanceof Error ? err.message : String(err))
       throw err
     }
   }
@@ -2327,14 +2424,18 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
     try {
       const envelope = await props.api.call("submit_viewer_event", {
         lookup_only: true,
+        include_avatar_preview: true,
         target: sandboxForm.values.target.trim(),
+        avatar_url: sandboxForm.values.avatar_url.trim(),
       })
-      const result = unwrapActionResult(envelope)
+      const { avatar_preview_data_url, ...result } = unwrapActionResult(envelope)
+      setLookupAvatarPreview(typeof avatar_preview_data_url === "string" ? avatar_preview_data_url : "")
       setLookupResult(result)
       setSandboxResult(result)
       await refreshDashboard(true)
       toast.success(t("panel.messages.lookupDone"))
     } catch (err) {
+      setLookupAvatarPreview("")
       toast.error(err instanceof Error ? err.message : String(err))
     }
   }
@@ -2358,6 +2459,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
       await props.api.call("clear_sandbox_data", {})
       setSandboxResult(null)
       setLookupResult(null)
+      setLookupAvatarPreview("")
       await refreshDashboard(true)
       toast.success(t("panel.messages.sandboxCleared"))
     } catch (err) {
@@ -3676,6 +3778,8 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   )
 
   const viewerStore = safeState.viewer_store || {}
+  const capacityReasons = Array.isArray(viewerStore.capacity_reasons) ? viewerStore.capacity_reasons : []
+  const storageNeedsAttention = viewerStore.writable === false || capacityReasons.length > 0
   const queuePresets = [
     { value: 3, labelKey: "panel.settings.queueCautious", hintKey: "panel.settings.queueCautiousHint" },
     { value: 5, labelKey: "panel.settings.queueStandard", hintKey: "panel.settings.queueStandardHint" },
@@ -3755,17 +3859,33 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
                     {t(configForm.values.viewer_memory_enabled ? "panel.settings.viewerMemoryEnabledHint" : "panel.settings.viewerMemoryDisabledHint")}
                   </Alert>
                   <Text>{t("panel.settings.viewerMemoryRetentionHint")}</Text>
+                  <Text>{t("panel.privacy.localOnly")}</Text>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
                     <Stack gap={4}>
                       <Text>{t("panel.settings.localStorageLabel")}</Text>
                       <Text>{t("panel.settings.localStorageHint")}</Text>
                     </Stack>
                     <StatusBadge
-                      tone={viewerStore.writable === false ? "warning" : "success"}
-                      label={t(viewerStore.writable === false ? "panel.settings.storageNeedsAttention" : "panel.settings.storageReady")}
+                      tone={storageNeedsAttention ? "warning" : "success"}
+                      label={t(storageNeedsAttention ? "panel.settings.storageNeedsAttention" : "panel.settings.storageReady")}
                     />
                   </div>
                   {viewerStore.writable === false ? <Alert tone="warning">{t("panel.storage.notWritable")}</Alert> : null}
+                  {capacityReasons.includes("profile_count") ? <Alert tone="warning">{t("panel.storage.profileLimit")}</Alert> : null}
+                  {capacityReasons.includes("file_size") ? <Alert tone="warning">{t("panel.storage.fileLimit")}</Alert> : null}
+                  <ContentFilterSettings
+                    value={String(configForm.values.content_filter_terms || "")}
+                    saving={settingsSaving}
+                    onSave={(value) => applySettingsPatch({ content_filter_terms: value })}
+                    t={t}
+                  />
+                  <Text>{t("panel.contentFilter.rateHint")}</Text>
+                  <MemoryForgetRecovery
+                    state={safeState.memory_forget}
+                    disabled={config.live_enabled === true || safety.connected !== false}
+                    onRetry={(uid, scope) => runViewerProfileAction("forget_viewer_memory", uid, scope)}
+                    t={t}
+                  />
                   <Text>{t("panel.settings.recentDiagnosticsHint")}</Text>
                   <Grid cols={2}>
                     <Button tone="default" onClick={() => { setStorageDetailsOpen(true) }}>{t("panel.settings.viewStoragePath")}</Button>
@@ -3812,7 +3932,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
       <ConfirmDialog
         open={clearViewerMemoryConfirmOpen}
         title={t("panel.actions.clearViewerProfiles")}
-        message={t("panel.messages.clearViewerProfilesConfirm")}
+        message={`${t("panel.messages.clearViewerProfilesConfirm")} ${t("panel.privacy.localOnly")}`}
         tone="danger"
         confirmLabel={t("panel.actions.clearViewerProfiles")}
         cancelLabel={t("panel.actions.cancel")}
@@ -3864,6 +3984,9 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
               locale={props.locale}
               onResetImpression={(uid) => runViewerProfileAction("reset_viewer_impression", uid)}
               onDeleteProfile={(uid) => runViewerProfileAction("delete_viewer_profile", uid)}
+              onForgetProfile={(uid, scope) => runViewerProfileAction("forget_viewer_memory", uid, scope)}
+              hostMemoryScope={{ platform: String(config.live_platform || "bilibili"), target: String(safeState.memory_target || "") }}
+              hostMemoryDisabled={config.live_enabled === true || safety.connected !== false}
               onSearch={searchViewerProfiles}
             />
           ),
@@ -3873,7 +3996,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
   )
 
   const lookupIdentity = lookupResult?.identity || null
-  const lookupAvatarSrc = lookupIdentity?.avatar_preview_url || lookupIdentity?.avatar_url || lookupResult?.profile?.avatar_url || ""
+  const lookupAvatarSrc = developerToolsEnabled ? lookupAvatarPreview : ""
   const lookupSourceLabel = !lookupIdentity
     ? "-"
     : lookupIdentity.fetched
@@ -3885,7 +4008,7 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
     String(lookupIdentity?.nickname || lookupIdentity?.name || "").trim() ||
     presetViewerNickname
   const emitterAvatar = sandboxForm.values.avatar_url.trim() || String(lookupIdentity?.avatar_url || "").trim()
-  const emitterAvatarSrc = sandboxForm.values.avatar_url.trim() || lookupAvatarSrc
+  const emitterAvatarSrc = emitterAvatar === String(lookupIdentity?.avatar_url || "").trim() ? lookupAvatarSrc : ""
   const emitterDanmaku = sandboxForm.values.danmaku_text.trim() || presetViewerDanmaku
 
   const developerSandbox = (

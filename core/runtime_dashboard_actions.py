@@ -23,6 +23,7 @@ def dashboard_actions() -> list[dict[str, str]]:
         "clear_viewer_profiles",
         "search_viewer_profiles",
         "delete_viewer_profile",
+        "forget_viewer_memory",
         "reset_viewer_impression",
         "song_request_status",
         "song_request_jump",

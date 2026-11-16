@@ -95,7 +95,7 @@
 | `core/live_reply_policy.py` / `core/live_output_policy.py` | 插件侧回复合约兼容 facade、旧导入路径出口 | 不承载具体质量兜底、裁剪、记忆渲染或 metadata 桥接细节 |
 | `core/live_reply_contract.py` / `adapters/output_contract_bridge.py` | 模块字数上限、插件私有回复策略 metadata、调试/复盘口径 | 不导入 `main_logic`，不修改宿主最终输出层，不要求宿主理解这些字段 |
 | `core/live_output_quality.py` | 禁止词 / 低置信漂移 / 模板营业 / 无聊弹幕回复的质量兜底（**尚未接入运行时**，见 [output_contract](modules/output_contract.md#post-generation-enforcement-status)） | 不裁剪句子，不渲染 prompt 合约，不合并 metadata |
-| `core/live_output_shape.py` | 最终短句裁剪、未完成二选一修剪、质量兜底应用和 shape metadata（**尚未接入运行时**，宿主无 pre-TTS 回调） | 不维护禁止词表，不读取 recent-output 记忆 |
+| `core/live_output_shape.py` | 最终短句裁剪、未完成二选一修剪、质量兜底应用和 shape metadata（**尚未接入运行时**；通用词表拦截见 `content_filter`） | 不维护禁止词表，不读取 recent-output 记忆 |
 | `core/live_output_memory.py` | recent NEKO Live 输出负例整理、recent reply avoidance 渲染 | 不判断输出质量，不修改 reply metadata |
 | `core/live_output_contract_prompt.py` | 输出合约 prompt 渲染、route note、callback metadata 合并 | 不裁剪最终文本，不直接调用 dispatcher |
 | `core/prompt_delivery.py` | 单条 callback 预算装配、必要规则保留、相关上下文筛选和保守分词降级；详见[提示词投送与预算](modules/prompt_delivery.md) | 不维护跨轮规则计数，不决定是否开口或目标角色，不调用模型 / 网络 / store，不记录原始提示词 |
@@ -617,7 +617,7 @@ ViewerEvent
 关闭开发者模式时：
 
 - Hosted UI 的 UID 查询、模拟弹幕、内置案例按钮必须禁用。
-- 后端 `submit_viewer_event`、`lookup_only`、动态聊天工具 entry 也必须拒绝执行，不能只依赖前端禁用。
+- 后端 `submit_viewer_event`、`lookup_only`、`submit_manual_live_event` 和动态聊天工具 entry 必须拒绝执行。
 - 已进入 pipeline 的沙盒和手动模拟请求，在异步准备完成后由 `safety_guard.before_output` 复查开发者模式，关闭时跳过，不扣冷却。
 - runtime 只发送 `NEKO_ROAST_DEVELOPER_RESTORE_INSTRUCTIONS` 退出调试态，仍保留直播锐评语境。
 - 不清空 `recent_sandbox_results`，不清空头像 preview cache，不影响观众档案或直播总结。
@@ -670,6 +670,10 @@ host 的 `update_own_config`（把配置写回 `plugin.toml`）在「只重后�
 ## 压力工具安全边界
 
 `tools/live_random_danmaku_pressure.py` 与 `tools/live_silence_pressure.py` 是开发者故障注入工具，不是普通直播入口。两者必须默认 dry-run、默认不连接直播间，并在真实输出前同时要求 `--real-output` 与 `--confirm-real-output`。preflight 遇到 paused、tripped、blocked、已有其它房间监听或连接超时必须 fail-closed，且必须发生在提交测试事件之前。工具不得调用 `resume_roast` 或 `clear_queue`，不得覆盖并发配置；只允许 compare-and-restore 自己仍拥有的值，并且只断开自己建立且仍指向同一房间的连接。
+
+两份工具通过 `submit_manual_live_event` 提交测试弹幕。入口要求开启开发者模式，`core/runtime_developer_tools.py` 读取 UID、昵称、弹幕、头像 URL 和已有的角色提示字段，生成 `manual_live_simulation` 事件。事件类型固定为普通弹幕，会话编号由运行时绑定。模拟在本场更新近期上下文和陪播所用的活动时间，使用独立的模拟来源标记，继续走 Pipeline、Safety Guard 和 Dispatcher。真实平台事件及已验证支持事件由 provider 和调度器内部投递。
+
+旧 `submit_live_event` 已移除。调用方可迁到 `submit_manual_live_event` 验证模拟链路。压测数据可验证排队和门禁，平台接入吞吐仍应使用平台验收。回归覆盖实际 SDK 注册、开发者门禁、会话活动信号和两份工具的入口选择。
 
 ## 房号输入（数字 / 链接）
 
@@ -883,7 +887,15 @@ danmaku_core on_event(cmd, 富模型)
        （其它类型：无订阅者 → 静默丢弃，待后续 P3 handler 订阅）
 ```
 
-**三条保证**（LIVE 可靠性第一）：① **隔离**——一个 handler 抛错（含其 async 任务）只记 audit，不波及其余订阅者 / 发布方；② **归属**——每个订阅带 `owner`（模块 id），失败记 `event_handler_failed`（带 owner + event_type）；③ **静默丢弃**——发布到无订阅者的类型 = no-op（任意模块子集都能安全运行）。handler 可同步可异步（返回协程则调度为隔离后台 task，其异常同样进 audit）。
+**四条保证**（LIVE 可靠性第一）：① **隔离**——一个 handler 抛错（含其 async 任务）只记 audit，不波及其余订阅者 / 发布方；② **归属**——每个订阅带 `owner`（模块 id），失败记 `event_handler_failed`（带 owner + event_type）；③ **静默丢弃**——发布到无订阅者的类型 = no-op（任意模块子集都能安全运行）；④ **有界**——总线管理的异步订阅最多同时保留 128 个任务，同一 `owner` 跨事件类型最多 16 个。handler 可同步可异步，返回协程时先检查配额，再调度隔离后台 task。
+
+**异步任务预算（Decision Points）**：
+- 复用现有任务集合，增加只包含在途模块的计数表；无 `owner` 的订阅共用匿名模块配额。模块记录数不超过在途任务数，任务完成后移除归零记录。
+- 达到总量或模块配额时，关闭本次尚未启动的协程并累计 `dropped_capacity_count`；该计数表示丢弃的异步订阅投递数，其他同步订阅继续收到同一个事件。状态同时暴露 `pending_task_limit` 和 `pending_tasks_per_owner_limit`，承压时不逐条写审计，避免日志放大。
+- 名额在任务实际结束时释放；取消尚未启动的任务也会关闭内部协程。`close()` 和 `reopen()` 不提前清空在途名额。无可用事件循环、任务创建失败和处理器异常均隔离处理，不影响后续订阅者。
+- 此边界只管理由总线创建的任务；同步处理器自行启动的工作仍由所属模块限制和清理。订阅者继续通过 Pipeline、Safety Guard 和 Dispatcher 输出。
+- 方案不增加队列、轮询、定时器、网络请求、依赖或持久化数据。另建等待任务配合信号量仍会积累任务，因此在创建任务前拒绝超限投递。需要更高配额时应先用真实模块负载验证；撤销该限制会恢复无界任务增长风险。
+- `tests/test_event_bus_limits.py` 覆盖单模块跨类型限额、全局限额、同步订阅隔离、容量恢复、启动前取消、异常释放、无运行循环以及重开期间旧任务继续占用名额。
 
 **经过 safety_guard 吗 / 失败降级**：EventBus 本身不经 pipeline（只路由）；订阅者把胜者交给 `pipeline` 才走安全门、四条不变量。handler 抛错被隔离（见上）。
 
@@ -988,6 +1000,16 @@ danmaku_core on_event(cmd, 富模型)
 - **调度与打断策略**：确认进入临时主持后何时允许第一次主动开口。推荐只在主播当前轮和 TTS 完成后复用既有播放门，不即时插入第二个主动回复。
 - **发布与回滚**：新能力必须默认关闭并有独立开关；关闭或删除 `host_handoff` 模块后回到现有人猫同播行为，不迁移现有配置和数据。
 - **可观测性**：新增稳定的进入、退出、过期、来源拒绝和目标不匹配 reason code；只记录枚举与时间，不记录原始主播话语。
+
+## 输入资源预算
+
+`core/avatar_image.py` 统一头像读取和 Dispatcher 再编码的输入限制。图片文件最多 1 MiB，首帧最多 4,194,304 像素（等量于 2048 × 2048），在 `Image.load()` 前检查。解码失败、超限或再编码失败时，Dispatcher 只发送文本并标记当前头像不可用。头像锐评和显式头像问答继续经过原有 Pipeline、Safety Guard 和 Dispatcher。
+
+`avatar_fetch_timeout_seconds` 覆盖一次头像下载的 DNS 等待、连接、响应头、正文和全部 CDN 跳转。B 站 CDN 继续使用宿主代理客户端。其它公网头像使用现有 HTTPX 异步客户端，连接到一次校验后的 IP，通过原域名的 Host 和 TLS SNI 验证身份，关闭环境代理和重定向。超时取消异步 HTTP 读写并关闭响应。操作系统 DNS 查询由现有线程执行，取消等待后由系统结束查询，后续 HTTP 请求不会启动。下载请求使用 `Accept-Encoding: identity`，拒绝额外的 HTTP 内容压缩，按原始流累计 1 MiB 上限，避免先解开 HTTP 压缩再检查大小。
+
+`modules/bili_live_ingest/danmaku_core.py` 把单条 WebSocket 消息限制为 1 MiB，所有嵌套压缩层共享 4 MiB 解压结果预算，最多四层压缩。zlib 使用有输出上限的流式接口。Brotli 使用宿主现有 1.2 的 `output_buffer_limit`，其缓冲按块增长，返回结果仍须符合剩余预算。旧版 Brotli 缺少该接口时拒绝 Brotli 包，连接认证继续请求原有的 zlib 协议 2。超限、损坏和未完成的压缩流在监听层跳过，下一条消息重新获得预算，日志仅记录错误类型。
+
+本轮复用 Pillow、HTTPX、zlib 和宿主的 Brotli，收紧既有资源消耗。验证覆盖正常图片格式和动图、恰好达到上限、超限前拒绝解码、下载取消及响应关闭、嵌套累计预算和坏包后的正常事件处理。用例位于 `tests/test_avatar_resource_limits.py`、`tests/test_bili_packet_limits.py`，原有 SSRF 和 Dispatcher 合约回归继续运行。预算常量可按真实平台兼容性验证结果调整。
 
 ## 输出边界
 
@@ -1314,6 +1336,40 @@ The bundled bridge metadata is Windows-only and does not include a fallback netw
 
 
 ## 2026-10-15 review hardening contracts
+
+Local delivery/playback follow-up (2026-11-16): 13 checks passed using the real plugin SDK, message plane, production main-event dispatch and proactive queue, HTTP/IPC shaping, and unchanged WebSocket/parser/WebAudio files in Electron 41.2.0. The isolated harness replays the operator-approved WAV clips at the queue delivery callback and uses a minimal socket endpoint, so provider generation, the full desktop application and its production WebSocket route are outside this run. Checks cover playback pacing, interruption, stale chunks before their terminal marker, automatic socket reconnection, completion receipts and cleanup. A first probe sent TTS chunks after their terminal marker; that failed diagnostic is retained and excluded from the passing protocol-conformant run. No product logic or production dependency changed. See [local playback evidence](solo-stream-test-guide.md#本地-sdk-与-electron-播放链记录2026-11-16) for timing, scope and remaining installed-app/live-platform gates.
+
+Local synthetic listening follow-up (2026-11-16): three manual danmaku cases passed the real plugin pipeline, free model, loopback HTTP/IPC text transform and streaming TTS worker. The operator confirmed all three WAV clips were clear and complete. The fixture captures SDK submission instead of exercising the production delivery queue; no live platform or Electron playback lifecycle is included. The temporary harness needed the host prompt template and required watermark before the free text endpoint accepted its request. Failed attempts and original clips are retained; plugin processes, TTS threads, pending IPC and callback listeners were checked after cleanup. This advances model/TTS and human listening coverage beyond the offline-only results below, without claiming installed-host deployment or live-stream acceptance. See [local listening evidence](solo-stream-test-guide.md#本地合成弹幕试听记录2026-11-16) for samples, scope and remaining gates. This follow-up changes acceptance documentation only; production logic and dependencies are unchanged.
+
+Process-boundary follow-up (2026-11-16): real loopback HTTP/PluginHost checks uncovered that a transform submitted before queue clearing could still publish after the queue was cleared or resumed. The failing regression reproduced this before the fix. The dispatcher now captures a runtime-specific nonce and the existing live-session, listener-operation and queue counters; the reserved entry verifies them and reuses Permission Gate and final Safety Guard checks without charging cooldown twice. Disconnection, disabled live/developer permissions and dry-run mode are rechecked. A new runtime nonce also rejects pre-restart callbacks. This state is transport-only and not added to plugin request/results, audit or prompts. See [output contract](modules/output_contract.md#post-generation-enforcement-status) for cost and rollout decisions.
+
+The former expiry draft now targets the existing finite-seconds normalizer and the actual `metadata.expires_in_s` transport contract, including invalid values and conflicting non-contract fields. It no longer imports a nonexistent helper; this is a test repair, with no new expiry fallback behavior.
+
+Validation for this follow-up: **2,899 plugin tests passed**, one Windows permission-bit skip and one aiohttp deprecation warning. **1,774 selected host tests passed** across 36 files, now including the repaired expiry tests and five real HTTP/IPC process tests; `RuntimeWarning` and `PytestUnraisableExceptionWarning` are errors. The 16 remaining warnings are deprecations, including pytest-asyncio's event-loop-policy fixture API. The integration fixture uses the same Selector loop policy as the production Windows plugin server. Ruff and plugin validation passed (zero plugin errors; dirty-worktree warning only). Real child startup, pause/resume, clear, configuration update and restart were checked; the fixture also verified worker/IPC/listener cleanup and no synthetic reply text in logs. Model/platform/TTS services and audible playback remain untested; no installed-host deployment or commit/push was performed.
+
+Reply-shaping follow-up (2026-11-16): the paired host now invokes the plugin-owned shaper before offline proactive text reaches display, TTS enqueue or committed reply history. The reserved local callback carries only bounded public reply context, rechecks runtime eligibility and cannot select an arbitrary URL or plugin entry. Host literal checks run before and after shaping; expired, replaced or interrupted replies are discarded. Transformed callbacks are generated separately to preserve viewer/request ownership, which can increase model-call count during a backlog. Older hosts and native realtime audio retain prompt-only shaping. Canonical ownership, decision points, budgets and rollback are in [output contract](modules/output_contract.md#post-generation-enforcement-status).
+
+Local shaping validation: **2,889 plugin tests passed**, with one Windows permission-bit skip and one aiohttp deprecation warning. **1,752 selected host tests passed** across 34 files with `RuntimeWarning` and `PytestUnraisableExceptionWarning` promoted to errors; the remaining 15 warnings are deprecations. Cross-plugin tests exercise Dispatcher, the real proactive bridge, local ASGI transport, real SDK reserved-entry resolution, both offline text provider loops and actual display/TTS enqueue/history publication with simulated provider and IPC transport. Plugin validation reports zero errors and only the existing dirty-worktree warning. An additional pre-existing untracked draft, `plugin/tests/unit/server/test_proactive_bridge_expiry.py`, cannot collect because it imports the removed `_positive_expires_in_s` helper; it is excluded from that passing selection and left unchanged. No installed-host upgrade, real model/platform request or audible-playback acceptance was performed. These results supersede the earlier unconnected-shaper status below for this local revision only.
+
+The touched Python files also pass Ruff. Four synthetic 32,768-character shaper inputs (plain text, punctuation, unmatched fullwidth brackets and repeated promise wording), each run three times, took 6.91–9.20 ms locally. This is a bounded local diagnostic, not an exhaustive worst-case benchmark or portable latency guarantee.
+
+Host cleanup follow-up (2026-11-16): synchronous voice-turn teardown now releases its hold and turn records even when no event loop is running, leaving any owed wrap-up for the next live finalizer without creating an unawaited coroutine. The regression uses the production task scheduler; the former `ensure_future` double could silently queue work on a stopped loop. Conversation-feed tests close their real realtime arbiters, intentionally stubbed background calls close their coroutines, synchronous turn fixtures isolate bus publishing, and the synthetic Gemini completion test no longer registers the real token-tracker exit handler. The standalone conversation-feed tests still exercise real publication.
+
+Local cleanup validation: **1,616 selected host tests passed** across 30 files with `RuntimeWarning` and `PytestUnraisableExceptionWarning` promoted to errors. The remaining 15 warnings are deprecations; this run produced no pending-arbiter or unawaited-coroutine warning. An isolated 211-test voice/realtime/proactive selection also passed without the previous closed-stream exit logging error. The full plugin suite passed **2,874 tests**, with one Windows permission-bit skip and one deprecation warning; Ruff and plugin validation passed (zero plugin errors; dirty-worktree warning only). These checks supersede the earlier cleanup limitations below for this local revision, not for deployed hosts. The runtime fix adds only a running-loop guard; it does not connect reply shaping or establish real livestream/audio acceptance. No commit or push was performed.
+
+Cleanup-aware output follow-up (2026-11-16): compatible hosts now check original and display/TTS-cleaned text before publishing, covering terms created by emotion-tag, Markdown, bracket, symbol and CJK-space cleanup. Approved replies keep their original formatting. Excessive formatting markers are rejected before parsing, and shared CJK space normalization scans each space run once while preserving other scripts and streaming boundaries. The canonical budget, rejection reason and rollout limits remain in [text exclusions](modules/content_filter.md#generated-replies-on-a-compatible-host); this does not connect the plugin-specific reply shaper.
+
+Local validation: **2,874 plugin tests passed**, with one Windows permission-bit skip and one deprecation warning; **1,215 selected host tests passed**, with 28 warnings and a pending realtime-response-arbiter task warning during teardown. The latter remains a test-cleanup limitation, not a clean teardown claim. Ruff and plugin validation passed (zero plugin errors; dirty-worktree warning only). A synthetic 128-term/32,768-character check took 25.85–28.08 ms for plain text, rejected 32,768 unmatched brackets in 1.18–1.28 ms, and took 94.21–109.19 ms for long text at the permitted marker limit across three local runs; these are diagnostics, not portable latency guarantees. No commit/push, deployed host upgrade, real model request, livestream or audible-playback acceptance was performed.
+
+Generated-text follow-up (2026-11-15): the plugin suite passed **2,874 tests** with one Windows permission-bit skip and one aiohttp deprecation warning. The paired host policy/callback/generation regression selection passed **694 tests**, with 23 dependency deprecation / mock coroutine warnings. Synthetic tests reached the actual display/TTS enqueue boundary and exercised OpenAI-compatible and Gemini text providers through their real offline generation/tool loops. These results do not verify a deployed host upgrade, real model responses or audible playback. The existing route-specific shaper remains unconnected; this follow-up adds bounded literal-term rejection only.
+
+Final checks also passed: 55 plugin smoke tests, Ruff, generated-panel parity, the UI typecheck/compilation/interaction harness, and plugin validation (zero errors; dirty-worktree warning only). A focused host recheck passed 169 tests. Its token-tracker exit handler reported a closed logging stream after pytest finished; the same exit-time error reproduced when running only the 143 existing realtime/proactive tests, excluding the new policy test file. Both processes exited with code zero. This test teardown issue remains separate from the passing policy assertions.
+
+Follow-up validation on 2026-11-15: durable explicit-erasure recovery now uses a bounded journal and the existing ViewerStore/action/UI boundaries; its costs, checkpoints and downgrade limits are maintained in [viewer stores](modules/viewer_stores.md#explicit-scoped-host-erasure). The full offline suite passed **2,873 tests**, with one Windows POSIX-mode skip and one existing aiohttp warning. Ruff, generated-panel parity, UI typecheck/compilation/DOM checks, and plugin validation passed; the plugin checker retained only the dirty-worktree warning. The isolated real-host-route/store check also passed lost-receipt restart/replay and local-only cleanup recovery. This is local verification, with no commit/push, remote CI, production deletion, platform authentication or real audio acceptance.
+
+The initial report closeout added bounded input/submission text exclusions and per-viewer pipeline admission without a host-core patch. The subsequent paired host change adds opt-in whole-reply literal-term checks before display/TTS; ownership, budgets, compatibility and rollback are in [text exclusions](modules/content_filter.md). No production dependency was added. Explicit scoped host-memory erasure, compatibility preflight, uncertain retries and synthetic profile performance are documented in [viewer stores](modules/viewer_stores.md). Plugin-specific reply shaping, minimal Bilibili cookie validation against a real authenticated session, and actual Electron/audio acceptance remain separate work; offline tests must not be described as those outcomes.
+
+Local closeout validation on 2026-11-15: the full offline Python suite passed 2,846 tests, with one POSIX permission test skipped on Windows and one existing aiohttp deprecation warning. Ruff passed; the plugin checker reported zero errors and only the uncommitted-worktree warning. After freezing the confirmation UID alongside platform/character, the 56 smoke/panel-generation tests and the host UI-kit typecheck, compilation and DOM interaction harness passed again. All eight locale files and the full generated compatibility panel are synchronized. These are local working-tree results, not remote CI, release, real memory erasure or live/audio acceptance. No commit or push was made for this closeout.
 
 - Connect claims its listener operation before authentication/room lookup; every later state transition must still belong to that operation. A disconnect, logout or runtime stop invalidates older work.
 - Bilibili requires a successful bounded `check_valid()` at the runtime gate and again for the captured credential in the provider. Cookie presence and public profile lookup do not prove login. Verification failure/timeout degrades to authentication required. Both platform logouts stop their local listeners; they do not revoke remote platform sessions.

@@ -7,6 +7,7 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from ..modules.content_filter.settings import normalize_terms
 from ..modules.danmaku_filter.settings import DEFAULT_PREFIX_TEXT, normalize_prefixes
 from ..modules.song_request.settings import (
     DEFAULT_COOLDOWN_SECONDS,
@@ -71,6 +72,7 @@ class LiveConfig:
     danmaku_response_enabled: bool = True
     danmaku_filter_enabled: bool = True
     danmaku_filter_prefixes: str = DEFAULT_PREFIX_TEXT
+    content_filter_terms: str = ""
     live_support_events_enabled: bool = True
     warmup_hosting_enabled: bool = True
     idle_hosting_enabled: bool = True
@@ -150,6 +152,7 @@ class LiveConfig:
             danmaku_response_enabled=_safe_bool(raw.get("danmaku_response_enabled"), default=True),
             danmaku_filter_enabled=_safe_bool(raw.get("danmaku_filter_enabled"), default=True),
             danmaku_filter_prefixes=normalize_prefixes(raw.get("danmaku_filter_prefixes")),
+            content_filter_terms=normalize_terms(raw.get("content_filter_terms", "")),
             live_support_events_enabled=_safe_bool(raw.get("live_support_events_enabled"), default=True),
             warmup_hosting_enabled=_safe_bool(raw.get("warmup_hosting_enabled"), default=True),
             idle_hosting_enabled=_safe_bool(raw.get("idle_hosting_enabled"), default=True),
@@ -274,6 +277,7 @@ class LiveConfig:
             "danmaku_response_enabled": public_bool(self.danmaku_response_enabled, default=True),
             "danmaku_filter_enabled": public_bool(self.danmaku_filter_enabled, default=True),
             "danmaku_filter_prefixes": normalize_prefixes(self.danmaku_filter_prefixes),
+            "content_filter_terms": normalize_terms(self.content_filter_terms),
             "live_support_events_enabled": public_bool(self.live_support_events_enabled, default=True),
             "warmup_hosting_enabled": public_bool(self.warmup_hosting_enabled, default=True),
             "idle_hosting_enabled": public_bool(self.idle_hosting_enabled, default=True),

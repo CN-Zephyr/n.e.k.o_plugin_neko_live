@@ -14,6 +14,7 @@ import re
 from ..modules._prompt_rules import compact_rules_for_delivery
 from .contracts_public import public_text
 from .viewer_continuation import CONTINUATION_HEADER
+from .viewer_preferences import VIEWER_MEMORY_PROMPT_HEADER
 
 HOST_CALLBACK_TOKEN_BUDGET = 1000
 _EXCERPT_SUFFIX = " … [truncated]"
@@ -34,7 +35,7 @@ _MARKERS = (
     ("recent", "Recent spent live material:"),
     ("viewer", "Same-viewer recent talk:"),
     ("continuation", CONTINUATION_HEADER),
-    ("impression", "Viewer impression memory (private guidance):"),
+    ("impression", VIEWER_MEMORY_PROMPT_HEADER),
     ("meme", "Meme knowledge hints, optional seasoning only:"),
     ("pulse", "Room pulse, background only:"),
     ("room", "Recent room theme context:"),
@@ -448,6 +449,9 @@ def _shrink_candidates(name: str, block: str, terms: set[str]) -> list[str]:
     constraint that is not a known duplicate of a trusted rule.
     """
 
+    # The memory quote must retain its trust boundary and use rule.
+    if name == "impression":
+        return []
     title, bullets, prose = _split_block(block)
     if not title or not bullets:
         return []

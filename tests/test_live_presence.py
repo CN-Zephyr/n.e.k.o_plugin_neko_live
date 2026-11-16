@@ -49,9 +49,9 @@ def test_scoped_history_payload_keeps_viewer_speech_off_the_owner():
 
 
 @pytest.mark.asyncio
-async def test_memory_bridge_flushes_pending_viewer_turns():
+async def test_memory_bridge_flushes_pending_viewer_turns(tmp_path):
     posted: list[tuple[str, str, list[dict[str, str]]]] = []
-    bridge = LiveMemoryBridge(SimpleNamespace(config=LiveConfig(), dispatcher=SimpleNamespace(live_target_lanlan=lambda: "cat"), live_provider=SimpleNamespace(platform="bilibili")))
+    bridge = LiveMemoryBridge(SimpleNamespace(plugin=SimpleNamespace(data_path=lambda: tmp_path), config=LiveConfig(), dispatcher=SimpleNamespace(live_target_lanlan=lambda: "cat"), live_provider=SimpleNamespace(platform="bilibili")))
 
     async def fake_post(uid: str, nickname: str, messages: list[dict[str, str]], **_kwargs) -> bool:
         posted.append((uid, nickname, messages))

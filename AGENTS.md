@@ -19,6 +19,7 @@ This file is for IDE agents and future contributors working inside `plugin/plugi
 - Login credentials must only be stored via `stores/credential_store.py` (Fernet-encrypted on disk). Never write credentials / cookies / tokens to audit, log, config, or UI — only echo uid / username / logged-in state.
 - Bilibili live listening requires a verified login credential at both the runtime and provider boundary. Do not reintroduce an account-free or anonymous-listening fallback in actions, UI, tools, or internal listener startup.
 - Do not write raw private user data, cookies, tokens, or raw payloads to logger.
+- The explicit developer thumbnail preview is the sole avatar-image display exception: only bounded, metadata-free JPEG output may reach its image component, never public projections, JSON diagnostics, audit or disk. Follow `docs/ui-architecture.md` for its request/response contract.
 - When adding UI text, update all 8 locale files.
 - Python commands must be run through `uv run`.
 - Cost-bearing changes must be discussed and approved before implementation. Cost includes memory / CPU / background timers or queues, network polling, extra token / prompt / context usage, new dependencies, storage / IO growth, and core logic or architecture complexity.

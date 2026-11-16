@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
@@ -79,6 +80,9 @@ class _FakeSafety:
 
     def output_cooldown_remaining(self, now: float | None = None) -> float:
         return self.remaining
+
+    def wait_for_capacity(self):
+        return nullcontext()
 
 
 class _FakeAudit:

@@ -6,10 +6,12 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from ..modules.content_filter import skip_reason as content_skip_reason
 from .contracts import (
     InteractionRequest,
     InteractionResult,
     PipelineStep,
+    SafetyDecision,
     ViewerEvent,
     ViewerIdentity,
     ViewerProfile,
@@ -66,6 +68,13 @@ async def dispatch_routed_request(
             request=request,
         )
 
+    content_reason = content_skip_reason(ctx.config, request.prompt_text, identity.nickname, identity.name)
+    if content_reason:
+        record_timeline(ctx, event, stage="content_filter", status="skipped", reason=content_reason, route=response_module_id)
+        return skip_before_output(
+            ctx, event, identity, profile, request, steps,
+            SafetyDecision(False, "paused", content_reason),
+        )
     output_decision = ctx.safety_guard.before_output(event)
     if not output_decision.allowed:
         reason = output_decision.reason

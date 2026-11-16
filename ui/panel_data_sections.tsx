@@ -254,6 +254,9 @@ export function ViewerProfilesTable({
   locale,
   onResetImpression,
   onDeleteProfile,
+  onForgetProfile,
+  hostMemoryScope,
+  hostMemoryDisabled = true,
   onSearch,
 }: {
   t: PanelTranslator
@@ -261,11 +264,15 @@ export function ViewerProfilesTable({
   locale?: string
   onResetImpression: (uid: string) => Promise<void>
   onDeleteProfile: (uid: string) => Promise<void>
+  onForgetProfile?: (uid: string, scope: { platform: string; target: string }) => Promise<void>
+  hostMemoryScope?: { platform: string; target: string }
+  hostMemoryDisabled?: boolean
   onSearch?: (query: string) => Promise<any[]>
 }) {
   const [query, setQuery] = useState("")
   const [selectedProfile, setSelectedProfile] = useState<any>(null)
-  const [pendingAction, setPendingAction] = useState<"reset" | "delete" | "">("")
+  const [pendingAction, setPendingAction] = useState<"reset" | "delete" | "forget" | "">("")
+  const [forgetScope, setForgetScope] = useState<{ platform: string; target: string; uid: string } | null>(null)
   const [actionPending, setActionPending] = useState(false)
   const [remoteProfiles, setRemoteProfiles] = useState<any[] | null>(null)
   const [searchRevision, setSearchRevision] = useState(0)
@@ -340,12 +347,18 @@ export function ViewerProfilesTable({
             <Button tone="default" disabled={actionPending} onClick={() => setSelectedProfile(null)}>{t("panel.actions.cancel")}</Button>
             <Button tone="info" disabled={actionPending} onClick={() => { setPendingAction("reset") }}>{t("panel.actions.resetViewerImpression")}</Button>
             <Button tone="danger" disabled={actionPending} onClick={() => { setPendingAction("delete") }}>{t("panel.actions.deleteViewerProfile")}</Button>
+            {onForgetProfile && <Button tone="danger" disabled={actionPending || hostMemoryDisabled || !hostMemoryScope?.target} onClick={() => {
+              setForgetScope(hostMemoryScope ? { ...hostMemoryScope, uid: String(selectedProfile?.uid || "") } : null)
+              setPendingAction("forget")
+            }}>{t("panel.privacy.forgetHost")}</Button>}
           </div>
         }
       >
         {selectedProfile ? (
           <Stack>
             <Text>{selectedProfile.nickname || t("panel.audience.anonymousViewer")}</Text>
+            <Text>{t("panel.privacy.localOnly")}</Text>
+            {onForgetProfile && <Text>{t("panel.privacy.forgetHint")}</Text>}
             <KeyValue
               items={[
                 { key: "stage", label: t("panel.columns.viewerStage"), value: profileLabel("viewerStage", selectedProfile.viewer_stage, t) },
@@ -367,20 +380,28 @@ export function ViewerProfilesTable({
       </Modal>
       <ConfirmDialog
         open={!!pendingAction && !!selectedProfile}
-        title={t(pendingAction === "delete" ? "panel.actions.deleteViewerProfile" : "panel.actions.resetViewerImpression")}
-        message={t(pendingAction === "delete" ? "panel.messages.deleteViewerProfileConfirm" : "panel.messages.resetViewerImpressionConfirm")}
-        tone={pendingAction === "delete" ? "danger" : "warning"}
-        confirmLabel={t(pendingAction === "delete" ? "panel.actions.deleteViewerProfile" : "panel.actions.resetViewerImpression")}
+        title={t(pendingAction === "forget" ? "panel.privacy.forgetHost" : pendingAction === "delete" ? "panel.actions.deleteViewerProfile" : "panel.actions.resetViewerImpression")}
+        message={pendingAction === "forget"
+          ? `${t("panel.privacy.forgetConfirm")} ${forgetScope?.platform || ""} / ${forgetScope?.target || ""} / UID: ${forgetScope?.uid || ""}`
+          : `${t(pendingAction === "delete" ? "panel.messages.deleteViewerProfileConfirm" : "panel.messages.resetViewerImpressionConfirm")} ${t("panel.privacy.localOnly")}`}
+        tone={pendingAction === "reset" ? "warning" : "danger"}
+        confirmLabel={t(pendingAction === "forget" ? "panel.privacy.forgetHost" : pendingAction === "delete" ? "panel.actions.deleteViewerProfile" : "panel.actions.resetViewerImpression")}
         cancelLabel={t("panel.actions.cancel")}
         onConfirm={async () => {
           if (!selectedProfile || actionPending) return
           setActionPending(true)
           try {
-            if (pendingAction === "delete") await onDeleteProfile(String(selectedProfile.uid || ""))
+            if (pendingAction === "forget") {
+              if (!forgetScope || !onForgetProfile || hostMemoryDisabled) return
+              await onForgetProfile(forgetScope.uid, { platform: forgetScope.platform, target: forgetScope.target })
+            } else if (pendingAction === "delete") await onDeleteProfile(String(selectedProfile.uid || ""))
             else await onResetImpression(String(selectedProfile.uid || ""))
             setSearchRevision((revision) => revision + 1)
             setPendingAction("")
             setSelectedProfile(null)
+          } catch (error) {
+            // The panel reports the failure; preserve the selection for retry.
+            if (pendingAction !== "forget") throw error
           } finally {
             setActionPending(false)
           }

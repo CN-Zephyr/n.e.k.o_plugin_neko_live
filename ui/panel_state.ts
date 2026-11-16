@@ -37,6 +37,7 @@ export type LiveConfig = {
   safety_auto_stop_enabled?: boolean
   dry_run?: boolean
   viewer_store_dir?: string
+  content_filter_terms?: string
   stream_theme?: string
   stream_sub_theme?: string
   stream_goal?: string
@@ -45,6 +46,8 @@ export type LiveConfig = {
 }
 
 export type DashboardState = {
+  memory_target?: string
+  memory_forget?: { available?: boolean; pending?: Array<{ uid: string; platform: string; target: string }> }
   config?: LiveConfig
   live_connection?: Record<string, any>
   store_enabled?: boolean
@@ -81,6 +84,7 @@ export const configDefaults = {
   danmaku_response_enabled: true,
   danmaku_filter_enabled: true,
   danmaku_filter_prefixes: "!\n！",
+  content_filter_terms: "",
   live_support_events_enabled: true,
   warmup_hosting_enabled: true,
   idle_hosting_enabled: true,

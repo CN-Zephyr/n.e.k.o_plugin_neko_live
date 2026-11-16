@@ -18,6 +18,7 @@ import json
 import struct
 import time
 import zlib
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 from urllib.parse import urlencode
@@ -97,6 +98,15 @@ OPERATION_SEND_MSG          = 5   # 普通消息
 OPERATION_AUTH              = 7   # 认证
 OPERATION_AUTH_REPLY        = 8   # 认证回包
 
+_MAX_PACKET_BYTES = 1024 * 1024
+_MAX_DECOMPRESSED_BYTES = 4 * 1024 * 1024
+_MAX_COMPRESSION_DEPTH = 4
+
+
+@dataclass
+class _DecompressionBudget:
+    remaining_bytes: int
+
 
 def _pack(operation: int, body: bytes, proto_ver: int = PROTOCOL_VERSION_HEARTBEAT) -> bytes:
     """打包数据包"""
@@ -109,18 +119,42 @@ def _unpack_header(data: bytes):
     return struct.unpack(">IHHII", data[:HEADER_LEN])
 
 
-def _decompress(data: bytes, proto_ver: int, log: Callable[[str, str], None] | None = None) -> bytes:
-    """解压数据"""
+def _decompress(
+    data: bytes,
+    proto_ver: int,
+    log: Callable[[str, str], None] | None = None,
+    *,
+    max_bytes: int = _MAX_DECOMPRESSED_BYTES,
+) -> bytes:
+    """按剩余字节预算解压，拒绝超限或未完成的压缩流。"""
+    if max_bytes <= 0:
+        raise ValueError("packet_decompression_limit_exceeded")
     if proto_ver == PROTOCOL_VERSION_ZLIB:
-        return zlib.decompress(data)
+        decoder = zlib.decompressobj()
+        result = decoder.decompress(data, max_bytes + 1)
+        if len(result) > max_bytes or decoder.unconsumed_tail:
+            raise ValueError("packet_decompression_limit_exceeded")
+        if not decoder.eof:
+            raise ValueError("packet_compressed_stream_incomplete")
+        return result
     if proto_ver == PROTOCOL_VERSION_BROTLI:
         try:
             import brotli
-            return brotli.decompress(data)
         except ImportError:
             if log:
                 log("brotli 库未安装，无法解压 brotli 数据包，跳过", "warning")
             return b""  # 返回空字节，上层 _split_packets 会返回空列表
+        decoder = brotli.Decompressor()
+        try:
+            result = decoder.process(data, output_buffer_limit=max_bytes + 1)
+        except TypeError as exc:
+            # 旧版 Brotli 没有有界输出接口；认证仍请求现有的 zlib 协议。
+            raise ValueError("packet_bounded_brotli_unavailable") from exc
+        if len(result) > max_bytes or not decoder.can_accept_more_data():
+            raise ValueError("packet_decompression_limit_exceeded")
+        if not decoder.is_finished():
+            raise ValueError("packet_compressed_stream_incomplete")
+        return result
     return data
 
 
@@ -253,7 +287,6 @@ class DanmakuListener:
         headers: Optional[dict] = None,
         cookies: Optional[dict] = None,
         params: Optional[dict] = None,
-        allow_redirects: bool = True,
     ) -> dict:
         import aiohttp
 
@@ -263,8 +296,10 @@ class DanmakuListener:
                 url,
                 headers=headers,
                 params=params,
-                allow_redirects=allow_redirects,
+                allow_redirects=False,
             ) as resp:
+                if 300 <= resp.status < 400:
+                    raise ValueError("Bilibili request redirect refused")
                 return await resp.json()
 
     def _credential_cookies(self, extra_buvid3: str = "") -> dict[str, str]:
@@ -1106,11 +1141,20 @@ class DanmakuListener:
         "SUPER_CHAT_MESSAGE_JPN": _handle_sc_jpn,
     }
 
-    async def _process_packet(self, raw: bytes):
+    async def _process_packet(
+        self, raw: bytes, *, _depth: int = 0, _budget: _DecompressionBudget | None = None,
+    ):
         """处理单个数据包"""
+        if _budget is None:
+            if len(raw) > _MAX_PACKET_BYTES:
+                self._log("弹幕数据包超过大小限制，已跳过", "warning")
+                return
+            _budget = _DecompressionBudget(_MAX_DECOMPRESSED_BYTES)
         if len(raw) < HEADER_LEN:
             return
         total_len, header_len, proto_ver, operation, seq = _unpack_header(raw)
+        if not HEADER_LEN <= header_len <= total_len <= len(raw):
+            return
         body = raw[header_len:total_len]
 
         if operation == OPERATION_HEARTBEAT_REPLY:
@@ -1140,11 +1184,14 @@ class DanmakuListener:
             if proto_ver in (PROTOCOL_VERSION_ZLIB, PROTOCOL_VERSION_BROTLI):
                 # 解压后递归处理
                 try:
-                    decompressed = _decompress(body, proto_ver, self._log)
+                    if _depth >= _MAX_COMPRESSION_DEPTH:
+                        raise ValueError("packet_compression_depth_exceeded")
+                    decompressed = _decompress(body, proto_ver, self._log, max_bytes=_budget.remaining_bytes)
+                    _budget.remaining_bytes -= len(decompressed)
                     for pkt in _split_packets(decompressed):
-                        await self._process_packet(pkt)
+                        await self._process_packet(pkt, _depth=_depth + 1, _budget=_budget)
                 except Exception as e:
-                    self._log(f"解压失败: {e}", "warning")
+                    self._log(f"解压失败: {type(e).__name__}", "warning")
             else:
                 # 直接解析 JSON
                 try:
@@ -1287,7 +1334,7 @@ class DanmakuListener:
             had_authenticated = False
 
             try:
-                async with websockets.connect(ws_url, ping_interval=None, **_ws_kwargs) as ws:
+                async with websockets.connect(ws_url, ping_interval=None, max_size=_MAX_PACKET_BYTES, **_ws_kwargs) as ws:
                     self._ws = ws
 
                     # 发送认证包
