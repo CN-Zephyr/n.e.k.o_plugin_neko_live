@@ -11,8 +11,9 @@ from plugin.plugins.neko_live.adapters.live_memory_bridge import LiveMemoryBridg
 from plugin.plugins.neko_live.core.contracts import LiveConfig
 
 
-def _bridge() -> LiveMemoryBridge:
+def _bridge(tmp_path) -> LiveMemoryBridge:
     runtime = SimpleNamespace(
+        plugin=SimpleNamespace(data_path=lambda: tmp_path),
         config=LiveConfig(),
         dispatcher=SimpleNamespace(live_target_lanlan=lambda: "ReviewCat"),
         live_provider=SimpleNamespace(platform="twitch"),
@@ -36,10 +37,10 @@ _ACK = {"status": "processed", "trust": {"persisted": True}}
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["timeout", "unconfirmed", "server_error"])
-async def test_retry_keeps_original_payload_and_epoch_while_new_chat_is_separate(monkeypatch, failure):
+async def test_retry_keeps_original_payload_and_epoch_while_new_chat_is_separate(monkeypatch, failure, tmp_path):
     from utils import internal_http_client
 
-    bridge = _bridge()
+    bridge = _bridge(tmp_path)
     epoch = [0]
     requests = []
     gets = []
@@ -81,8 +82,8 @@ async def test_retry_keeps_original_payload_and_epoch_while_new_chat_is_separate
 
 
 @pytest.mark.asyncio
-async def test_retry_and_fresh_chat_share_existing_message_budget():
-    bridge = _bridge()
+async def test_retry_and_fresh_chat_share_existing_message_budget(tmp_path):
+    bridge = _bridge(tmp_path)
     retry_entered, release = asyncio.Event(), asyncio.Event()
     submissions = []
 
@@ -114,8 +115,8 @@ async def test_retry_and_fresh_chat_share_existing_message_budget():
 
 
 @pytest.mark.asyncio
-async def test_chat_arriving_during_final_flush_round_resumes_without_another_event():
-    bridge = _bridge()
+async def test_chat_arriving_during_final_flush_round_resumes_without_another_event(tmp_path):
+    bridge = _bridge(tmp_path)
     final_round_entered, release = asyncio.Event(), asyncio.Event()
     submissions = []
 
@@ -145,10 +146,10 @@ async def test_chat_arriving_during_final_flush_round_resumes_without_another_ev
 
 
 @pytest.mark.asyncio
-async def test_failed_batches_share_existing_scope_budget_and_release_epochs_on_eviction(monkeypatch):
+async def test_failed_batches_share_existing_scope_budget_and_release_epochs_on_eviction(monkeypatch, tmp_path):
     from utils import internal_http_client
 
-    bridge = _bridge()
+    bridge = _bridge(tmp_path)
     get = AsyncMock(return_value=_response({"epochs": {}}))
     post = AsyncMock(side_effect=TimeoutError)
     monkeypatch.setattr(internal_http_client, "get_internal_http_client", lambda: SimpleNamespace(get=get, post=post))
@@ -167,8 +168,8 @@ async def test_failed_batches_share_existing_scope_budget_and_release_epochs_on_
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["discard_uid", "disable", "close"])
-async def test_retry_cleanup_cancels_owned_request_and_drops_both_message_sets(operation):
-    bridge = _bridge()
+async def test_retry_cleanup_cancels_owned_request_and_drops_both_message_sets(operation, tmp_path):
+    bridge = _bridge(tmp_path)
     entered, cancelled = asyncio.Event(), asyncio.Event()
     calls = 0
 

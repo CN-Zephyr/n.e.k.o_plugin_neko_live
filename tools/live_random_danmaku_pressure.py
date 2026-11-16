@@ -1,7 +1,7 @@
 """Simulate many live danmaku events through the running neko_live plugin.
 
-The script uses the same local plugin chain as a real live event:
-/runs -> submit_live_event -> live provider normalization -> pipeline.
+The script uses the developer-only manual simulation entry and the live
+pipeline. It measures simulated chat processing.
 """
 
 from __future__ import annotations
@@ -226,7 +226,7 @@ def build_test_config(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def make_event(index: int, rng: random.Random, *, user_count: int) -> dict[str, Any]:
+def make_event(rng: random.Random, *, user_count: int) -> dict[str, Any]:
     user_no = rng.randrange(1, user_count + 1)
     text = rng.choice(DANMAKU_SAMPLES)
     return {
@@ -234,8 +234,6 @@ def make_event(index: int, rng: random.Random, *, user_count: int) -> dict[str, 
         "nickname": f"\u538b\u6d4b\u89c2\u4f17{user_no:05d}",
         "avatar_url": "",
         "danmaku_text": text,
-        "event_type": "danmaku",
-        "sequence": index,
     }
 
 
@@ -277,7 +275,7 @@ def submit_one(base_url: str, index: int, args: dict[str, Any]) -> dict[str, Any
     attempt = 0
     for attempt in range(1, 4):
         try:
-            created, run_id = client.create_entry_run("submit_live_event", args)
+            created, run_id = client.create_entry_run("submit_manual_live_event", args)
             break
         except Exception as exc:  # noqa: BLE001
             last_error = f"{type(exc).__name__}: {exc}"
@@ -373,7 +371,7 @@ def run(args: argparse.Namespace) -> int:
                 write_jsonl(log_path, {"type": "connect_ready", "time": now_iso(), "summary": summarize_context(context)})
 
         rng = random.Random(args.seed)
-        events = [make_event(index, rng, user_count=args.users) for index in range(1, args.events + 1)]
+        events = [make_event(rng, user_count=args.users) for _ in range(args.events)]
         started = time.monotonic()
         status_counts: dict[str, int] = {}
         reason_counts: dict[str, int] = {}

@@ -160,6 +160,7 @@ def _public_metadata_text(value: Any) -> str:
 
 
 async def handle_live_payload(runtime: Any, payload: dict[str, Any]) -> InteractionResult:
+    """Process an event from the internal provider and scheduler path."""
     recent_chat_observed = isinstance(payload, _RecentChatObservedPayload)
     event = runtime.live_provider.normalize(payload)
     signal_event_type = _signal_event_type(event)
@@ -184,7 +185,7 @@ async def handle_live_payload(runtime: Any, payload: dict[str, Any]) -> Interact
 
 
 def observe_live_danmaku(runtime: Any, event: ViewerEvent) -> int:
-    """Mirror developer/live-entry danmaku into the production context store."""
+    """Share recent-chat observation across provider events and simulation."""
 
     event.prior_danmaku = ()
     if not is_current_live_session_event(runtime, event):
@@ -211,7 +212,7 @@ def remember_live_danmaku_seen(runtime: Any, event: ViewerEvent) -> None:
     if not is_viewer_activity_event(event):
         return
     runtime._last_live_danmaku_seen_at = time.time()
-    runtime._last_live_danmaku_seen_type = "live_danmaku"
+    runtime._last_live_danmaku_seen_type = event.source
     if hasattr(runtime, "_hosting_without_viewer_count"):
         runtime._hosting_without_viewer_count = 0
 

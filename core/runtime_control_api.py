@@ -28,6 +28,9 @@ class RuntimeControlApiMixin:
     async def delete_viewer_profile(self, uid: str) -> dict[str, Any]:
         return await runtime_live_controls.delete_viewer_profile(self, uid)
 
+    async def forget_viewer_memory(self, uid: str, platform: str, target: str) -> dict[str, Any]:
+        return await runtime_live_controls.forget_viewer_memory(self, uid, platform, target)
+
     async def search_viewer_profiles(self, query: str) -> list[dict[str, Any]]:
         return await runtime_live_controls.search_viewer_profiles(self, query)
 

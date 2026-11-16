@@ -195,7 +195,7 @@ def last_viewer_activity_age_sec(
         if row.get("id") not in {"live_ingest", "event_bus", "selection", "live_signal"}:
             continue
         outcome = str(row.get("last_outcome") or "").strip()
-        if outcome not in {"danmaku", "live_danmaku"}:
+        if outcome not in {"danmaku", "live_danmaku", "manual_live_simulation"}:
             continue
         age = row.get("age_sec")
         if age is None:

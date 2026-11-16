@@ -138,6 +138,16 @@ async def delete_viewer_profile(runtime: Any, uid: str) -> dict[str, Any]:
     return result
 
 
+async def forget_viewer_memory(runtime: Any, uid: str, platform: str, target: str) -> dict[str, Any]:
+    from ..adapters.live_memory_bridge import LiveMemoryBridge
+    from ..adapters.live_memory_forget import forget_viewer
+
+    bridge = getattr(runtime, "live_memory", None)
+    if bridge is None:
+        bridge = runtime.live_memory = LiveMemoryBridge(runtime)
+    return await forget_viewer(bridge, uid=uid, platform=platform, target=target)
+
+
 async def reset_viewer_impression(runtime: Any, uid: str) -> dict[str, Any]:
     result = await runtime.viewer_store.reset_profile_impression(uid)
     if not result.get("found"):

@@ -44,6 +44,11 @@ class NekoLivePlugin(NekoPluginBase):
         self.logger = getattr(ctx, "logger", None)
         self.runtime: Any | None = None
 
+    async def __response_text_transform__(self, text=None, context=None):
+        """Reserved host callback; intentionally absent from UI/model entries."""
+        from .adapters.response_text_transform import transform_generated_reply
+        return transform_generated_reply(self.runtime, text, context)
+
     @lifecycle(id="startup")
     async def startup(self, **_):
         try:
@@ -182,6 +187,7 @@ class NekoLivePlugin(NekoPluginBase):
                 "live_enabled": {"type": "boolean"},
                 "avatar_roast_enabled": {"type": "boolean"},
                 "avatar_analysis_enabled": {"type": "boolean"},
+                "content_filter_terms": {"type": "string"},
                 "danmaku_response_enabled": {"type": "boolean"},
                 "live_support_events_enabled": {"type": "boolean"},
                 "warmup_hosting_enabled": {"type": "boolean"},
@@ -598,6 +604,7 @@ class NekoLivePlugin(NekoPluginBase):
                 "avatar_url": {"type": "string"},
                 "danmaku_text": {"type": "string"},
                 "lookup_only": {"type": "boolean"},
+                "include_avatar_preview": {"type": "boolean"},
             },
         },
     )
@@ -617,25 +624,6 @@ class NekoLivePlugin(NekoPluginBase):
         except PermissionError as exc:
             return Err(SdkError(str(exc)))
         return Ok(result.to_sandbox_dict())
-
-    @plugin_entry(
-        id="submit_live_event",
-        name=tr("entries.submit_live_event.name", default="提交直播事件"),
-        description=tr("entries.submit_live_event.description", default="提交归一化后的直播弹幕事件。"),
-        input_schema={
-            "type": "object",
-            "properties": {
-                "uid": {"type": "string"},
-                "nickname": {"type": "string"},
-                "avatar_url": {"type": "string"},
-                "danmaku_text": {"type": "string"},
-            },
-            "required": ["uid"],
-        },
-    )
-    async def submit_live_event(self, **kwargs):
-        result = await self._runtime().handle_live_payload(kwargs)
-        return Ok(result.to_public_dict())
 
     @plugin_entry(
         id="submit_manual_live_event",
@@ -762,6 +750,23 @@ class NekoLivePlugin(NekoPluginBase):
         runtime = self._runtime()
         try:
             return Ok({"result": await runtime.delete_viewer_profile(uid)})
+        except (OSError, ValueError) as exc:
+            return Err(SdkError(str(exc)))
+
+    @ui.action(id="forget_viewer_memory", label=tr("panel.privacy.forgetHost"), group="audience", refresh_context=True)
+    @plugin_entry(
+        id="forget_viewer_memory",
+        name=tr("panel.privacy.forgetHost"),
+        description=tr("panel.privacy.forgetHint"),
+        input_schema={
+            "type": "object",
+            "properties": {"uid": {"type": "string"}, "platform": {"type": "string"}, "target": {"type": "string"}},
+            "required": ["uid", "platform", "target"],
+        },
+    )
+    async def forget_viewer_memory(self, uid="", platform="", target="", **_):
+        try:
+            return Ok({"result": await self._runtime().forget_viewer_memory(uid, platform, target)})
         except (OSError, ValueError) as exc:
             return Err(SdkError(str(exc)))
 

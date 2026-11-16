@@ -8,6 +8,7 @@ from typing import Any
 from ..adapters.neko_dispatcher import NekoDispatcher
 from ..stores.audit_store import AuditStore
 from ..stores.avatar_cache import AvatarCache
+from ..stores.memory_forget_store import MemoryForgetStore
 from ..stores.viewer_store import ViewerStore
 from . import (
     runtime_bili_auth,
@@ -65,12 +66,14 @@ class LiveRuntime(
         self.plugin = plugin
         self.config = LiveConfig()
         self.audit = AuditStore(limit=100)
+        self.memory_forget_store = MemoryForgetStore(plugin, self.audit)
         self.avatar_cache = AvatarCache()
         self.viewer_store = ViewerStore(
             plugin,
             self.audit,
             lambda: self.config.viewer_store_dir,
             memory_enabled_provider=lambda: self.config.viewer_memory_enabled,
+            write_blocked_provider=self.memory_forget_store.blocks_profile,
         )
         self.permission_gate = PermissionGate(self.config)
         self.safety_guard = SafetyGuard(self.config, self.audit)

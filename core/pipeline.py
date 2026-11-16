@@ -384,7 +384,7 @@ class LivePipeline:
                 event,
                 stage="safety_guard.before_event",
                 status="skipped",
-                reason=decision.status,
+                reason=decision.reason if decision.reason == "input.viewer_rate_limited" else decision.status,
             )
             return skip_before_event(self.ctx, event, steps, decision)
         steps.append(PipelineStep("safety_guard.before_event", "ok", decision.status))

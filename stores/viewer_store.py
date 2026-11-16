@@ -35,11 +35,21 @@ _MAX_PROFILE_TEXT = 240
 _PROFILE_RETENTION_DAYS = 90
 _PROFILE_RETENTION = timedelta(days=_PROFILE_RETENTION_DAYS)
 _RECENT_PROFILE_CACHE_LIMIT = 200
+_MAX_PROFILES = 10_000
+_MAX_STORE_BYTES = 16 * 1024 * 1024
 _T = TypeVar("_T")
 
 
 class ViewerStoreUnavailableError(OSError):
     """档案文件存在但暂时读不了；变更操作必须放弃写回，避免覆盖真实档案。"""
+
+
+class _ViewerStoreCapacityError(ViewerStoreUnavailableError):
+    """超限不是损坏，不隔离或覆盖原文件。"""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
 
 
 @dataclass
@@ -63,17 +73,20 @@ class ViewerStore:
         dir_provider: Callable[[], str] | None = None,
         *,
         memory_enabled_provider: Callable[[], bool] | None = None,
+        write_blocked_provider: Callable[[str], bool] | None = None,
     ) -> None:
         self.plugin = plugin
         self.audit = audit
         self._dir_provider = dir_provider
         self._memory_enabled_provider = memory_enabled_provider
+        self._write_blocked_provider = write_blocked_provider
         # 串行化读改写，避免并发 upsert/mark_roasted 互相覆盖（lost update）。
         self._lock = asyncio.Lock()
         self._memory_generation = 0
         self._pending_write: asyncio.Task[bool] | None = None
         self._fallback_warned = False
         self._load_failure_warned = False
+        self._capacity_warnings: set[str] = set()
         self._active_fallback_file: Path | None = None
         self._fallback_source: Path | None = None
         # Dashboard state is polled every few seconds while live. Cache only
@@ -143,6 +156,7 @@ class ViewerStore:
         if self._fallback_source != file:
             self._active_fallback_file = None
             self._fallback_source = file
+            self._capacity_warnings.clear()
         if configured:
             marker = self._fallback_marker(file)
             if marker.exists():
@@ -228,18 +242,23 @@ class ViewerStore:
             "fallback_active": fallback_active,
             "memory_enabled": self._memory_enabled(),
             "retention_days": _PROFILE_RETENTION_DAYS,
+            "profile_limit": _MAX_PROFILES,
+            "file_limit_bytes": _MAX_STORE_BYTES,
+            "capacity_reasons": sorted(self._capacity_warnings),
         }
 
     def _write_json(self, file: Path, profiles: dict[str, dict[str, Any]]) -> bool:
-        """原子写（唯一 tmp + fsync + os.replace）；成功 True，失败 False（不抛）。
+        """原子写（唯一 tmp + fsync + os.replace）；超限抛错，其余失败 False。
 
         tmp 用 mkstemp 取唯一名，避免与残留/并发 tmp 撞名；替换前 fsync，
         断电时磁盘上要么是完整旧文件、要么是完整新文件，不会留下截断的 JSON。
         """
         tmp: Path | None = None
         try:
-            file.parent.mkdir(parents=True, exist_ok=True)
             data = json.dumps(profiles, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            if len(data) > _MAX_STORE_BYTES:
+                raise _ViewerStoreCapacityError("file_size")
+            file.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp_name = tempfile.mkstemp(
                 prefix=f".{file.name}.",
                 suffix=".tmp",
@@ -253,6 +272,8 @@ class ViewerStore:
             os.replace(str(tmp), str(file))
             tmp = None
             return True
+        except _ViewerStoreCapacityError:
+            raise
         except Exception:  # noqa: BLE001
             return False
         finally:
@@ -292,6 +313,10 @@ class ViewerStore:
                 continue
             try:
                 profiles = await asyncio.to_thread(_read_profile_file, candidate, include_expired)
+            except _ViewerStoreCapacityError as exc:
+                unreadable = True
+                self._audit_capacity_failure(exc.reason, location=location)
+                continue
             except OSError as exc:
                 unreadable = True
                 self._audit_load_failure(f"{type(exc).__name__}: {candidate.name}")
@@ -302,8 +327,32 @@ class ViewerStore:
                 continue
             if not unreadable:
                 self._load_failure_warned = False
+                if len(profiles) < _MAX_PROFILES and self._fallback_source == location.file:
+                    self._capacity_warnings.discard("profile_count")
             return profiles, not unreadable
         return {}, not unreadable
+
+    def _audit_capacity_failure(self, reason: str, *, location: _StoreLocation) -> None:
+        if self._fallback_source != location.file:
+            return
+        if reason not in self._capacity_warnings:
+            self._capacity_warnings.add(reason)
+            self._audit("viewer_store_capacity_reached", reason)
+
+    def _can_persist_profile(
+        self, profiles: dict[str, dict[str, Any]], uid: str, *, location: _StoreLocation,
+    ) -> bool:
+        if self._write_blocked_provider is not None:
+            try:
+                if self._write_blocked_provider(uid):
+                    return False
+            except Exception:
+                return False
+        # 在已有写锁内检查：满额后仅拒绝新 UID，不淘汰已有档案。
+        if uid in profiles or len(profiles) < _MAX_PROFILES:
+            return True
+        self._audit_capacity_failure("profile_count", location=location)
+        return False
 
     def _audit_load_failure(self, message: str) -> None:
         # 直播中每条弹幕都会读档案；同一段故障只告警一次，成功读到后再重新计数。
@@ -382,7 +431,16 @@ class ViewerStore:
         )
         self._pending_write = work
         try:
-            return await _wait_for_disk_operation(work)
+            applied = await _wait_for_disk_operation(work)
+            if applied and self._fallback_source == location.file:
+                self._capacity_warnings.discard("file_size")
+                if len(profiles) < _MAX_PROFILES:
+                    self._capacity_warnings.discard("profile_count")
+            return applied
+        except _ViewerStoreCapacityError as exc:
+            # 容量限制与目录无关，不得借回退目录绕过，也不改变已有缓存。
+            self._audit_capacity_failure(exc.reason, location=location)
+            return False
         finally:
             self._pending_write = None
 
@@ -479,8 +537,9 @@ class ViewerStore:
                 first_seen_at=now,
                 last_seen_at=now,
             )
-        profiles[uid] = profile.to_dict()
-        await self._save_all(profiles, location=location)
+        if self._can_persist_profile(profiles, uid, location=location):
+            profiles[uid] = profile.to_dict()
+            await self._save_all(profiles, location=location)
         return profile
 
     async def record_live_danmaku(
@@ -563,8 +622,9 @@ class ViewerStore:
                 or _safe_profile_text(item.get("avoid_guidance")),
                 last_interaction_at=now,
             )
-            profiles[uid] = profile.to_dict()
-            await self._save_all(profiles, location=location)
+            if self._can_persist_profile(profiles, uid, location=location):
+                profiles[uid] = profile.to_dict()
+                await self._save_all(profiles, location=location)
             return profile
 
     async def mark_roasted(self, uid: str, output: str) -> bool:
@@ -579,6 +639,8 @@ class ViewerStore:
             location = self._store_location()
             profiles = await self._load_for_write(location=location)
         except ViewerStoreUnavailableError:
+            return False
+        if not self._can_persist_profile(profiles, safe_uid, location=location):
             return False
         item = _safe_profile_item(profiles.get(safe_uid) or {"uid": safe_uid}, fallback_uid=safe_uid)
         item["roast_count"] = public_int(item.get("roast_count"), default=0, minimum=0) + 1
@@ -637,12 +699,22 @@ class ViewerStore:
                 "path": str(location.active_file),
             }
 
-    async def delete_profile(self, uid: str) -> dict[str, Any]:
+    @staticmethod
+    def _deletion_scope(location: _StoreLocation) -> str:
+        value = json.dumps([str(location.file.resolve()), str(location.active_file.resolve())])
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    def deletion_scope(self) -> str:
+        return self._deletion_scope(self._store_location())
+
+    async def delete_profile(self, uid: str, *, expected_scope: str | None = None) -> dict[str, Any]:
         key = _safe_profile_uid(uid)
         if not key:
             raise ValueError("uid is required")
         async with self._lock:
             location = self._store_location()
+            if expected_scope is not None and self._deletion_scope(location) != expected_scope:
+                raise ValueError("host_memory.profile_scope_changed")
             try:
                 profiles = await self._load_for_write(location=location)
             except ViewerStoreUnavailableError:
@@ -721,13 +793,20 @@ async def _wait_for_disk_operation(work: asyncio.Task[_T]) -> _T:
 
 
 def _read_profile_file(file: Path, include_expired: bool) -> dict[str, dict[str, Any]] | None:
-    raw = file.read_bytes()
+    if file.stat().st_size > _MAX_STORE_BYTES:
+        raise _ViewerStoreCapacityError("file_size")
+    with file.open("rb") as handle:
+        raw = handle.read(_MAX_STORE_BYTES + 1)
+    if len(raw) > _MAX_STORE_BYTES:
+        raise _ViewerStoreCapacityError("file_size")
     try:
         data = json.loads(raw.decode("utf-8"))
     except ValueError:
         return None
     if not isinstance(data, dict):
         return None
+    if len(data) > _MAX_PROFILES:
+        raise _ViewerStoreCapacityError("profile_count")
     cutoff = datetime.now(timezone.utc) - _PROFILE_RETENTION
     profiles: dict[str, dict[str, Any]] = {}
     for key, value in data.items():

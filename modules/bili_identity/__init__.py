@@ -3,22 +3,21 @@
 from __future__ import annotations
 
 import asyncio
-import http.client
 import ipaddress
 import mimetypes
 import socket
-import ssl
 import time
 import urllib.parse
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
+from ...core.avatar_image import MAX_AVATAR_BYTES as _MAX_AVATAR_BYTES
+from ...core.avatar_image import open_avatar_image
 from ...core.contracts import ViewerEvent, ViewerIdentity
 from .._base import BaseModule
 from ..danmaku_response.avatar_request import declines_own_avatar, requests_own_avatar
 
-_MAX_AVATAR_BYTES = 1 * 1024 * 1024
 _MAX_AVATAR_REDIRECTS = 2
 _BILI_AVATAR_HOST_SUFFIX = "hdslb.com"
 _PROFILE_HINT_CACHE_LIMIT = 128
@@ -31,26 +30,6 @@ def _external_http_client():
     from utils.external_http_client import get_external_http_client
 
     return get_external_http_client()
-
-
-class _ResolvedHTTPConnection(http.client.HTTPConnection):
-    def __init__(self, host: str, resolved_ip: str, *, port: int, timeout: float) -> None:
-        super().__init__(host, port=port, timeout=timeout)
-        self._resolved_ip = resolved_ip
-
-    def connect(self) -> None:
-        self.sock = socket.create_connection((self._resolved_ip, self.port), self.timeout, self.source_address)
-
-
-class _ResolvedHTTPSConnection(http.client.HTTPSConnection):
-    def __init__(self, host: str, resolved_ip: str, *, port: int, timeout: float) -> None:
-        context = ssl.create_default_context()
-        super().__init__(host, port=port, timeout=timeout, context=context)
-        self._resolved_ip = resolved_ip
-
-    def connect(self) -> None:
-        sock = socket.create_connection((self._resolved_ip, self.port), self.timeout, self.source_address)
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
 class BiliIdentityModule(BaseModule):
@@ -139,7 +118,7 @@ class BiliIdentityModule(BaseModule):
             if self._is_bili_avatar_url(avatar_url):
                 data, mime = await self._fetch_bili_avatar(avatar_url, timeout)
             else:
-                data, mime = await asyncio.to_thread(self._fetch_avatar, avatar_url, timeout)
+                data, mime = await self._fetch_avatar(avatar_url, timeout)
             if data:
                 usable, animated = await asyncio.to_thread(self._inspect_avatar, data)
                 if not usable:
@@ -233,49 +212,59 @@ class BiliIdentityModule(BaseModule):
         if not data:
             return False, False
         try:
-            import io
-
-            from PIL import Image
-
-            with Image.open(io.BytesIO(data)) as im:
-                im.load()
+            with open_avatar_image(data) as im:
                 return True, bool(getattr(im, "is_animated", False))
         except Exception:
             return False, False
 
     @staticmethod
-    def _fetch_avatar(url: str, timeout: float) -> tuple[bytes, str]:
+    async def _fetch_avatar(url: str, timeout: float) -> tuple[bytes, str]:
         if url == "neko-live://fixtures/demo-avatar":
             return BiliIdentityModule._load_demo_avatar()
-        parsed, resolved_ip, port = BiliIdentityModule._resolve_avatar_endpoint(url)
-        connection = BiliIdentityModule._open_avatar_connection(parsed, resolved_ip, port, timeout)
-        path = parsed.path or "/"
-        if parsed.query:
-            path = f"{path}?{parsed.query}"
-        host_header = parsed.netloc
-        connection.request(
-            "GET",
-            path,
-            headers={
-                "Host": host_header,
+        import httpx
+
+        async with asyncio.timeout(timeout):
+            parsed, resolved_ip, port = await asyncio.to_thread(BiliIdentityModule._resolve_avatar_endpoint, url)
+            ip_host = f"[{resolved_ip}]" if ":" in resolved_ip else resolved_ip
+            pinned_url = urllib.parse.urlunparse(parsed._replace(netloc=f"{ip_host}:{port}", fragment=""))
+            headers = {
+                "Host": parsed.netloc,
                 "Referer": "https://www.bilibili.com",
                 "User-Agent": "Mozilla/5.0 NEKO-Roast/0.1",
-            },
-        )
-        try:
-            response = connection.getresponse()
-            if 300 <= response.status < 400:
-                raise ValueError("avatar_redirect_not_allowed")
-            if response.status >= 400:
-                raise ValueError("avatar_fetch_failed_status")
-            data = response.read(_MAX_AVATAR_BYTES)
-            content_type = response.getheader("content-type") or ""
-        finally:
-            connection.close()
+                "Accept-Encoding": "identity",
+            }
+            async with httpx.AsyncClient(trust_env=False, timeout=timeout) as client:
+                async with client.stream(
+                    "GET", pinned_url, headers=headers, follow_redirects=False,
+                    extensions={"sni_hostname": parsed.hostname},
+                ) as response:
+                    if 300 <= response.status_code < 400:
+                        raise ValueError("avatar_redirect_not_allowed")
+                    return await BiliIdentityModule._read_avatar_response(response, url)
+
+    @staticmethod
+    async def _read_avatar_response(response: Any, url: str) -> tuple[bytes, str]:
+        if response.status_code >= 400:
+            raise ValueError("avatar_fetch_failed_status")
+        encoding = str(response.headers.get("content-encoding") or "identity").strip().lower()
+        if encoding != "identity":
+            raise ValueError("avatar_content_encoding_not_allowed")
+        content_length = str(response.headers.get("content-length") or "").strip()
+        if content_length:
+            try:
+                declared_size = int(content_length)
+            except ValueError:
+                declared_size = 0
+            if declared_size > _MAX_AVATAR_BYTES:
+                raise ValueError("avatar_too_large")
+        data = bytearray()
+        async for chunk in response.aiter_raw(chunk_size=64 * 1024):
+            if len(data) + len(chunk) > _MAX_AVATAR_BYTES:
+                raise ValueError("avatar_too_large")
+            data.extend(chunk)
+        content_type = str(response.headers.get("content-type") or "")
         mime = content_type.split(";", 1)[0].strip()
-        if not mime:
-            mime = mimetypes.guess_type(url)[0] or "image/png"
-        return data, mime
+        return bytes(data), mime or mimetypes.guess_type(url)[0] or "image/png"
 
     @staticmethod
     def _is_bili_avatar_url(url: str) -> bool:
@@ -295,6 +284,11 @@ class BiliIdentityModule(BaseModule):
 
     @staticmethod
     async def _fetch_bili_avatar(url: str, timeout: float) -> tuple[bytes, str]:
+        async with asyncio.timeout(timeout):
+            return await BiliIdentityModule._fetch_bili_avatar_stream(url, timeout)
+
+    @staticmethod
+    async def _fetch_bili_avatar_stream(url: str, timeout: float) -> tuple[bytes, str]:
         """Fetch allowlisted Bilibili CDN images through the host proxy client.
 
         Clash-style Fake-IP DNS intentionally resolves CDN hosts into the
@@ -308,6 +302,7 @@ class BiliIdentityModule(BaseModule):
         headers = {
             "Referer": "https://www.bilibili.com",
             "User-Agent": "Mozilla/5.0 NEKO-Roast/0.1",
+            "Accept-Encoding": "identity",
         }
         for _ in range(_MAX_AVATAR_REDIRECTS + 1):
             if not BiliIdentityModule._is_bili_avatar_url(current_url):
@@ -332,34 +327,13 @@ class BiliIdentityModule(BaseModule):
                         raise ValueError("avatar_redirect_not_allowed")
                     current_url = next_url
                     continue
-                if status >= 400:
-                    raise ValueError("avatar_fetch_failed_status")
-                content_length = str(response.headers.get("content-length") or "").strip()
-                if content_length:
-                    try:
-                        declared_size = int(content_length)
-                    except ValueError:
-                        declared_size = 0
-                    if declared_size > _MAX_AVATAR_BYTES:
-                        raise ValueError("avatar_too_large")
-                data = bytearray()
-                async for chunk in response.aiter_bytes():
-                    if not chunk:
-                        continue
-                    data.extend(chunk)
-                    if len(data) > _MAX_AVATAR_BYTES:
-                        raise ValueError("avatar_too_large")
-                content_type = str(response.headers.get("content-type") or "")
-                mime = content_type.split(";", 1)[0].strip()
-                if not mime:
-                    mime = mimetypes.guess_type(final_url)[0] or "image/png"
-                return bytes(data), mime
+                return await BiliIdentityModule._read_avatar_response(response, final_url)
         raise ValueError("avatar_too_many_redirects")
 
     @staticmethod
     def _resolve_avatar_endpoint(url: str) -> tuple[urllib.parse.ParseResult, str, int]:
         parsed = urllib.parse.urlparse(url)
-        if parsed.scheme not in {"http", "https"}:
+        if parsed.scheme not in {"http", "https"} or parsed.username or parsed.password:
             raise ValueError("avatar_url_scheme_not_allowed")
         hostname = parsed.hostname
         if not hostname:
@@ -390,17 +364,6 @@ class BiliIdentityModule(BaseModule):
     @staticmethod
     def _validate_avatar_url(url: str) -> None:
         BiliIdentityModule._resolve_avatar_endpoint(url)
-
-    @staticmethod
-    def _open_avatar_connection(
-        parsed: urllib.parse.ParseResult, resolved_ip: str, port: int, timeout: float
-    ) -> http.client.HTTPConnection:
-        hostname = parsed.hostname
-        if not hostname:
-            raise ValueError("avatar_url_host_required")
-        if parsed.scheme == "https":
-            return _ResolvedHTTPSConnection(hostname, resolved_ip, port=port, timeout=timeout)
-        return _ResolvedHTTPConnection(hostname, resolved_ip, port=port, timeout=timeout)
 
     @staticmethod
     def _load_demo_avatar() -> tuple[bytes, str]:

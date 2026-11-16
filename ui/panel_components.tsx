@@ -2,14 +2,82 @@ import {
   Alert,
   Button,
   Card,
+  ConfirmDialog,
   DataTable,
   Grid,
   Stack,
   StatusBadge,
   Text,
+  Textarea,
+  useEffect,
+  useState,
 } from "@neko/plugin-ui"
 
 type PanelTranslator = (key: string) => string
+
+export function MemoryForgetRecovery({ state, disabled, onRetry, t }: {
+  state?: { available?: boolean; pending?: Array<{ uid: string; platform: string; target: string }> }
+  disabled: boolean
+  onRetry: (uid: string, scope: { platform: string; target: string }) => Promise<void>
+  t: PanelTranslator
+}) {
+  const [selected, setSelected] = useState<{ uid: string; platform: string; target: string } | null>(null)
+  const [pending, setPending] = useState(false)
+  const rows = Array.isArray(state?.pending) ? state.pending : []
+  if (state?.available !== false && !rows.length) return null
+  return (
+    <Card title={t("panel.privacy.recoveryTitle")}>
+      <Stack>
+        <Text>{t("panel.privacy.recoveryHint")}</Text>
+        {state?.available === false && <Alert tone="warning">{t("panel.privacy.recoveryUnavailable")}</Alert>}
+        {rows.map(row => <div key={`${row.platform}:${row.target}:${row.uid}`}>
+          <Text>{`${row.platform} / ${row.target} / UID: ${row.uid}`}</Text>
+          <Button disabled={disabled || pending} onClick={() => { setSelected({ ...row }) }}>{t("panel.privacy.retryForget")}</Button>
+        </div>)}
+        <ConfirmDialog
+          open={!!selected} title={t("panel.privacy.retryForget")} tone="danger"
+          message={`${t("panel.privacy.forgetConfirm")} ${selected?.platform || ""} / ${selected?.target || ""} / UID: ${selected?.uid || ""}`}
+          confirmLabel={t("panel.privacy.retryForget")} cancelLabel={t("panel.actions.cancel")}
+          onCancel={() => { if (!pending) setSelected(null) }}
+          onConfirm={async () => {
+            if (!selected || pending || disabled) return
+            setPending(true)
+            try {
+              await onRetry(selected.uid, { platform: selected.platform, target: selected.target })
+              setSelected(null)
+            } catch {
+              // The parent reports the error; keep the original scope for retry.
+            } finally { setPending(false) }
+          }}
+        />
+      </Stack>
+    </Card>
+  )
+}
+
+export function ContentFilterSettings({ value, saving, onSave, t }: {
+  value: string; saving: boolean; onSave: (value: string) => Promise<boolean>; t: PanelTranslator
+}) {
+  const [draft, setDraft] = useState(value)
+  const [dirty, setDirty] = useState(false)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => { if (!dirty) setDraft(value) }, [value, dirty])
+  return (
+    <Card title={t("panel.contentFilter.title")}>
+      <Stack>
+        <Text>{t("panel.contentFilter.hint")}</Text>
+        <Textarea value={draft} disabled={saving} onChange={(text) => { setDraft(text); setDirty(true); setFailed(false) }} />
+        {failed ? <Alert tone="warning">{t("panel.contentFilter.invalid")}</Alert> : null}
+        <Button disabled={saving || !dirty} onClick={async () => {
+          const terms = draft.split(/\r?\n/).map(term => term.trim()).filter(Boolean)
+          if (draft.length > 8192 || terms.length > 128 || terms.some(term => [...term].length > 64)) { setFailed(true); return }
+          if (await onSave(draft)) { setDirty(false); setFailed(false) }
+          else setFailed(true)
+        }}>{t("panel.actions.save")}</Button>
+      </Stack>
+    </Card>
+  )
+}
 
 const moduleTitleKeys: Record<string, string> = {
   bili_live_ingest: "panel.modules.biliLiveInput",
@@ -143,7 +211,11 @@ export function ToggleSwitch(props: {
 }
 
 export function AvatarPreview(props: { src?: string; alt: any }) {
-  if (!props.src) {
+  // Only the explicit backend lookup can supply a normalized, bounded JPEG.
+  // Never let the browser resolve arbitrary avatar URLs, including overrides.
+  const src = typeof props.src === "string" ? props.src : ""
+  const maxLength = "data:image/jpeg;base64,".length + 4 * Math.ceil(12 * 1024 / 3)
+  if (src.length > maxLength || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(src)) {
     return (
       <div
         style={{
@@ -159,7 +231,7 @@ export function AvatarPreview(props: { src?: string; alt: any }) {
 
   return (
     <img
-      src={props.src}
+      src={src}
       alt={props.alt}
       style={{
         width: "72px",

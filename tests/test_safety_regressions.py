@@ -1,6 +1,7 @@
 import asyncio
 import time
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from plugin.plugins.neko_live.adapters.bili_auth_service import BiliAuthService
@@ -897,7 +898,7 @@ async def test_bili_identity_avatar_fetch_tolerates_ctx_release():
         audit=SimpleNamespace(record=lambda *args, **kwargs: None),
     )
 
-    def _fetch_avatar(_url, _timeout):
+    async def _fetch_avatar(_url, _timeout):
         module.ctx = None
         return b"avatar", "image/png"
 
@@ -1126,10 +1127,10 @@ async def test_bili_identity_ignores_undecodable_avatar_bytes():
         config=SimpleNamespace(avatar_fetch_timeout_seconds=1),
         audit=SimpleNamespace(record=lambda *args, **kwargs: None),
     )
-    module._fetch_avatar = lambda _url, _timeout: (
+    module._fetch_avatar = AsyncMock(return_value=(
         b"<html>not image</html>",
         "text/html",
-    )
+    ))
 
     identity = await module.resolve(
         ViewerEvent(
@@ -1144,15 +1145,17 @@ async def test_bili_identity_ignores_undecodable_avatar_bytes():
     assert "avatar_fetch_failed: ValueError" in identity.error
 
 
-def test_bili_identity_rejects_private_avatar_url():
+@pytest.mark.asyncio
+async def test_bili_identity_rejects_private_avatar_url():
     with pytest.raises(ValueError):
-        BiliIdentityModule._fetch_avatar(
+        await BiliIdentityModule._fetch_avatar(
             "http://127.0.0.1/avatar.png",
             timeout=1,
         )
 
 
-def test_bili_identity_avatar_fetch_uses_validated_resolved_ip(monkeypatch):
+@pytest.mark.asyncio
+async def test_bili_identity_avatar_fetch_uses_validated_resolved_ip(monkeypatch):
     opened = {}
 
     def fake_getaddrinfo(host, port, type=0):
@@ -1161,60 +1164,52 @@ def test_bili_identity_avatar_fetch_uses_validated_resolved_ip(monkeypatch):
         return [(None, None, None, "", ("8.8.8.8", port))]
 
     class Response:
-        status = 200
+        status_code = 200
+        headers = {"content-type": "image/png"}
 
-        def read(self, _limit):
-            return b"png"
+        async def __aenter__(self):
+            return self
 
-        def getheader(self, name):
-            return "image/png" if name == "content-type" else ""
-
-    class Connection:
-        def request(self, method, path, headers):
-            opened["method"] = method
-            opened["path"] = path
-            opened["host"] = headers["Host"]
-
-        def getresponse(self):
-            return Response()
-
-        def close(self):
+        async def __aexit__(self, *_args):
             opened["closed"] = True
 
-    def fake_open(parsed, resolved_ip, port, timeout):
-        opened["hostname"] = parsed.hostname
-        opened["resolved_ip"] = resolved_ip
-        opened["port"] = port
-        opened["timeout"] = timeout
-        return Connection()
+        async def aiter_raw(self, *, chunk_size):
+            yield b"png"
+
+    class Client:
+        def __init__(self, **kwargs):
+            opened.update(kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def stream(self, method, url, **kwargs):
+            opened.update(method=method, url=url, **kwargs)
+            return Response()
 
     monkeypatch.setattr(
         "plugin.plugins.neko_live.modules.bili_identity.socket.getaddrinfo",
         fake_getaddrinfo,
     )
-    monkeypatch.setattr(
-        BiliIdentityModule,
-        "_open_avatar_connection",
-        staticmethod(fake_open),
-    )
+    monkeypatch.setattr("httpx.AsyncClient", Client)
 
-    data, mime = BiliIdentityModule._fetch_avatar(
+    data, mime = await BiliIdentityModule._fetch_avatar(
         "https://cdn.example.test:8443/avatar.png?size=small",
         timeout=3,
     )
 
     assert data == b"png"
     assert mime == "image/png"
-    assert opened == {
-        "hostname": "cdn.example.test",
-        "resolved_ip": "8.8.8.8",
-        "port": 8443,
-        "timeout": 3,
-        "method": "GET",
-        "path": "/avatar.png?size=small",
-        "host": "cdn.example.test:8443",
-        "closed": True,
-    }
+    assert opened["url"] == "https://8.8.8.8:8443/avatar.png?size=small"
+    assert opened["headers"]["Host"] == "cdn.example.test:8443"
+    assert opened["extensions"] == {"sni_hostname": "cdn.example.test"}
+    assert opened["trust_env"] is False
+    assert opened["follow_redirects"] is False
+    assert opened["timeout"] == 3
+    assert opened["closed"] is True
 
 
 @pytest.mark.asyncio
@@ -1265,7 +1260,7 @@ async def test_bili_identity_proxy_fetch_streams_allowlisted_avatar(monkeypatch)
         async def __aexit__(self, *_args):
             return False
 
-        async def aiter_bytes(self):
+        async def aiter_raw(self, *, chunk_size):
             yield b"avatar"
 
     class Client:

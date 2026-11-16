@@ -187,7 +187,7 @@ async def test_lookup_skips_homepage_when_logged_in(monkeypatch: pytest.MonkeyPa
         assert "www.bilibili.com" not in request.full_url
         return _FakeHttpResponse(_ok_lookup_payload(123))
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ingest_mod, "open_without_redirects", fake_urlopen)
     status = await _logged_in_module().lookup_room_status(123)
 
     assert status.ok is True
@@ -208,7 +208,7 @@ async def test_lookup_does_not_retry_352_with_the_same_login_cookie(
         calls.append(request.full_url)
         return _FakeHttpResponse({"code": -352, "message": "-352"})
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ingest_mod, "open_without_redirects", fake_urlopen)
     status = await _logged_in_module().lookup_room_status(123)
 
     assert status.ok is False
@@ -231,6 +231,7 @@ async def test_lookup_retries_once_on_352_when_anonymous(monkeypatch: pytest.Mon
         return _FakeHttpResponse(_ok_lookup_payload(123))
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ingest_mod, "open_without_redirects", fake_urlopen)
     module = _module()
     status = await module.lookup_room_status(123)
 

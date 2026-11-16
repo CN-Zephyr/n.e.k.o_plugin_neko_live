@@ -927,9 +927,12 @@ def test_panel_renders_guarded_viewer_memory_controls():
         assert "async function clearViewerMemory()" in panel_source
         assert "async function runViewerProfileAction" in panel_source
         assert 'props.api.call("clear_viewer_profiles", {})' in panel_source
-        assert 'props.api.call(action, { uid })' in panel_source
+        assert 'props.api.call(action, { uid, ...scope })' in panel_source
         assert 'runViewerProfileAction("reset_viewer_impression", uid)' in panel_source
         assert 'runViewerProfileAction("delete_viewer_profile", uid)' in panel_source
+        assert 'runViewerProfileAction("forget_viewer_memory", uid, scope)' in panel_source
+        assert "panel.privacy.forgetConfirm" in panel_source
+        assert "hostMemoryDisabled" in panel_source
         assert "clearViewerMemoryConfirmOpen" in panel_source
         assert "panel.messages.clearViewerProfilesConfirm" in panel_source
 

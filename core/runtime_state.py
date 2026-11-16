@@ -34,6 +34,7 @@ def initialize_runtime_state(runtime: Any) -> None:
     runtime._config_revision = 0
     runtime._config_persist_tasks: set[asyncio.Task[Any]] = set()
     runtime._stopping = False
+    runtime._response_transform_epoch = secrets.token_hex(16)
     runtime._accepting_live_events = False
     runtime._live_session_generation = 0
     runtime._live_listener_operation_id = 0

@@ -42,8 +42,31 @@ try {
   const names = original.match(/^import \{ (.*) \} from "@neko\/plugin-ui"/m)[1]
   const source = original.replace(/^import .* from "@neko\/plugin-ui"\r?\n/m, '').replace('export default function ', 'function ')
   const compiled = transform(source, { transforms: ['typescript', 'jsx'], jsxPragma: 'h', jsxFragmentPragma: 'Fragment', production: true }).code
-  window.eval('(function(){ const { h, Fragment, ' + names + ' } = window.NekoUiKit;\n' + compiled + '\nwindow.__ProfileTable = ViewerProfilesTable; window.__Panel = NekoLivePanel; })()')
+  window.eval('(function(){ const { h, Fragment, ' + names + ' } = window.NekoUiKit;\n' + compiled + '\nwindow.__ProfileTable = ViewerProfilesTable; window.__Panel = NekoLivePanel; window.__AvatarPreview = AvatarPreview; window.__MemoryForgetRecovery = MemoryForgetRecovery; })()')
   const kit = window.NekoUiKit
+  const componentSource = readFileSync(resolve(root, 'ui/panel_components.tsx'), 'utf8')
+    .replace(/^import\s+\{[\s\S]*?\}\s+from "@neko\/plugin-ui"\r?\n/m, '')
+    .replace(/\bexport function /g, 'function ')
+  const componentCode = transform(componentSource, { transforms: ['typescript', 'jsx'], jsxPragma: 'h', jsxFragmentPragma: 'Fragment', production: true }).code
+  window.eval('(function(){ const { h, Fragment, ' + names + ' } = window.NekoUiKit;\n' + componentCode + '\nwindow.__ModularAvatarPreview = AvatarPreview; })()')
+  const previewContainer = window.document.createElement('div')
+  window.document.body.append(previewContainer)
+  const inlineJpeg = 'data:image/jpeg;base64,/9j/2Q=='
+  for (const component of [window.__AvatarPreview, window.__ModularAvatarPreview]) {
+    for (const src of [
+      'https://example.invalid/avatar', 'http://127.0.0.1:48911/private',
+      '//example.invalid/avatar', 'file:///C:/private.png', 'blob:https://host.example/avatar',
+      'data:image/svg+xml,<svg onload="alert(1)"/>',
+      'data:image/jpeg;base64,' + 'A'.repeat(16385), null, {},
+    ]) {
+      kit.render(kit.h(component, { src, alt: 'avatar' }), previewContainer)
+      assert.equal(previewContainer.querySelector('img'), null, 'unsafe or oversized avatar must not reach img.src')
+    }
+    kit.render(kit.h(component, { src: inlineJpeg, alt: 'avatar' }), previewContainer)
+    assert.equal(previewContainer.querySelector('img').getAttribute('src'), inlineJpeg)
+    kit.render(null, previewContainer)
+  }
+  previewContainer.remove()
   let calls = 0
   let answer = []
   let deleted = 0
@@ -102,6 +125,73 @@ try {
   kit.render(kit.h(Parent, {}), container)
   await new Promise(resolve => setTimeout(resolve, 30))
   assert.equal(calls, 4, 'refresh after deletion must not restart the search loop')
+  kit.render(null, container)
+  const forgotten = []
+  let rejectForget = true
+  const forgetProfile = { uid: '42', nickname: 'forget viewer' }
+  const renderForget = (disabled, target = 'CatA') => kit.render(kit.h(window.__ProfileTable, {
+    t: key => key, profiles: [forgetProfile],
+    onResetImpression: async () => {}, onDeleteProfile: async () => {},
+    hostMemoryScope: { platform: 'twitch', target }, hostMemoryDisabled: disabled,
+    onForgetProfile: async (uid, scope) => {
+      forgotten.push({ uid, ...scope })
+      if (rejectForget) throw new Error('unconfirmed erasure')
+    },
+  }), container)
+  renderForget(true)
+  clickButton('forget viewer')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(findButton('panel.privacy.forgetHost').disabled, true, 'active stream disables host erasure')
+  renderForget(false)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  clickButton('panel.privacy.forgetHost')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.match(window.document.body.textContent, /twitch \/ CatA \/ UID: 42/)
+  forgetProfile.uid = '43'
+  renderForget(false, 'CatB')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.match(window.document.body.textContent, /twitch \/ CatA \/ UID: 42/, 'confirmation must retain its original scope')
+  clickButton('panel.privacy.forgetHost', true)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(forgotten[0], { uid: '42', platform: 'twitch', target: 'CatA' })
+  assert.match(window.document.body.textContent, /panel\.privacy\.forgetConfirm/, 'uncertain deletion keeps retry confirmation open')
+  rejectForget = false
+  clickButton('panel.privacy.forgetHost', true)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(forgotten[1], forgotten[0])
+  assert.doesNotMatch(window.document.body.textContent, /panel\.privacy\.forgetConfirm/)
+  kit.render(null, container)
+  const recovered = []
+  let recoveryFails = true
+  const pendingRecord = { uid: '42', platform: 'twitch', target: 'CatA' }
+  const renderRecovery = disabled => kit.render(kit.h(window.__MemoryForgetRecovery, {
+    t: key => key, disabled, state: { available: true, pending: [pendingRecord] },
+    onRetry: async (uid, scope) => {
+      recovered.push({ uid, ...scope })
+      if (recoveryFails) throw new Error('retry required')
+    },
+  }), container)
+  renderRecovery(true)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(recovered.length, 0, 'restoring pending state must not erase automatically')
+  assert.equal(findButton('panel.privacy.retryForget').disabled, true)
+  renderRecovery(false)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  clickButton('panel.privacy.retryForget')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  pendingRecord.uid = '43'
+  renderRecovery(false)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  clickButton('panel.privacy.retryForget', true)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(recovered[0], { uid: '42', platform: 'twitch', target: 'CatA' })
+  assert.match(window.document.body.textContent, /panel\.privacy\.forgetConfirm/)
+  recoveryFails = false
+  clickButton('panel.privacy.retryForget', true)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(recovered[1], recovered[0])
+  assert.doesNotMatch(window.document.body.textContent, /panel\.privacy\.forgetConfirm/)
+  kit.render(null, container)
   // A newly registered action is deliberately absent from the startup list.
   // api.call should still send it to the host for runtime authorization.
   const sent = []
@@ -173,7 +263,10 @@ try {
   window.document.body.append(panelContainer)
   const settingsCalls = []
   let rejectSettings = false
-  const panelState = { store_enabled: true, config: { danmaku_filter_enabled: true, danmaku_filter_prefixes: '!\n！' } }
+  const panelState = {
+    store_enabled: true, config: { danmaku_filter_enabled: true, danmaku_filter_prefixes: '!\n！' },
+    viewer_store: { writable: true, capacity_reasons: ['profile_count', 'file_size'] },
+  }
   kit.render(kit.h(window.__Panel, {
     state: panelState, t: key => key,
     api: { refresh: async () => {}, call: async (action, payload) => {
@@ -267,13 +360,87 @@ try {
   await new Promise(resolve => setTimeout(resolve, 20))
   clickButton('panel.settings.privacyTab')
   await new Promise(resolve => setTimeout(resolve, 20))
+  assert.match(panelContainer.textContent, /panel\.settings\.storageNeedsAttention/)
+  assert.match(panelContainer.textContent, /panel\.storage\.profileLimit/)
+  assert.match(panelContainer.textContent, /panel\.storage\.fileLimit/)
+  assert.match(panelContainer.textContent, /panel\.privacy\.localOnly/)
+  const contentCard = () => [...panelContainer.querySelectorAll('section.neko-card')].findLast(card =>
+    card.querySelector('textarea') && card.textContent.includes('panel.contentFilter.title'))
+  const editTerms = value => {
+    const field = contentCard().querySelector('textarea')
+    field.value = value
+    field.dispatchEvent(new window.Event('input', { bubbles: true }))
+  }
+  editTerms('blocked text')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(settingsCalls.length, 0, 'editing a word list must not autosave')
+  rejectSettings = true
+  contentCard().querySelector('button').click()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(contentCard().querySelector('textarea').value, 'blocked text', 'failed save must preserve draft')
+  assert.match(contentCard().textContent, /panel\.contentFilter\.invalid/)
+  rejectSettings = false
+  contentCard().querySelector('button').click()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.deepEqual(settingsCalls.pop(), { content_filter_terms: 'blocked text' })
+  editTerms('x'.repeat(65))
+  await new Promise(resolve => setTimeout(resolve, 20))
+  contentCard().querySelector('button').click()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(settingsCalls.length, 0, 'oversized terms must not reach configuration API')
+  await new Promise(resolve => setTimeout(resolve, 20))
   clickButton('panel.actions.clearRecentDiagnostics')
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(settingsCalls.length, 0, 'opening the dialog does not clear diagnostics')
   clickButton('panel.actions.clearRecentDiagnostics', true)
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.deepEqual(settingsCalls, ['clear_recent_diagnostics'])
-  console.log('UI typecheck, compilation, onboarding, bridge availability, logout, profile actions, settings and action forwarding passed')
+  kit.render(null, panelContainer)
+
+  const developerContainer = window.document.createElement('main')
+  window.document.body.append(developerContainer)
+  const lookupCalls = []
+  let provideThumbnail = true
+  kit.render(kit.h(window.__Panel, {
+    state: { config: { developer_tools_enabled: true } }, t: key => key,
+    api: { refresh: async () => {}, call: async (action, payload) => {
+      assert.equal(action, 'submit_viewer_event')
+      assert.equal(payload.lookup_only, true)
+      assert.equal(payload.include_avatar_preview, true)
+      lookupCalls.push(payload)
+      return {
+        identity: { uid: '42', nickname: 'viewer', avatar_url: 'https://example.invalid/avatar', avatar_preview_url: 'http://127.0.0.1:48911/private' },
+        profile: { avatar_url: 'https://example.invalid/fallback' },
+        avatar_preview_data_url: provideThumbnail ? inlineJpeg : '',
+      }
+    } },
+  }), developerContainer)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  clickButton('panel.tabs.dev')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  clickButton('panel.actions.lookupSandbox')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(lookupCalls.length, 1)
+  assert.equal(developerContainer.querySelector('img').getAttribute('src'), inlineJpeg)
+  clickButton('panel.dev.emitter.title')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(developerContainer.querySelector('img').getAttribute('src'), inlineJpeg)
+  assert.ok(!developerContainer.textContent.includes(inlineJpeg), 'image data must not enter sandbox JSON')
+  const avatarOverride = [...developerContainer.querySelectorAll('label.neko-field')]
+    .find(field => field.textContent.includes('panel.fields.overrideAvatarUrl')).querySelector('input')
+  avatarOverride.value = 'http://127.0.0.1:48911/private'
+  avatarOverride.dispatchEvent(new window.Event('input', { bubbles: true }))
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(developerContainer.querySelector('img'), null, 'an unvalidated override must not reuse the previous thumbnail')
+  clickButton('panel.dev.lookup.title')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  provideThumbnail = false
+  clickButton('panel.actions.lookupSandbox')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(lookupCalls[1].avatar_url, 'http://127.0.0.1:48911/private', 'overrides go through explicit backend lookup')
+  assert.equal(developerContainer.querySelector('img'), null, 'missing thumbnail must not fall back to a remote identity/profile URL')
+  kit.render(null, developerContainer)
+  console.log('UI typecheck, compilation, onboarding, bridge availability, logout, profile actions, settings, action forwarding and avatar privacy passed')
 } finally {
   await window.happyDOM.close()
 }

@@ -1279,6 +1279,24 @@ async def test_handle_manual_event_requires_developer_mode(runtime: LiveRuntime)
 
 
 @pytest.mark.asyncio
+async def test_plugin_only_exposes_developer_gated_manual_simulation(runtime: LiveRuntime) -> None:
+    from plugin.plugins.neko_live import NekoLivePlugin
+
+    plugin = NekoLivePlugin(SimpleNamespace(logger=None))
+    plugin.runtime = runtime
+    entries = plugin.collect_entries()
+    assert "submit_live_event" not in entries
+    assert not hasattr(plugin, "submit_live_event")
+    assert "submit_manual_live_event" in entries
+
+    result = await plugin.submit_manual_live_event(uid="42", nickname="viewer", danmaku_text="hello")
+
+    assert result.is_ok() is False
+    assert not runtime.recent_results
+    assert not runtime.recent_diagnostics
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("action", ["handle_sandbox_target", "handle_manual_event"])
 async def test_disabling_developer_mode_blocks_inflight_speech(
     runtime: LiveRuntime, monkeypatch: pytest.MonkeyPatch, action: str,
@@ -1345,6 +1363,9 @@ async def test_handle_manual_event_populates_recent_chat_without_extra_reply(
     runtime.config.live_enabled = True
     runtime.config.dry_run = True
     runtime.config.live_mode = "co_stream"
+    runtime._live_session_generation = 7
+    runtime._accepting_live_events = True
+    runtime.safety_guard.set_connected(True)
     await runtime.live_events.setup(runtime)
     calls: list[ViewerEvent] = []
 
@@ -1363,11 +1384,19 @@ async def test_handle_manual_event_populates_recent_chat_without_extra_reply(
             uid="42",
             nickname="viewer",
             danmaku_text="offline sandbox message",
+            provider_metadata={"label": "synthetic metadata"},
+            _ctx={"lanlan_name": "local test"},
         )
 
         assert result.status == "dry_run"
         assert len(calls) == 1
-        assert calls[0].raw["event_type"] == "danmaku"
+        assert calls[0].source == "manual_live_simulation"
+        assert calls[0].raw == {"event_type": "danmaku", "_live_session_generation": 7}
+        assert calls[0].target_lanlan == ""
+        rows = runtime.runtime_health_rows()
+        signal = next(row for row in rows if row["id"] == "live_signal")
+        assert signal["last_outcome"] == "manual_live_simulation"
+        assert runtime._last_viewer_activity_age_sec(rows) <= 1.0
         assert runtime.live_events.recent_chat_snapshot(limit=1) == [
             {
                 "seq": 1,

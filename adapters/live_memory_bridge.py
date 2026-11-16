@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
+from ..stores.memory_forget_store import MemoryForgetStore, subject_owner
+
 _BATCH_MESSAGES = 6
 _MAX_BUCKETS = 256
 _MAX_TASKS = 8
@@ -127,6 +129,24 @@ class LiveMemoryBridge:
         self._closed = False
         self._closing = False
         self._flushing = 0
+        self._forget_lock = asyncio.Lock()
+        self.forget_store = getattr(runtime, "memory_forget_store", None)
+        if self.forget_store is None:
+            self.forget_store = MemoryForgetStore(getattr(runtime, "plugin", None), getattr(runtime, "audit", None))
+            runtime.memory_forget_store = self.forget_store
+        self._forget_active: set[tuple[str, str, str]] = set()
+        self._forget_generation = 0
+
+    @property
+    def _forget_pending(self) -> dict[tuple[str, str, str], int | None]:
+        pending = {owner: item.epoch for owner, item in self.forget_store.entries.items()}
+        for owner in self._forget_active:
+            pending.setdefault(owner, None)
+        return pending
+
+    def _forget_blocks(self, target: str, platform: str, uid: str) -> bool:
+        owner = subject_owner(target, platform, uid)
+        return owner in self._forget_active or self.forget_store.blocks(owner)
 
     def _enabled(self) -> bool:
         return not self._closed and getattr(getattr(self.runtime, "config", None), "viewer_memory_enabled", False) is True
@@ -152,6 +172,19 @@ class LiveMemoryBridge:
             scope_key = json.dumps([scope.target, scope.platform, scope.session, scope.uid])
             self._epoch_cache.pop(_batch_key(scope_key, batch.history()), None)
 
+    def discard_subject(self, target: str, platform: str, uid: str) -> None:
+        """Cancel only the explicitly selected host subject, across sessions."""
+        scopes = set(self._buckets) | set(self._batches) | set(self._tasks.values())
+        for scope in scopes:
+            if (scope.target, scope.platform, _subject_id(platform, scope.uid)) != (target, platform, _subject_id(platform, uid)):
+                continue
+            self._buckets.pop(scope, None)
+            self._metadata.pop(scope, None)
+            self._drop_batch(scope)
+            for task, task_scope in list(self._tasks.items()):
+                if task_scope == scope:
+                    task.cancel()
+
     def _trim_fresh_messages(self, scope: MemoryScope) -> None:
         batch = self._batches.get(scope)
         room = _MAX_PENDING_MESSAGES - (len(batch.messages) if batch else 0)
@@ -171,6 +204,8 @@ class LiveMemoryBridge:
         provider = getattr(self.runtime, "live_provider", None)
         platform = platform or str(getattr(provider, "platform", "") or "")
         safe_uid = str(uid or "").strip()
+        if self._forget_blocks(her_name, platform, safe_uid):
+            return
         user_line = " ".join(str(user_text or "").split())
         if not her_name or platform not in {"bilibili", "twitch", "douyin"} or not safe_uid or not user_line:
             return
@@ -316,6 +351,9 @@ class LiveMemoryBridge:
         """Submit one batch: True when saved, False to retry later, None when rejected for good."""
         if not self._enabled() or not messages:
             return False
+        generation = self._forget_generation
+        if self._forget_blocks(scope.target, scope.platform, uid):
+            return False
         port = await self._memory_port()
         if port <= 0:
             self._remember_unavailable("missing_port")
@@ -352,7 +390,7 @@ class LiveMemoryBridge:
             scope_key=scope_key,
             subject_epochs={key: epoch},
         )
-        if not self._enabled():
+        if not self._enabled() or generation != self._forget_generation or self._forget_blocks(scope.target, scope.platform, uid):
             return False
         try:
             response = await client.post(f"{base_url}/scoped_history", json=payload, timeout=30.0)

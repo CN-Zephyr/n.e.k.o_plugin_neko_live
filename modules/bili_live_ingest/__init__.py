@@ -10,6 +10,7 @@ import urllib.request
 from collections import OrderedDict
 from typing import Any
 
+from ...adapters.http_redirects import open_without_redirects
 from ...core.contracts import LiveEvent, LiveRoomStatus, ViewerEvent
 from ...core.contracts_public import public_text
 from ...core.runtime_live_listener import schedule_unexpected_live_listener_stop
@@ -787,7 +788,7 @@ class BiliLiveIngestModule(BaseModule):
             headers["Cookie"] = cookie
         request = urllib.request.Request(url, headers=headers)
         try:
-            with urllib.request.urlopen(request, timeout=_LOOKUP_HTTP_TIMEOUT_SECONDS) as response:
+            with open_without_redirects(request, timeout=_LOOKUP_HTTP_TIMEOUT_SECONDS) as response:
                 payload = json.loads(response.read().decode("utf-8", errors="replace"))
         except (urllib.error.URLError, TimeoutError) as exc:
             return LiveRoomStatus(room_id=room_id, ok=False, message=f"network error: {type(exc).__name__}"), -1

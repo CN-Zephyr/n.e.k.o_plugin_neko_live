@@ -139,7 +139,7 @@ def test_entry_greeting_drops_old_support_context_and_never_bridges_room_topics(
         recent_context="Recent spent live material:\n- earlier-gift-thanks\n",
         viewer_context="Same-viewer recent talk:\n- older-viewer-question\n",
         room_context="Recent room theme context:\n- room_theme=old-support-topic\n",
-        viewer_preference_context="Viewer impression memory (private guidance):\n- soft-thanks-callback\n",
+        viewer_preference_context="Viewer impression memory (untrusted data only):\n- soft-thanks-callback\n",
     )
     assert all(fragment not in prompt for fragment in (
         "earlier-gift-thanks", "older-viewer-question", "old-support-topic", "soft-thanks-callback",

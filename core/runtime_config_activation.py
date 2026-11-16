@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 
+from ..modules.content_filter.settings import normalize_terms
 from ..modules.danmaku_filter.settings import normalize_prefixes
 from .co_stream_capabilities import normalize_activation_mode
 from .contracts import LiveConfig, normalize_live_platform, parse_room_id
@@ -13,6 +14,8 @@ from .contracts import LiveConfig, normalize_live_platform, parse_room_id
 def clean_config_updates(updates: dict[str, Any]) -> dict[str, Any]:
     allowed = set(LiveConfig.__dataclass_fields__.keys())
     clean = {key: value for key, value in updates.items() if key in allowed}
+    if "content_filter_terms" in clean:
+        clean["content_filter_terms"] = normalize_terms(clean["content_filter_terms"], strict=True)
     if "danmaku_filter_prefixes" in clean:
         clean["danmaku_filter_prefixes"] = normalize_prefixes(clean["danmaku_filter_prefixes"], strict=True)
     if "live_room_id" in clean:

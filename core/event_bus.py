@@ -8,13 +8,14 @@ P2.5 完整版地基：把「谁产出事件」与「谁处理事件」解耦—
         self._unsub = ctx.event_bus.subscribe("gift", self._on_gift, owner=self.id)
     零改外壳、零碰接入层、与其它模块并行无冲突。
 
-三条保证（LIVE 场景可靠性第一）：
+四条保证（LIVE 场景可靠性第一）：
 - **隔离**：一个订阅者的 handler 抛错（含其 async 任务抛错）只记 audit，绝不波及其余订阅者
   或发布方。
 - **归属**：每个订阅带 ``owner``（模块 id）；失败 audit 带 ``owner`` + ``event_type``，能定位
   是谁炸的。
 - **静默丢弃**：发布到无人订阅的事件类型 = no-op（任意模块子集都能安全运行，见
   docs/ui-architecture.md §4 层②）。
+- **有界**：异步订阅同时受总量和模块配额约束，超限关闭未启动的协程并计数。
 
 handler 可同步可异步：同步 handler 内联调用（沿用插件既有「同步回调 + 内部 fire-and-forget」
 节奏，不拖慢弹幕接收循环）；返回协程则调度为隔离后台 task，其异常同样收敛进 audit。
@@ -26,6 +27,9 @@ import asyncio
 import time
 from collections.abc import Callable
 from typing import Any
+
+_MAX_PENDING_TASKS = 128
+_MAX_PENDING_TASKS_PER_OWNER = 16
 
 
 class _Subscription:
@@ -42,11 +46,13 @@ class EventBus:
         self._subs: dict[str, list[_Subscription]] = {}
         self._audit = audit
         self._tasks: set[asyncio.Task[Any]] = set()
+        self._pending_by_owner: dict[str, int] = {}
         self._last_publish_at: float = 0.0
         self._last_event_type: str = ""
         self._publish_count: int = 0
         self._dropped_closed_count: int = 0
         self._dropped_unsubscribed_count: int = 0
+        self._dropped_capacity_count: int = 0
         self._accepting_events = True
 
     def subscribe(self, event_type: str, handler: Callable[[Any], Any], *, owner: str = "") -> Callable[[], None]:
@@ -100,6 +106,9 @@ class EventBus:
             "dropped_closed_count": self._dropped_closed_count,
             "dropped_unsubscribed_count": self._dropped_unsubscribed_count,
             "pending_tasks": len(self._tasks),
+            "pending_task_limit": _MAX_PENDING_TASKS,
+            "pending_tasks_per_owner_limit": _MAX_PENDING_TASKS_PER_OWNER,
+            "dropped_capacity_count": self._dropped_capacity_count,
         }
 
     async def close(self, *, timeout: float = 5.0) -> None:
@@ -127,15 +136,48 @@ class EventBus:
         self.publish(event, payload)
 
     def _spawn_isolated(self, coro: Any, owner: str, event_type: str) -> None:
+        if (
+            len(self._tasks) >= _MAX_PENDING_TASKS
+            or self._pending_by_owner.get(owner, 0) >= _MAX_PENDING_TASKS_PER_OWNER
+        ):
+            self._dropped_capacity_count += 1
+            self._close_coroutine(coro, owner, event_type)
+            return
+
         async def _runner() -> None:
             try:
                 await coro
             except Exception as exc:  # noqa: BLE001 — async handler 失败同样隔离进 audit
                 self._record_error(owner, event_type, exc)
 
-        task = asyncio.create_task(_runner())
+        runner = _runner()
+        try:
+            task = asyncio.create_task(runner)
+        except Exception as exc:  # noqa: BLE001 — 无可用事件循环时也要隔离并释放协程
+            runner.close()
+            self._close_coroutine(coro, owner, event_type)
+            self._record_error(owner, event_type, exc)
+            return
         self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._pending_by_owner[owner] = self._pending_by_owner.get(owner, 0) + 1
+
+        def _finished(completed: asyncio.Task[Any]) -> None:
+            self._tasks.discard(completed)
+            remaining = self._pending_by_owner[owner] - 1
+            if remaining:
+                self._pending_by_owner[owner] = remaining
+            else:
+                self._pending_by_owner.pop(owner, None)
+            # runner 启动前就被取消时，内部协程尚未被 await，也必须显式关闭。
+            self._close_coroutine(coro, owner, event_type)
+
+        task.add_done_callback(_finished)
+
+    def _close_coroutine(self, coro: Any, owner: str, event_type: str) -> None:
+        try:
+            coro.close()
+        except Exception as exc:  # noqa: BLE001 — 清理失败不能影响其它订阅者
+            self._record_error(owner, event_type, exc)
 
     def _record_error(self, owner: str, event_type: str, exc: Exception) -> None:
         if self._audit is None:

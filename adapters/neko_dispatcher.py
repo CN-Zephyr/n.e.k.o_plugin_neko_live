@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-import io
 import os
 import re
 import uuid
@@ -11,6 +10,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
+from ..core.avatar_image import normalize_avatar_jpeg
 from ..core.contracts import InteractionRequest
 from ..core.contracts_public import public_text
 from ..core.live_output_contract_prompt import render_contract_instruction
@@ -22,12 +22,15 @@ from ..core.prompt_delivery import (
 )
 from ..core.recent_output_families import spent_output_text
 from ..core.runtime_live_session import is_current_live_session_event
+from ..modules.content_filter import response_policy_metadata
+from ..modules.content_filter import skip_reason as content_skip_reason
 from .host_reply_reader import HostReplyReader, ReplyScope
 from .output_contract_bridge import (
     max_reply_chars_for_request,
     metadata_for_request,
     response_module_hint,
 )
+from .response_text_transform import response_transform_metadata
 from .viewer_evidence import attribute_current_input, current_evidence_rules, viewer_identity_token
 
 _AVATAR_INLINE_BUDGET_BYTES = 64 * 1024
@@ -144,40 +147,8 @@ async def _await_push_submission(result: Any) -> None:
 
 def _normalize_avatar_for_neko_vision(data: bytes, mime: str) -> tuple[bytes, str]:
     """Normalize arbitrary avatar bytes to a small JPEG for proactive vision."""
-    if not data:
-        return data, mime or "image/png"
-    try:
-        from PIL import Image
-
-        with Image.open(io.BytesIO(data)) as image:
-            image.load()
-            if image.mode in {"RGBA", "LA", "P"}:
-                background = Image.new("RGB", image.size, (255, 255, 255))
-                if image.mode == "P":
-                    image = image.convert("RGBA")
-                alpha = image.getchannel("A") if image.mode in {"RGBA", "LA"} else None
-                background.paste(image.convert("RGBA"), mask=alpha)
-                image = background
-            elif image.mode != "RGB":
-                image = image.convert("RGB")
-            best: bytes | None = None
-            for edge in (384, 256, 192):
-                frame = image.copy()
-                if max(frame.size) > edge:
-                    frame.thumbnail((edge, edge))
-                for quality in (80, 68, 56):
-                    buffer = io.BytesIO()
-                    frame.save(buffer, format="JPEG", quality=quality, optimize=True)
-                    candidate = buffer.getvalue()
-                    if best is None or len(candidate) < len(best):
-                        best = candidate
-                    if len(candidate) <= _AVATAR_INLINE_BUDGET_BYTES:
-                        return candidate, "image/jpeg"
-            if best:
-                return best, "image/jpeg"
-    except Exception:
-        return data, mime or "image/png"
-    return data, mime or "image/png"
+    normalized = normalize_avatar_jpeg(data, budget_bytes=_AVATAR_INLINE_BUDGET_BYTES)
+    return normalized, "image/jpeg" if normalized else mime or "image/png"
 
 
 def _clean_target(value: Any) -> str:
@@ -659,6 +630,10 @@ class NekoDispatcher:
         expired: bool = False,
     ) -> str:
         text = prepare_live_delivery_text(text, kind="context")
+        runtime = self.runtime or getattr(self.plugin, "runtime", None)
+        reason = content_skip_reason(getattr(runtime, "config", None), text)
+        if reason and not expired:
+            return f"skipped_to_neko(reason={reason})"
         target_lanlan = (
             self.live_target_lanlan()
             if context_type == "live_scene"
@@ -742,6 +717,10 @@ class NekoDispatcher:
         """
 
         text = prepare_live_delivery_text(text, kind="context")
+        runtime = self.runtime or getattr(self.plugin, "runtime", None)
+        reason = content_skip_reason(getattr(runtime, "config", None), text)
+        if reason and not expired:
+            return f"skipped_to_neko(reason={reason})"
         target_lanlan = (
             self.live_target_lanlan()
             if target_lanlan is None
@@ -780,6 +759,10 @@ class NekoDispatcher:
 
     async def push_developer_announcement(self, text: str) -> str:
         text = prepare_live_delivery_text(text, kind="speech")
+        runtime = self.runtime or getattr(self.plugin, "runtime", None)
+        reason = content_skip_reason(getattr(runtime, "config", None), text)
+        if reason:
+            return f"skipped_to_neko(reason={reason})"
         target_lanlan = resolve_plugin_target_lanlan(self.plugin)
         metadata = {"plugin": "neko_live", "developer_mode": True}
         if target_lanlan:
@@ -789,7 +772,7 @@ class NekoDispatcher:
             visibility=[],
             ai_behavior="respond",
             parts=[{"type": "text", "text": text}],
-            metadata=metadata,
+            metadata={**metadata, **response_policy_metadata(getattr(runtime, "config", None))},
             priority=6,
             target_lanlan=target_lanlan or None,
         )
@@ -821,7 +804,7 @@ class NekoDispatcher:
                 identity.avatar_bytes,
                 identity.avatar_mime or "image/png",
             )
-            if len(avatar_bytes) <= _AVATAR_INLINE_BUDGET_BYTES:
+            if avatar_bytes and len(avatar_bytes) <= _AVATAR_INLINE_BUDGET_BYTES:
                 parts.append(
                     {
                         "type": "image",
@@ -830,7 +813,7 @@ class NekoDispatcher:
                     }
                 )
             else:
-                parts[0]["text"] += "\n当前头像图片过大，未附加到本次请求；不能借用历史图片描述这个观众。"
+                parts[0]["text"] += "\n当前头像不可用或超出图片预算，本次请求没有附加头像；不能借用历史图片描述这个观众。"
         image_part_bytes = len(parts[1]["data"]) if len(parts) > 1 else 0
         target_lanlan = _resolve_target_lanlan(
             self.plugin,
@@ -905,6 +888,11 @@ class NekoDispatcher:
             request.should_push = False
             request.reason = "dispatcher.prompt_budget_exceeded"
             return f"skipped_to_neko(reason={request.reason})"
+        reason = content_skip_reason(getattr(runtime, "config", None), parts[0]["text"])
+        if reason:
+            request.should_push = False
+            request.reason = reason
+            return f"skipped_to_neko(reason={reason})"
         ai_behavior = "respond"
         coalesce_key = _coalesce_key_for_request(request, demo=is_demo_event)
         # Keep provenance handles out of the request/result metadata stored by the plugin.
@@ -918,7 +906,11 @@ class NekoDispatcher:
             parts=parts,
             priority=_priority_for_request(request, demo=is_demo_event),
             coalesce_key=coalesce_key,
-            metadata=metadata,
+            metadata={
+                **metadata,
+                **response_transform_metadata(metadata, runtime=runtime),
+                **response_policy_metadata(getattr(runtime, "config", None)),
+            },
             target_lanlan=target_lanlan or None,
         )
         await _await_push_submission(result)

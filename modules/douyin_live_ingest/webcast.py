@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote, unquote
 
+from ...adapters.http_redirects import open_without_redirects
 from ...core.contracts import LiveRoomStatus
 from .public_projection import safe_public_bool, safe_public_text, safe_room_ref, safe_webcast_room_id
 
@@ -100,7 +101,7 @@ def room_page_url(room_ref: Any) -> str:
 def fetch_webcast_info(room_ref: Any, *, cookie: str = "", timeout: float = _DEFAULT_FETCH_TIMEOUT_SECONDS) -> DouyinWebcastInfo:
     request = urllib.request.Request(room_page_url(room_ref), headers=_headers(cookie))
     try:
-        with urllib.request.urlopen(request, timeout=_safe_timeout(timeout)) as response:
+        with open_without_redirects(request, timeout=_safe_timeout(timeout)) as response:
             raw_body = response.read(_MAX_PAGE_BYTES + 1)
             if len(raw_body) > _MAX_PAGE_BYTES:
                 return DouyinWebcastInfo(

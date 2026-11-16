@@ -14,8 +14,9 @@ from plugin.plugins.neko_live.core.runtime_live_input import _note_live_memory
 from plugin.plugins.neko_live.core.viewer_utterance import viewer_utterance_text
 
 
-def memory_runtime():
+def memory_runtime(tmp_path):
     return SimpleNamespace(
+        plugin=SimpleNamespace(data_path=lambda: tmp_path),
         config=LiveConfig(), dispatcher=SimpleNamespace(live_target_lanlan=lambda: "A"),
         live_provider=SimpleNamespace(platform="twitch"), _live_session_generation=1,
     )
@@ -42,8 +43,8 @@ def epochs_get(*answers):
 
 
 @pytest.mark.asyncio
-async def test_memory_preserves_collection_scope_and_excludes_submission_receipt():
-    runtime = memory_runtime()
+async def test_memory_preserves_collection_scope_and_excludes_submission_receipt(tmp_path):
+    runtime = memory_runtime(tmp_path)
     _note_live_memory(runtime, {"status": "pushed", "output": "queued_to_neko(...)", "event": {"uid": "twitch:7", "danmaku_text": "hello", "source": "live_danmaku"}})
     runtime.dispatcher.live_target_lanlan = lambda: "B"
     runtime.live_provider.platform = "douyin"
@@ -65,8 +66,8 @@ async def test_memory_preserves_collection_scope_and_excludes_submission_receipt
 
 
 @pytest.mark.asyncio
-async def test_disabled_memory_does_not_collect_or_flush_previous_turns():
-    runtime = memory_runtime()
+async def test_disabled_memory_does_not_collect_or_flush_previous_turns(tmp_path):
+    runtime = memory_runtime(tmp_path)
     bridge = LiveMemoryBridge(runtime)
     bridge.note_exchange(uid="7", nickname="viewer", user_text="hello")
     runtime.config.viewer_memory_enabled = False
@@ -78,8 +79,8 @@ async def test_disabled_memory_does_not_collect_or_flush_previous_turns():
 
 
 @pytest.mark.asyncio
-async def test_memory_flush_awaits_full_batch_and_close_cancels_owned_request():
-    bridge = LiveMemoryBridge(memory_runtime())
+async def test_memory_flush_awaits_full_batch_and_close_cancels_owned_request(tmp_path):
+    bridge = LiveMemoryBridge(memory_runtime(tmp_path))
     entered, released, cancelled = asyncio.Event(), asyncio.Event(), asyncio.Event()
 
     async def post(*args, **kwargs):
@@ -112,8 +113,8 @@ async def test_memory_flush_awaits_full_batch_and_close_cancels_owned_request():
     assert not bridge._tasks and not bridge._buckets
 
 
-def test_memory_pending_capacity_is_bounded():
-    bridge = LiveMemoryBridge(memory_runtime())
+def test_memory_pending_capacity_is_bounded(tmp_path):
+    bridge = LiveMemoryBridge(memory_runtime(tmp_path))
     for i in range(300):
         bridge.note_exchange(uid=str(i), nickname="viewer", user_text="hello")
     assert len(bridge._buckets) == len(bridge._metadata) == 256
@@ -201,8 +202,8 @@ def test_missing_sc_body_fallback_is_not_authored_speech():
     assert viewer_utterance_text(event) == ""
 
 
-def test_batch_welcome_memory_uses_original_utterance_and_not_welcome_intent():
-    runtime = memory_runtime()
+def test_batch_welcome_memory_uses_original_utterance_and_not_welcome_intent(tmp_path):
+    runtime = memory_runtime(tmp_path)
     event = ViewerEvent(uid="twitch:42", source="live_danmaku", danmaku_text="直播间热闹起来了，需要欢迎大家",
                         raw={"event_type": "danmaku", "live_batch_welcome": "new_viewer_burst",
                              "original_danmaku_text": "今天想听小猫唱歌"})
@@ -218,10 +219,10 @@ def test_batch_welcome_memory_uses_original_utterance_and_not_welcome_intent():
     {"status": "processed", "trust": {}}, {"status": "processed"}, {}, [],
     {"status": "ignored", "trust": {"persisted": True}}, "invalid_json",
 ])
-async def test_memory_unconfirmed_response_retains_batch_for_same_key_retry(monkeypatch, ack):
+async def test_memory_unconfirmed_response_retains_batch_for_same_key_retry(monkeypatch, ack, tmp_path):
     from utils import internal_http_client
 
-    bridge = LiveMemoryBridge(memory_runtime())
+    bridge = LiveMemoryBridge(memory_runtime(tmp_path))
     bridge._memory_port = AsyncMock(return_value=1)
     requests = []
     responses = [ack, {"status": "processed", "trust": {"persisted": True}}]
@@ -248,10 +249,10 @@ async def test_memory_unconfirmed_response_retains_batch_for_same_key_retry(monk
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("persisted", [True, None])
-async def test_memory_confirmed_response_is_not_reposted(monkeypatch, persisted):
+async def test_memory_confirmed_response_is_not_reposted(monkeypatch, persisted, tmp_path):
     from utils import internal_http_client
 
-    bridge = LiveMemoryBridge(memory_runtime())
+    bridge = LiveMemoryBridge(memory_runtime(tmp_path))
     bridge._memory_port = AsyncMock(return_value=1)
     post = AsyncMock(return_value=SimpleNamespace(
         raise_for_status=lambda: None,
@@ -278,10 +279,10 @@ def ok_post(requests, status=200):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("answer, expected", [({"epochs": {}}, 0), ({"epochs": {"participant:twitch:42": 3}}, 3)])
-async def test_memory_keyed_post_carries_server_forget_epoch(monkeypatch, answer, expected):
+async def test_memory_keyed_post_carries_server_forget_epoch(monkeypatch, answer, expected, tmp_path):
     from utils import internal_http_client
 
-    bridge = LiveMemoryBridge(memory_runtime())
+    bridge = LiveMemoryBridge(memory_runtime(tmp_path))
     bridge._memory_port = AsyncMock(return_value=1)
     requests, get = [], epochs_get(answer)
     monkeypatch.setattr(internal_http_client, "get_internal_http_client", lambda: SimpleNamespace(post=ok_post(requests), get=get))
@@ -294,10 +295,10 @@ async def test_memory_keyed_post_carries_server_forget_epoch(monkeypatch, answer
 
 
 @pytest.mark.asyncio
-async def test_memory_retry_reuses_epoch_captured_for_the_key(monkeypatch):
+async def test_memory_retry_reuses_epoch_captured_for_the_key(monkeypatch, tmp_path):
     from utils import internal_http_client
 
-    bridge = LiveMemoryBridge(memory_runtime())
+    bridge = LiveMemoryBridge(memory_runtime(tmp_path))
     bridge._memory_port = AsyncMock(return_value=1)
     requests = []
     acks = [{"status": "ignored"}, {"status": "processed", "trust": {"persisted": True}}]
@@ -319,10 +320,10 @@ async def test_memory_retry_reuses_epoch_captured_for_the_key(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("answer", [503, {"epochs": {"participant:twitch:42": -1}}, {"epochs": []}, {}])
-async def test_memory_unreadable_forget_epoch_holds_batch_without_posting(monkeypatch, answer):
+async def test_memory_unreadable_forget_epoch_holds_batch_without_posting(monkeypatch, answer, tmp_path):
     from utils import internal_http_client
 
-    runtime = memory_runtime()
+    runtime = memory_runtime(tmp_path)
     audit = []
     runtime.audit = SimpleNamespace(record=lambda kind, _msg, **kw: audit.append((kind, kw["detail"])))
     bridge = LiveMemoryBridge(runtime)
@@ -336,10 +337,10 @@ async def test_memory_unreadable_forget_epoch_holds_batch_without_posting(monkey
 
 
 @pytest.mark.asyncio
-async def test_memory_rejected_request_is_dropped_not_retried(monkeypatch):
+async def test_memory_rejected_request_is_dropped_not_retried(monkeypatch, tmp_path):
     from utils import internal_http_client
 
-    bridge = LiveMemoryBridge(memory_runtime())
+    bridge = LiveMemoryBridge(memory_runtime(tmp_path))
     bridge._memory_port = AsyncMock(return_value=1)
     requests = []
     monkeypatch.setattr(internal_http_client, "get_internal_http_client", lambda: SimpleNamespace(post=ok_post(requests, 422), get=epochs_get()))

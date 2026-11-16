@@ -25,7 +25,7 @@ def is_viewer_activity_event(event: Any) -> bool:
         source = event.get("source")
     else:
         source = getattr(event, "source", None)
-    return str(source or "") == "live_danmaku" and not is_presence_event(event)
+    return source in ("live_danmaku", "manual_live_simulation") and not is_presence_event(event)
 
 
 def viewer_utterance_text(event: Any) -> str:

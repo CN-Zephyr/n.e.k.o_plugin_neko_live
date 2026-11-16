@@ -243,7 +243,6 @@ def fake_signal_payload(index: int) -> dict[str, Any]:
         "nickname": nickname,
         "avatar_url": "",
         "danmaku_text": text,
-        "event_type": "danmaku",
     }
 
 
@@ -351,7 +350,7 @@ def run(args: argparse.Namespace) -> int:
         for index, action_id in enumerate(actions, start=1):
             if index in fake_points:
                 signal_args = fake_signal_payload(index)
-                signal_response = client.run_entry("submit_live_event", signal_args)
+                signal_response = client.run_entry("submit_manual_live_event", signal_args)
                 write_jsonl(
                     log_path,
                     {
@@ -472,7 +471,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--fake-signal-at",
         default="",
-        help="Comma-separated action indexes before which fake live danmaku is injected.",
+        help="Comma-separated action indexes before which to submit a simulated danmaku.",
     )
     parser.add_argument(
         "--real-output",

@@ -2,6 +2,7 @@ import io
 
 from PIL import Image
 from plugin.plugins.neko_live.adapters.neko_dispatcher import _normalize_avatar_for_neko_vision
+from plugin.plugins.neko_live.core.avatar_image import MAX_AVATAR_BYTES
 from plugin.plugins.neko_live.stores.avatar_cache import AvatarCache
 
 
@@ -56,7 +57,8 @@ def test_avatar_cache_default_budget_is_bounded():
 def test_avatar_normalization_bounds_payload_and_dimensions():
     source = Image.effect_noise((1024, 1024), 100).convert("RGB")
     raw = io.BytesIO()
-    source.save(raw, format="JPEG", quality=95)
+    source.save(raw, format="JPEG", quality=85)
+    assert 64 * 1024 < len(raw.getvalue()) <= MAX_AVATAR_BYTES
 
     data, mime = _normalize_avatar_for_neko_vision(raw.getvalue(), "image/jpeg")
 

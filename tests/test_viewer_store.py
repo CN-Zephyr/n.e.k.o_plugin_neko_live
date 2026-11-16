@@ -765,14 +765,14 @@ def _seed_two_profiles(tmp_path):
 
 
 def _fail_read_bytes(monkeypatch, file):
-    original = type(file).read_bytes
+    original = type(file).open
 
-    def flaky_read_bytes(self):
-        if self == file:
+    def flaky_open(self, mode="r", *args, **kwargs):
+        if self == file and mode == "rb":
             raise PermissionError("locked by another process")
-        return original(self)
+        return original(self, mode, *args, **kwargs)
 
-    monkeypatch.setattr(type(file), "read_bytes", flaky_read_bytes)
+    monkeypatch.setattr(type(file), "open", flaky_open)
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ from typing import Any
 
 from ...core.contracts_events import ViewerEvent
 from .._base import BaseModule
+from ..content_filter import skip_reason as content_skip_reason
 from .settings import DEFAULT_PREFIX_TEXT, normalize_match_text, normalize_prefixes
 
 IGNORED_PREFIX_REASON = "input.ignored_prefix"
@@ -46,7 +47,10 @@ class DanmakuFilterModule(BaseModule):
         ]
 
 
-def skip_reason(ctx: Any, text: str, *, event_type: str = "danmaku") -> str:
+def skip_reason(ctx: Any, text: str, *, event_type: str = "danmaku", nickname: str = "") -> str:
+    content_reason = content_skip_reason(getattr(ctx, "config", None), nickname, text)
+    if content_reason:
+        return content_reason
     module = getattr(ctx, "danmaku_filter", None)
     if module is None:
         # Small standalone pipeline/consumer contexts use the default rule too.
@@ -56,6 +60,9 @@ def skip_reason(ctx: Any, text: str, *, event_type: str = "danmaku") -> str:
 
 
 def viewer_event_skip_reason(ctx: Any, event: ViewerEvent) -> str:
+    content_reason = content_skip_reason(getattr(ctx, "config", None), event.nickname, event.danmaku_text)
+    if content_reason:
+        return content_reason
     if event.source not in _CHAT_SOURCES:
         return ""
     raw = event.raw if isinstance(event.raw, dict) else {}

@@ -31,6 +31,7 @@ async def dashboard_state(runtime: Any) -> dict[str, Any]:
         profile_count=len(profiles),
     )
     speech_explanation = runtime.speech_explanation(live_status, live_state)
+    memory_target = getattr(runtime.dispatcher, "live_target_lanlan", None)
     return {
         "config": runtime.config.to_public_dict(),
         "live_connection": live_connection,
@@ -53,6 +54,8 @@ async def dashboard_state(runtime: Any) -> dict[str, Any]:
         ),
         "store_enabled": bool(storage.get("writable")),
         "viewer_store": storage,
+        "memory_target": memory_target() if callable(memory_target) else "",
+        "memory_forget": runtime.memory_forget_store.status(),
         "modules": runtime.registry.snapshot(),
         "safety": runtime.safety_guard.snapshot(),
         "recent_profiles": profiles,
