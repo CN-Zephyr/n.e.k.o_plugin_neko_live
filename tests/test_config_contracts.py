@@ -1831,9 +1831,9 @@ def test_avatar_roast_prompt_separates_solo_and_co_stream_roles():
         profile,
     )
 
-    assert "solo_stream first-appearance contract" in solo.prompt_text
+    assert "solo_stream viewer-roast contract" in solo.prompt_text
     assert "NEKO is carrying the room alone" in solo.prompt_text
-    assert "co_stream first-appearance contract" in co_stream.prompt_text
+    assert "co_stream viewer-roast contract" in co_stream.prompt_text
     assert "do not steal the human streamer's host role" in co_stream.prompt_text
     assert "Never delegate greetings/warmup/chat/topics/hosting to streamer/operator/viewers" in co_stream.prompt_text
     assert "Do not invent or hard-code streamer relationship labels" in solo.prompt_text
@@ -1891,12 +1891,12 @@ def test_solo_avatar_roast_uses_current_danmaku_before_avatar_details():
         profile,
     )
 
-    assert "solo_stream first-appearance priority: current danmaku first" in solo.prompt_text
+    assert "solo_stream viewer-roast priority: current danmaku first" in solo.prompt_text
     assert "Use avatar and nickname only as accents after answering the current danmaku." in solo.prompt_text
-    assert "Do not turn a first appearance into a pure avatar or ID roast when the viewer sent a danmaku." in solo.prompt_text
+    assert "Do not turn a viewer interaction into a pure avatar or ID roast when the viewer sent a danmaku." in solo.prompt_text
     assert "Treat UID as a routing identity, not default roast material" in solo.prompt_text
     assert "do not quote raw UID digits unless the nickname itself is missing" in solo.prompt_text
-    assert "solo_stream first-appearance priority: current danmaku first" not in co_stream.prompt_text
+    assert "solo_stream viewer-roast priority: current danmaku first" not in co_stream.prompt_text
 
 
 def test_avatar_roast_prompt_handles_delayed_retry_naturally():
@@ -1919,7 +1919,7 @@ def test_avatar_roast_prompt_handles_delayed_retry_naturally():
 
     assert "delayed chance to roast" in request.prompt_text
     assert "spontaneous live banter" in request.prompt_text
-    assert "never say this is a makeup, retry, missed first roast, or system correction" in request.prompt_text
+    assert "never say this is a makeup, retry, missed roast, or system correction" in request.prompt_text
     assert "satisfy it directly with a natural witty line" in request.prompt_text
 
 

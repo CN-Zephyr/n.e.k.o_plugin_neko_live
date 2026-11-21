@@ -1,6 +1,6 @@
 [project]
 name = "neko_live"
-version = "3.6.0"
+version = "3.6.1"
 # Runtime libraries are provided by the N.E.K.O. host.
 dependencies = []
 

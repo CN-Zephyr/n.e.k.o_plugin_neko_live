@@ -337,3 +337,27 @@ def test_busy_danmaku_callback_stays_inside_the_host_budget():
     assert "NEKO Live short output contract:" in fitted
     assert "absolute ceiling" in fitted
     assert "Same-viewer" in fitted or "Recent spent live material:" in fitted
+
+
+@pytest.mark.parametrize(("count", "stage"), [(497, "familiar_viewer"), (0, "unconfirmed")])
+def test_familiarity_is_required_even_when_impression_memory_is_removed(count, stage):
+    module = DanmakuResponseModule()
+    module.ctx = SimpleNamespace(config=LiveConfig())
+    profile = ViewerProfile(uid="42", nickname="viewer", danmaku_count=count,
+                            last_interaction_summary="synthetic history " * 10)
+    request = module.build_request(
+        ViewerEvent(uid="42", nickname="viewer", danmaku_text="hello", source="live_danmaku"),
+        ViewerIdentity(uid="42", nickname="viewer"), profile,
+    )
+    metadata = metadata_for_request(request)
+    head = _prepend_live_audience_speaker_lock(
+        "[NEKO Live danmaku response]\ndanmaku: hello", metadata, request,
+    )
+    rules = "Rules:\n- Output only NEKO's line."
+    required = head + "\n\n" + rules
+    complete = head + "\n\n" + viewer_preference_prompt_block(profile) + rules
+    budget = count_tokens(required)
+    fitted = fit_live_callback_prompt(complete, budget=budget)
+    assert f"Viewer familiarity: {stage}" in fitted
+    assert VIEWER_MEMORY_PROMPT_HEADER not in fitted
+    assert count_tokens(fitted) <= budget

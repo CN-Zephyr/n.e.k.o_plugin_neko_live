@@ -269,6 +269,8 @@ def viewer_preference_prompt_block(profile: Any) -> str:
     if not impression and topics:
         impression = "often talks about " + ", ".join(topics)
     fields = {"impression": impression} if impression else {}
+    if topics:
+        fields["topics"] = topics
     if avoid and avoid not in impression:
         fields["avoid"] = avoid
     rule = str(projection.get("memory_use_rule") or "")

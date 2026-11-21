@@ -18,8 +18,8 @@ from .live_reply_contract import (
 
 ROUTE_NOTES = {
     "avatar_roast": (
-        "For avatar_roast: connect the viewer's first message with the avatar/name, "
-        "but keep it as one sharp first-appearance line."
+        "For avatar_roast: connect the viewer's current message with the avatar/name, "
+        "but keep it as one sharp viewer-roast line."
     ),
     "danmaku_response": (
         "For danmaku_response: answer only the current danmaku and begin with the answer, "

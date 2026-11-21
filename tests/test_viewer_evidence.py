@@ -590,3 +590,143 @@ def test_first_seen_date_is_omitted_for_unrelated_questions():
     assert earliest_record_date(f"{today.isoformat()}T12:00:00+00:00", today=today) == ""
     assert earliest_record_date("not-a-date") == ""
     assert earliest_record_date(f"{prior.isoformat()}T12:00:00+00:00", today=today) == prior.isoformat()
+
+
+@pytest.mark.parametrize(("danmaku_count", "roast_count", "stage"), [
+    (497, 1, "familiar_viewer"), (4, 1, "regular_viewer"),
+    (1, 1, "returning_viewer"), (0, 0, "unconfirmed"), (1, 0, "unconfirmed"),
+])
+def test_familiarity_evidence_uses_recorded_stage_without_exposing_counts(danmaku_count, roast_count, stage):
+    from plugin.plugins.neko_live.adapters.viewer_evidence import current_evidence_rules
+
+    profile = ViewerProfile(uid="synthetic", nickname="viewer", danmaku_count=danmaku_count, roast_count=roast_count)
+    rules = current_evidence_rules("晚上好", has_avatar_image=False, profile=profile)
+    rule = next(line for line in rules if line.startswith("- Viewer familiarity:"))
+    assert stage in rule
+    assert "roast_count" not in rule and "danmaku_count" not in rule
+    assert "new_viewer" not in rule
+    if stage == "unconfirmed":
+        assert "neutral address" in rule and "invent familiarity" in rule
+    else:
+        assert "Never call this viewer new" in rule
+
+
+def test_older_record_proves_prior_presence_without_inventing_a_visit_date():
+    from plugin.plugins.neko_live.adapters.viewer_evidence import current_evidence_rules
+
+    prior = (datetime.now().astimezone().date() - timedelta(days=43)).isoformat()
+    profile = ViewerProfile(uid="synthetic", nickname="viewer", first_seen_at=f"{prior}T00:00:00+00:00")
+    rules = current_evidence_rules("晚上好", has_avatar_image=False, profile=profile)
+    assert any("Viewer familiarity: previously_recorded" in line for line in rules)
+    assert not any(prior in line for line in rules)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["solo_stream", "co_stream"])
+@pytest.mark.parametrize(("kind", "text", "image"), [
+    ("normal", "晚上好", False),
+    ("avatar", "看看我的头像", True),
+    ("roast", "晚上好", True),
+    ("entry", "", True),
+    ("entry", "", False),
+])
+@pytest.mark.parametrize("source", ["live_danmaku", "manual_live_simulation"])
+async def test_delivered_familiarity_survives_every_viewer_reply_route(live_context, mode, source, kind, text, image):
+    ctx = live_context
+    ctx.config.viewer_memory_enabled = False
+    profile = ViewerProfile(uid="42", nickname="合成观众", danmaku_count=497, roast_count=1)
+    identity = ViewerIdentity(uid="42", nickname=profile.nickname, avatar_bytes=avatar_png("blue") if image else None)
+    event = ViewerEvent(uid="42", nickname=profile.nickname, source=source, live_mode=mode,
+                        danmaku_text=text, raw={"event_type": "entry"} if kind == "entry" else {})
+    module = ctx.avatar_roast if kind == "roast" else ctx.danmaku_response
+    request = module.build_request(event, identity, profile)
+    request.metadata["response_module_hint"] = module.id
+    result = await ctx.dispatcher.push_roast(request)
+    assert result.startswith("queued_to_neko("), result
+    delivered = ctx.messages[-1]["parts"][0]["text"]
+    assert "Viewer familiarity: familiar_viewer" in delivered
+    assert "Never call this viewer new" in delivered
+    assert "roast_count" not in delivered
+    assert "Viewer impression memory" not in delivered
+    assert count_tokens(delivered) <= 1000
+    if kind == "entry":
+        assert "viewer arrival" in delivered
+        assert "was written by danmaku_author" not in delivered
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["solo_stream", "co_stream"])
+@pytest.mark.parametrize("kind", ["gift", "gift_with_room_flag", "super_chat", "guard", "follow", "like", "room_like"])
+@pytest.mark.parametrize("nickname", ["合成观众", "猫🐱" * 10])
+async def test_support_uses_current_viewer_familiarity_without_inventing_a_room_identity(live_context, mode, kind, nickname):
+    ctx = live_context
+    ctx.config.viewer_memory_enabled = False
+    ctx.config.follow_greet_enabled = ctx.config.like_greet_enabled = True
+    ctx.live_support_events = LiveSupportEventsModule()
+    ctx.live_support_events.ctx = ctx
+    prior = (datetime.now().astimezone().date() - timedelta(days=43)).isoformat()
+    profile = ViewerProfile(uid="42", nickname=nickname, danmaku_count=497, roast_count=1,
+                            first_seen_at=f"{prior}T00:00:00+00:00")
+    ctx.viewer_profile.upsert = AsyncMock(return_value=profile)
+    event_type = {"room_like": "like", "gift_with_room_flag": "gift"}.get(kind, kind)
+    raw = {"event_type": event_type, "support_verified": True, "gift_name": "合成礼物",
+           "gift_num": 1, "gift_total_coin": 3000, "guard_level": 3}
+    if kind in {"room_like", "gift_with_room_flag"}:
+        raw["like_scope"] = "room"
+    text = "你还记得我吗" if kind == "super_chat" else ""
+    event = ViewerEvent(uid="42", nickname=profile.nickname, danmaku_text=text, source="live_danmaku",
+                        live_mode=mode, raw=raw)
+    result = await LivePipeline(ctx).handle_event(event)
+    assert result.status == "pushed", result.reason
+    delivered = ctx.messages[-1]["parts"][0]["text"]
+    assert ("Viewer familiarity: familiar_viewer" in delivered) == (kind != "room_like")
+    assert "viewer arrival" not in delivered
+    if kind == "super_chat":
+        assert prior in delivered
+    assert count_tokens(delivered) <= 1000
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["solo_stream", "co_stream"])
+@pytest.mark.parametrize("image", [False, True])
+async def test_returning_viewer_explicit_roast_has_no_first_appearance_task(live_context, mode, image):
+    ctx = live_context
+    profile = ViewerProfile(uid="42", nickname="合成观众", danmaku_count=497, roast_count=1)
+    ctx.viewer_profile.upsert = AsyncMock(return_value=profile)
+    ctx.bili_identity.resolve = AsyncMock(return_value=ViewerIdentity(
+        uid="42", nickname=profile.nickname, avatar_bytes=avatar_png("blue") if image else None,
+    ))
+    ctx.roasted.add("42")
+    result = await LivePipeline(ctx).handle_event(ViewerEvent(
+        uid="42", nickname=profile.nickname, source="live_danmaku", live_mode=mode,
+        danmaku_text="猫猫再锐评一下我的头像",
+    ))
+    assert result.status == "pushed", result.reason
+    assert response_module_hint(result.request) == "avatar_roast"
+    for text in (result.request.prompt_text, ctx.messages[-1]["parts"][0]["text"]):
+        assert "first-appearance" not in text and "first-roast" not in text and "first appearance" not in text
+    assert "Viewer familiarity: familiar_viewer" in ctx.messages[-1]["parts"][0]["text"]
+    ctx.viewer_profile.mark_roasted.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("memory_enabled", [False, True])
+async def test_delivered_preference_recall_keeps_stable_topics_with_greeting_impression(live_context, memory_enabled):
+    ctx = live_context
+    ctx.config.viewer_memory_enabled = memory_enabled
+    profile = ViewerProfile(
+        uid="42", nickname="合成观众", danmaku_count=497, roast_count=1,
+        preference_tags={"music": 42, "tech_ai": 16}, favorite_topics={"music": 42, "tech_ai": 16},
+        impression_summary="晚上好 / 晚安 / 加油", last_interaction_at=datetime.now().astimezone().isoformat(),
+    )
+    ctx.viewer_profile.upsert = AsyncMock(return_value=profile)
+    ctx.roasted.add("42")
+    result = await LivePipeline(ctx).handle_event(ViewerEvent(
+        uid="42", nickname=profile.nickname, source="live_danmaku",
+        danmaku_text="你记得我最喜欢聊什么吗",
+    ))
+    assert result.status == "pushed", result.reason
+    delivered = ctx.messages[-1]["parts"][0]["text"]
+    assert ('"topics": ["music", "tech_ai"]' in delivered) == memory_enabled
+    assert "Viewer familiarity: familiar_viewer" in delivered
+    assert count_tokens(delivered) <= 1000

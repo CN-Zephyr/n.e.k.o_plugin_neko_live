@@ -814,7 +814,9 @@ async def test_dispatcher_does_not_force_safe_reply_for_verified_gift_event():
 
     assert plugin.metadata["response_module_hint"] == "live_support_events"
     assert "forced_reply_reason" not in plugin.metadata
-    assert _after_delivery_boundary(plugin.parts[0]["text"]).startswith("verified gift thanks prompt")
+    delivered = _after_delivery_boundary(plugin.parts[0]["text"])
+    assert delivered.startswith("NEKO Live audience speaker identity:")
+    assert delivered.split("\n\n", 1)[1].startswith("verified gift thanks prompt")
     assert "begin with an explicit thank-you" in plugin.parts[0]["text"]
 
 
@@ -1231,7 +1233,7 @@ async def test_dispatcher_attaches_avatar_image_for_visual_opt_in():
     assert _after_delivery_boundary(plugin.parts[0]["text"]).startswith(
         "reply\n\nNEKO Live short output contract:"
     )
-    assert "For avatar_roast: connect the viewer's first message" in plugin.parts[0]["text"]
+    assert "For avatar_roast: connect the viewer's current message" in plugin.parts[0]["text"]
     assert plugin.parts[1]["type"] == "image"
     assert plugin.parts[1]["mime"] == "image/jpeg"
     with Image.open(io.BytesIO(plugin.parts[1]["data"])) as normalized:
