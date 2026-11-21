@@ -26,7 +26,7 @@ def test_speaker_rule_summary_retains_unknown_or_changed_constraints(modified):
     else:
         assert summary in compact
         assert "{MASTER_NAME}, owner, operator or human co-streamer" in compact
-        assert "Never attribute this question/request to them" in compact
+        assert "danmaku_author alone wrote/asked this; never" in compact
 
 
 @pytest.mark.parametrize("kind", ["reply", "host"])

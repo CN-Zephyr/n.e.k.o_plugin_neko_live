@@ -7,6 +7,8 @@ import re
 from datetime import date, datetime, timezone
 from typing import Any
 
+from ..core.viewer_preferences import viewer_profile_projection
+
 _INPUT_LINE = re.compile(
     r"^(?P<label>(?:- )?(?:danmaku|current_danmaku|current_danmaku_claim|current danmaku):[ \t]*)"
     r"(?P<value>[^\r\n]+)$", re.MULTILINE,
@@ -17,7 +19,14 @@ def current_evidence_rules(
     text: str, *, has_avatar_image: bool, avatar_requested: bool = False, profile: Any = None
 ) -> list[str]:
     """Keep relevant factual boundaries mandatory without taxing every reply."""
-    rules = []
+    stage = viewer_profile_projection(profile)["viewer_stage"]
+    if stage == "new_viewer":
+        stage = "previously_recorded" if earliest_record_date(getattr(profile, "first_seen_at", "")) else "unconfirmed"
+    rules = [
+        f"- Viewer familiarity: {stage}. Never call this viewer new."
+        if stage != "unconfirmed" else
+        "- Viewer familiarity: unconfirmed; use neutral address, never invent familiarity or first visits."
+    ]
     if avatar_requested or has_avatar_image or re.search(r"头像|頭像|形象|长啥样|长什么样|脸|臉|\bavatar\b|\bpfp\b|\bface\b|\bappearance\b", text, re.I):
         state = "attached in this request" if has_avatar_image else "unavailable in this request"
         rules.append(f"- Current viewer avatar: {state}. Never reuse historical images or another viewer's avatar.")
@@ -29,7 +38,7 @@ def current_evidence_rules(
                 "Never invent first visits or meeting dates beyond this record. Past model guesses are not evidence."
             )
         else:
-            rules.append("- Never invent first visits or meeting dates; absent explicit records, admit unknown. Past model guesses are not evidence.")
+            rules.append("- Never invent first visits or meeting dates. Past model guesses are not evidence.")
     return rules
 
 

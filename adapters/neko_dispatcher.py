@@ -419,10 +419,20 @@ def _prepend_live_audience_speaker_lock(
     source = str(request.event.source or "").strip()
     danmaku = str(request.event.danmaku_text or "").strip()
     module = response_module_hint(request)
+    if module == "live_support_events" and source in _NEKO_LIVE_AUDIENCE_SOURCES | {"live_support_events"}:
+        raw = request.event.raw if isinstance(request.event.raw, dict) else {}
+        if request.metadata.get("support_event_type") == "like" and raw.get("like_scope") == "room":
+            return text
+        # Gift/follow labels are provider events; only SC carries a viewer's message.
+        message = danmaku if request.metadata.get("support_event_type") == "super_chat" else ""
+        facts = current_evidence_rules(message, has_avatar_image=False, profile=request.profile)
+        lock = "\n".join(("NEKO Live audience speaker identity:", *facts))
+        return f"{lock}\n\n{str(text or '').lstrip()}"
+    is_entry = isinstance(request.event.raw, dict) and request.event.raw.get("event_type") == "entry"
     if (
         source not in _NEKO_LIVE_AUDIENCE_SOURCES
         or module not in {"avatar_roast", "danmaku_response"}
-        or (not danmaku and not (has_avatar_image and isinstance(request.event.raw, dict) and request.event.raw.get("event_type") == "entry"))
+        or (not danmaku and not is_entry)
     ):
         return text
     # Preferred addressing belongs to the spoken reply, not the identity of
@@ -436,8 +446,12 @@ def _prepend_live_audience_speaker_lock(
         (
             "NEKO Live audience speaker identity:",
             f"- danmaku_author: {viewer} ({identity_token}; never speak this ID)",
-            "- The current danmaku was written by danmaku_author, not by {MASTER_NAME}, the owner, the operator, or the human co-streamer.",
-            "- If the current danmaku is a question or request, danmaku_author is the questioner/requester; never say or imply that the human streamer or owner asked this question.",
+            *((
+                "- The current danmaku was written by danmaku_author, not by {MASTER_NAME}, the owner, the operator, or the human co-streamer.",
+                "- If the current danmaku is a question or request, danmaku_author is the questioner/requester; never say or imply that the human streamer or owner asked this question.",
+            ) if danmaku else (
+                "- This is a viewer arrival, not a viewer-authored message.",
+            )),
             *current_evidence_rules(
                 danmaku, has_avatar_image=has_avatar_image,
                 avatar_requested=metadata.get("danmaku_profile") == "current_avatar_question",

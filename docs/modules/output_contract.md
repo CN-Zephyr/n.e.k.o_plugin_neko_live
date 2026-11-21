@@ -13,6 +13,8 @@ The output-contract slice keeps NEKO Live speech short, attributable, and safe b
 - `adapters/response_text_transform.py` connects that shaper to the paired host's reserved callback. It rechecks runtime/queue ownership, permission and Safety Guard without consuming output cooldown a second time.
 - `adapters/neko_dispatcher.py` is the only output boundary. The host receives opaque metadata and does not own NEKO Live wording policy.
 
+Avatar-roast prompts and their compact forms use the neutral `viewer roast` task label, including the appended output contract. The module serves both automatic entrance reactions and explicit repeat requests from familiar viewers. First-roast deduplication and marking belong to the pipeline's existing routing and viewer gate. A task label supplies no evidence about a viewer's first visit.
+
 ## Data Flow And Safety
 
 Live and sandbox input still enter `core/pipeline.py`. The pipeline applies the permission gate and `core/safety_guard.py` before dispatch. Normal danmaku responses read the current public event, sanitized viewer profile context, recent plugin output, and the configured live theme. They do not write a new store and do not bypass the audit, pipeline, or dispatcher boundaries.
