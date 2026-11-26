@@ -1986,11 +1986,14 @@ export default function NekoLivePanel(props: CompatPluginSurfaceProps<DashboardS
 
   async function biliLoginCheck() {
     if (authPending || sessionInProgress) return
-    setAuthPending("bili_login_check")
+    const checkingQr = ["qrcode_ready", "waiting", "scanning", "confirming", "unknown"].includes(loginState?.status)
+    const action = checkingQr ? "bili_login_check" : "bili_login_status"
+    setAuthPending(action)
     try {
-      const result = unwrapActionResult(await props.api.call("bili_login_check"))
-      setLoginState(result)
-      if (result.status === "done" || result.logged_in) {
+      const result = unwrapActionResult(await props.api.call(action))
+      const qrPending = checkingQr && ["waiting", "scanning", "confirming", "unknown"].includes(result.status)
+      setLoginState(qrPending ? { ...loginState, ...result } : result)
+      if (result.status === "done" || result.status === "already_logged_in" || result.logged_in) {
         toast.success(t("panel.auth.loginDone"))
         await refreshDashboard(true)
       } else if (result.message) {

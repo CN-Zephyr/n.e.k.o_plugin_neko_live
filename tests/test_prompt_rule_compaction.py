@@ -11,6 +11,26 @@ _GROUPS = (
 
 
 @pytest.mark.parametrize("modified", [False, True])
+def test_unconfirmed_history_compaction_keeps_fact_boundaries_and_unknown_changes(modified):
+    originals = [
+        "Viewer familiarity: unconfirmed; use neutral address, never invent familiarity or first visits.",
+        "Never invent first visits or meeting dates. Past model guesses are not evidence.",
+    ]
+    if modified:
+        originals[-1] += " Additional mandatory condition."
+    text = "NEKO Live audience speaker identity:\n" + "\n".join(f"- {rule}" for rule in originals)
+    compact = prompt_rules.compact_rules_for_delivery(text)
+    if modified:
+        assert compact == text
+    else:
+        assert len(compact) < len(text)
+        assert "Viewer familiarity: unconfirmed" in compact
+        assert "neutral address, no invented familiarity" in compact
+        assert "Never invent first visits or meeting dates" in compact
+        assert "Past guesses aren't evidence" in compact
+
+
+@pytest.mark.parametrize("modified", [False, True])
 def test_speaker_rule_summary_retains_unknown_or_changed_constraints(modified):
     originals, summary = next(
         pair for pair in prompt_rules._DELIVERY_EXACT_RULE_GROUPS

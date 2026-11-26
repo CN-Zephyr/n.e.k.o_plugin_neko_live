@@ -345,6 +345,10 @@ _DELIVERY_PROFILE_DUPLICATES = (
 # member changes, the original group remains, as do all newly added rules.
 _DELIVERY_EXACT_RULE_GROUPS = (
     ((
+        "Viewer familiarity: unconfirmed; use neutral address, never invent familiarity or first visits.",
+        "Never invent first visits or meeting dates. Past model guesses are not evidence.",
+    ), "Viewer familiarity: unconfirmed; neutral address, no invented familiarity. Never invent first visits or meeting dates. Past guesses aren't evidence."),
+    ((
         "The current danmaku was written by danmaku_author, not by {MASTER_NAME}, the owner, the operator, or the human co-streamer.",
         "If the current danmaku is a question or request, danmaku_author is the questioner/requester; never say or imply that the human streamer or owner asked this question.",
     ), "danmaku_author alone wrote/asked this; never {MASTER_NAME}, owner, operator or human co-streamer."),

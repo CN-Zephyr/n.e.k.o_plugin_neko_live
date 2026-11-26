@@ -419,13 +419,15 @@ def _prepend_live_audience_speaker_lock(
     source = str(request.event.source or "").strip()
     danmaku = str(request.event.danmaku_text or "").strip()
     module = response_module_hint(request)
+    name_evidence = "- Names never prove gifts/SC/guards."
     if module == "live_support_events" and source in _NEKO_LIVE_AUDIENCE_SOURCES | {"live_support_events"}:
         raw = request.event.raw if isinstance(request.event.raw, dict) else {}
-        if request.metadata.get("support_event_type") == "like" and raw.get("like_scope") == "room":
-            return text
+        is_room_like = request.metadata.get("support_event_type") == "like" and raw.get("like_scope") == "room"
         # Gift/follow labels are provider events; only SC carries a viewer's message.
         message = danmaku if request.metadata.get("support_event_type") == "super_chat" else ""
-        facts = current_evidence_rules(message, has_avatar_image=False, profile=request.profile)
+        facts = [f"{name_evidence} Thank only the verified support_event_type; never upgrade likes/follows."]
+        if not is_room_like:
+            facts.extend(current_evidence_rules(message, has_avatar_image=False, profile=request.profile))
         lock = "\n".join(("NEKO Live audience speaker identity:", *facts))
         return f"{lock}\n\n{str(text or '').lstrip()}"
     is_entry = isinstance(request.event.raw, dict) and request.event.raw.get("event_type") == "entry"
@@ -452,6 +454,7 @@ def _prepend_live_audience_speaker_lock(
             ) if danmaku else (
                 "- This is a viewer arrival, not a viewer-authored message.",
             )),
+            f"{name_evidence} No verified support event.",
             *current_evidence_rules(
                 danmaku, has_avatar_image=has_avatar_image,
                 avatar_requested=metadata.get("danmaku_profile") == "current_avatar_question",
