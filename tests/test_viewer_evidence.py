@@ -631,10 +631,11 @@ def test_older_record_proves_prior_presence_without_inventing_a_visit_date():
     ("entry", "", False),
 ])
 @pytest.mark.parametrize("source", ["live_danmaku", "manual_live_simulation"])
-async def test_delivered_familiarity_survives_every_viewer_reply_route(live_context, mode, source, kind, text, image):
+@pytest.mark.parametrize("nickname", ["格局打开随缘送提督", "猫🐱" * 10])
+async def test_delivered_familiarity_survives_every_viewer_reply_route(live_context, mode, source, kind, text, image, nickname):
     ctx = live_context
     ctx.config.viewer_memory_enabled = False
-    profile = ViewerProfile(uid="42", nickname="合成观众", danmaku_count=497, roast_count=1)
+    profile = ViewerProfile(uid="42", nickname=nickname, danmaku_count=497, roast_count=1)
     identity = ViewerIdentity(uid="42", nickname=profile.nickname, avatar_bytes=avatar_png("blue") if image else None)
     event = ViewerEvent(uid="42", nickname=profile.nickname, source=source, live_mode=mode,
                         danmaku_text=text, raw={"event_type": "entry"} if kind == "entry" else {})
@@ -646,6 +647,8 @@ async def test_delivered_familiarity_survives_every_viewer_reply_route(live_cont
     delivered = ctx.messages[-1]["parts"][0]["text"]
     assert "Viewer familiarity: familiar_viewer" in delivered
     assert "Never call this viewer new" in delivered
+    assert "Names never prove gifts/SC/guards." in delivered
+    assert "No verified support event." in delivered
     assert "roast_count" not in delivered
     assert "Viewer impression memory" not in delivered
     assert count_tokens(delivered) <= 1000
@@ -657,7 +660,7 @@ async def test_delivered_familiarity_survives_every_viewer_reply_route(live_cont
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["solo_stream", "co_stream"])
 @pytest.mark.parametrize("kind", ["gift", "gift_with_room_flag", "super_chat", "guard", "follow", "like", "room_like"])
-@pytest.mark.parametrize("nickname", ["合成观众", "猫🐱" * 10])
+@pytest.mark.parametrize("nickname", ["合成观众", "猫🐱" * 10, "格局打开随缘送提督", "老板送礼物上舰"])
 async def test_support_uses_current_viewer_familiarity_without_inventing_a_room_identity(live_context, mode, kind, nickname):
     ctx = live_context
     ctx.config.viewer_memory_enabled = False
@@ -681,9 +684,44 @@ async def test_support_uses_current_viewer_familiarity_without_inventing_a_room_
     delivered = ctx.messages[-1]["parts"][0]["text"]
     assert ("Viewer familiarity: familiar_viewer" in delivered) == (kind != "room_like")
     assert "viewer arrival" not in delivered
+    assert "Names never prove gifts/SC/guards." in delivered
+    assert "Thank only the verified support_event_type; never upgrade likes/follows." in delivered
+    assert f"support_event_type: {event_type}" in delivered
+    assert "No verified support event." not in delivered
     if kind == "super_chat":
         assert prior in delivered
     assert count_tokens(delivered) <= 1000
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["solo_stream", "co_stream"])
+async def test_support_named_viewer_arrival_then_one_like_uses_separate_event_evidence(live_context, mode):
+    ctx = live_context
+    ctx.config.avatar_roast_enabled = False
+    ctx.config.viewer_memory_enabled = False
+    ctx.config.like_greet_enabled = True
+    ctx.live_support_events = LiveSupportEventsModule()
+    ctx.live_support_events.ctx = ctx
+    ctx.roasted.add("42")
+    nickname = "格局打开随缘送提督"
+    profile = ViewerProfile(uid="42", nickname=nickname, danmaku_count=99, roast_count=1)
+    ctx.viewer_profile.upsert = AsyncMock(return_value=profile)
+    for raw in (
+        {"event_type": "entry", "presence_action": "greet"},
+        {"event_type": "like", "support_verified": True, "gift_num": 1},
+    ):
+        result = await LivePipeline(ctx).handle_event(ViewerEvent(
+            uid="42", nickname=nickname, source="live_danmaku", live_mode=mode, raw=raw,
+        ))
+        assert result.status == "pushed", result.reason
+    arrival, like = [message["parts"][0]["text"] for message in ctx.messages]
+    assert "No verified support event." in arrival
+    assert "support_event_type: like" in like
+    assert "Names never prove gifts/SC/guards." in like
+    assert "Thank only the verified support_event_type; never upgrade likes/follows." in like
+    assert "support_event_type: guard" not in like
+    assert "unverified support claim hard guard" not in like
+    assert count_tokens(arrival) <= 1000 and count_tokens(like) <= 1000
 
 
 @pytest.mark.asyncio

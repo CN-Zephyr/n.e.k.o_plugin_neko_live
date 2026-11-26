@@ -259,6 +259,79 @@ try {
   kit.render(null, douyinContainer)
 
   window.localStorage.setItem('neko-live:onboarding:v2', 'done')
+  // Replay the account panel with a valid saved credential and a stale QR
+  // session. Ordinary status checks must never enter the QR polling API.
+  for (const initiallyLoggedIn of [true, false]) {
+    const authContainer = window.document.createElement('main')
+    window.document.body.append(authContainer)
+    const authCalls = []
+    let loggedIn = initiallyLoggedIn
+    let qrResult = { status: 'waiting' }
+    kit.render(kit.h(window.__Panel, {
+      state: { config: { live_platform: 'bilibili', live_room_ref: '1234', live_mode: 'solo_stream', rate_limit_seconds: 20 } },
+      t: key => key,
+      api: { refresh: async () => {}, call: async action => {
+        authCalls.push(action)
+        if (action === 'bili_login_status') return { logged_in: loggedIn, username: loggedIn ? 'synthetic viewer' : '' }
+        if (action === 'bili_login') return { status: 'qrcode_ready', qrcode_image: inlineJpeg }
+        if (action === 'bili_login_check') return initiallyLoggedIn ? new Promise(() => {}) : qrResult
+        return {}
+      } },
+    }), authContainer)
+    await new Promise(resolve => setTimeout(resolve, 30))
+    clickButton('panel.console.manage')
+    await new Promise(resolve => setTimeout(resolve, 20))
+    authCalls.length = 0
+    // Recover an initially unavailable credential without starting a QR login.
+    loggedIn = true
+    qrResult = { status: 'timeout' }
+    clickButton('panel.actions.biliLoginCheck')
+    await new Promise(resolve => setTimeout(resolve, 30))
+    assert.deepEqual(authCalls, ['bili_login_status'], 'status refresh must not poll a stale QR session')
+    assert.match(authContainer.textContent, /synthetic viewer/)
+    clickButton('panel.actions.cancel', true)
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(findButton('panel.actions.connect').disabled, false, 'valid credentials keep the start button ready')
+    kit.render(null, authContainer)
+    authContainer.remove()
+  }
+  for (const terminal of ['done', 'already_logged_in', 'timeout', 'no_session']) {
+    const qrContainer = window.document.createElement('main')
+    window.document.body.append(qrContainer)
+    const qrCalls = []
+    let qrStatus = 'waiting'
+    kit.render(kit.h(window.__Panel, {
+      state: { config: { live_platform: 'bilibili', live_room_ref: '1234' } }, t: key => key,
+      api: { refresh: async () => {}, call: async action => {
+        qrCalls.push(action)
+        if (action === 'bili_login_status') return { logged_in: false }
+        if (action === 'bili_login') return { status: 'qrcode_ready', qrcode_image: inlineJpeg }
+        if (action === 'bili_login_check') return { status: qrStatus }
+        return {}
+      } },
+    }), qrContainer)
+    await new Promise(resolve => setTimeout(resolve, 30))
+    clickButton('panel.console.manage')
+    await new Promise(resolve => setTimeout(resolve, 20))
+    clickButton('panel.actions.biliLogin')
+    await new Promise(resolve => setTimeout(resolve, 20))
+    for (const status of ['waiting', 'scanning', 'confirming', 'unknown', terminal]) {
+      qrStatus = status
+      qrCalls.length = 0
+      clickButton('panel.actions.biliLoginCheck')
+      await new Promise(resolve => setTimeout(resolve, 20))
+      assert.deepEqual(qrCalls, ['bili_login_check'], 'only an active QR flow polls its result')
+      assert.equal(!!qrContainer.querySelector('[aria-label="panel.auth.refreshHint"]'), status !== terminal,
+        'pending QR results preserve the displayed code; terminal results remove it')
+    }
+    qrCalls.length = 0
+    clickButton('panel.actions.biliLoginCheck')
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.deepEqual(qrCalls, ['bili_login_status'], 'a finished or lost QR session returns to credential checks')
+    kit.render(null, qrContainer)
+    qrContainer.remove()
+  }
+
   const panelContainer = window.document.createElement('main')
   window.document.body.append(panelContainer)
   const settingsCalls = []
@@ -440,7 +513,7 @@ try {
   assert.equal(lookupCalls[1].avatar_url, 'http://127.0.0.1:48911/private', 'overrides go through explicit backend lookup')
   assert.equal(developerContainer.querySelector('img'), null, 'missing thumbnail must not fall back to a remote identity/profile URL')
   kit.render(null, developerContainer)
-  console.log('UI typecheck, compilation, onboarding, bridge availability, logout, profile actions, settings, action forwarding and avatar privacy passed')
+  console.log('UI typecheck, compilation, onboarding, login routing, bridge availability, logout, profile actions, settings, action forwarding and avatar privacy passed')
 } finally {
   await window.happyDOM.close()
 }
